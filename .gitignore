@@ -1,10 +1,15 @@
 .env
+.env.*
+.python-version
 .venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.so
 .DS_Store
 .vscode/
+.codex
 *.egg-info/
 dist/
 build/
@@ -15,3 +20,36 @@ genai_venv/
 venv/
 .idea/
 reset.py
+
+# Node / frontend artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Python virtualenv + caches
+backend/venv/
+backend/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Local runtime/state artifacts
+*.sqlite
+*.sqlite3
+*.pid
+*.out
+tmp/
+
+# LLM / ML local artifacts (avoid heavy commits)
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+hf_models/
+checkpoints/
+
+# OS/editor
+Thumbs.db

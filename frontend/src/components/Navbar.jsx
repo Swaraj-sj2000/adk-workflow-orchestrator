@@ -14,7 +14,10 @@ export default function Navbar({ user, onLogout, setPage }) {
         <button onClick={() => setPage('projects')} className="nav-btn">Projects</button>
         <button onClick={() => setPage('employees')} className="nav-btn">Employees</button>
         {user?.role === 'admin' && (
-          <button onClick={() => setPage('decisions')} className="nav-btn">Decisions</button>
+          <>
+            <button onClick={() => setPage('decisions')} className="nav-btn">Decisions</button>
+            <button onClick={() => setPage('autopm')} className="nav-btn">AutoPM</button>
+          </>
         )}
       </div>
       <div className="nav-right">

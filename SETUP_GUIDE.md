@@ -47,6 +47,17 @@ npm run dev
 
 Frontend will be available at: `http://localhost:3000`
 
+### 3. Optional LLM Setup (LangChain + HuggingFace)
+
+To enable LLM-powered project parsing and client updates:
+
+```bash
+export HUGGINGFACEHUB_API_TOKEN="your_hf_token"
+export HF_MODEL_ID="mistralai/Mistral-7B-Instruct-v0.3"
+```
+
+If token is not set, the system still works using deterministic fallback planning.
+
 ---
 
 ## First Steps After Starting
@@ -96,6 +107,15 @@ alembic upgrade head
 - See confidence scores for each decision
 - Override decisions with explanations
 - Analytics on decision patterns
+
+### Autonomous PM Orchestration (`/autopm/*`)
+- Intake free-form project request and auto-generate tasks
+- Auto-assign team members
+- Accept / deny / negotiate assignment flow
+- Simulate project execution and blockers
+- Generate daily digest for admin
+- Generate client update drafts
+- Close project with automated performance scoring
 
 ### Employee Management
 - Full employee profiles

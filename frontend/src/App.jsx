@@ -6,6 +6,7 @@ import Projects from './components/Projects';
 import EmployeeView from './components/EmployeeView';
 import TaskDetail from './components/TaskDetail';
 import Decisions from './components/Decisions';
+import AutoPMConsole from './components/AutoPMConsole';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -36,6 +37,7 @@ export default function App() {
         {currentPage === 'employees' && <EmployeeView role={currentUser.role} />}
         {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} />}
         {currentPage === 'decisions' && <Decisions />}
+        {currentPage === 'autopm' && currentUser.role === 'admin' && <AutoPMConsole />}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.schemas._task import TaskCreate, TaskRead, TaskUpdateStatus
 from app.services._task_service import create_task, assign_agent, update_status, get_tasks
 from app.core._deps import get_db, get_current_user
+from app.models._task import Task
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -15,6 +16,13 @@ def route_create_task(task: TaskCreate, db: Session = Depends(get_db), current_u
 @router.get("/", response_model=list[TaskRead])
 def route_get_tasks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     return get_tasks(db)
+
+@router.get("/{task_id}", response_model=TaskRead)
+def route_get_task(task_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 @router.patch("/{task_id}/status", response_model=TaskRead)
 def route_update_status(task_id: int, status_update: TaskUpdateStatus, db: Session = Depends(get_db), current_user=Depends(get_current_user)):

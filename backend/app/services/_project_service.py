@@ -2,14 +2,28 @@
 
 from sqlalchemy.orm import Session
 from app.models._project import Project
+from typing import Optional
+from datetime import datetime
 
 
-def create_project(db: Session, name: str, description: str, budget: int, owner_id: int):
+def create_project(
+    db: Session,
+    name: str,
+    description: Optional[str],
+    budget: float,
+    admin_id: int,
+    client_id: Optional[int] = None,
+    priority: str = "medium",
+    deadline: Optional[datetime] = None,
+):
     project = Project(
         name=name,
         description=description,
         budget=budget,
-        owner_id=owner_id
+        admin_id=admin_id,
+        client_id=client_id,
+        priority=priority,
+        deadline=deadline,
     )
     db.add(project)
     db.commit()

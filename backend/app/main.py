@@ -14,6 +14,9 @@ from app.api.routes import _decision as _decision_routes
 from app.api.routes import _blocker as _blocker_routes
 from app.api.routes import _meeting as _meeting_routes
 from app.api.routes import _employee as _employee_routes
+from app.api.routes import _autopm as _autopm_routes
+from app.api.routes import _task_assignment as _task_assignment_routes
+from app.api.routes import _task_progress as _task_progress_routes
 
 # Models — must be imported so Base.metadata knows about all tables
 from app.models import (
@@ -22,7 +25,9 @@ from app.models import (
     _task_dependency, _task_assignment,
     _decision_log, _blocker,
     _task_progress, _availability,
-    _event_queue, _meeting, _client_profile
+    _event_queue, _meeting, _client_profile,
+    _checkpoint, _communication,
+    _performance_point, _audit_log
 )
 
 # Create all tables on startup
@@ -49,6 +54,9 @@ app.include_router(_decision_routes.router)
 app.include_router(_blocker_routes.router)
 app.include_router(_meeting_routes.router)
 app.include_router(_employee_routes.router)
+app.include_router(_autopm_routes.router)
+app.include_router(_task_assignment_routes.router)
+app.include_router(_task_progress_routes.router)
 
 
 @app.get("/")

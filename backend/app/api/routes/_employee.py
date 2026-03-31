@@ -32,11 +32,12 @@ def route_create_employee_profile(
     
     new_profile = EmployeeProfile(**profile.dict())
     db.add(new_profile)
+    db.flush()
     
     # Create associated metrics
     metrics = EmployeeMetrics(employee_id=new_profile.id)
     db.add(metrics)
-    
+
     db.commit()
     db.refresh(new_profile)
     
