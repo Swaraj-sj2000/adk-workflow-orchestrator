@@ -5,6 +5,19 @@ from app.models._user import User
 from app.core._security import hash_password, verify_password, create_access_token
 
 
+from jose import jwt
+
+SECRET_KEY = "secret"
+ALGORITHM = "HS256"
+
+
+def create_token(user):
+    return jwt.encode(
+        {"user_id": user.id},
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
 def register_user(db: Session, email: str, password: str, role: str):
     user = User(email=email, password=hash_password(password), role=role)
     db.add(user)
