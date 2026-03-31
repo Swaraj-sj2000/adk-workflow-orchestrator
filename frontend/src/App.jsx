@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
+import Projects from './components/Projects';
 import EmployeeView from './components/EmployeeView';
 import TaskDetail from './components/TaskDetail';
 import Decisions from './components/Decisions';
@@ -31,6 +32,7 @@ export default function App() {
       <Navbar user={currentUser} onLogout={handleLogout} setPage={setCurrentPage} />
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
+        {currentPage === 'projects' && <Projects role={currentUser.role} />}
         {currentPage === 'employees' && <EmployeeView role={currentUser.role} />}
         {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} />}
         {currentPage === 'decisions' && <Decisions />}
