@@ -14,7 +14,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 @router.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
-    return register_user(db, user.email, user.password, user.role)
+    return register_user(db, user.email, user.password, user.full_name, user.role)
 
 
 @router.post("/login")

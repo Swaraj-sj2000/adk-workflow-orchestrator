@@ -37,5 +37,5 @@ class Task(Base):
     
     # Relationships
     project = relationship("Project", back_populates="tasks")
-    agent = relationship("Agent", backref="tasks")
+    agent = relationship("Agent", back_populates="tasks")
     assignments = relationship("TaskAssignment", back_populates="task")
