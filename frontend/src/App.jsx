@@ -53,11 +53,12 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch('http://localhost:8000/login', {
+      const res = await fetch('http://localhost:8000/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
+      if (!res.ok) throw new Error('Login failed');
       const data = await res.json();
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
@@ -73,7 +74,7 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch('http://localhost:8000/register', {
+      const res = await fetch('http://localhost:8000/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, role })

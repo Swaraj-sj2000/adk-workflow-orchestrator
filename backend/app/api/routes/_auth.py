@@ -19,10 +19,11 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(user: UserLogin, db: Session = Depends(get_db)):
-    token = login_user(db, user.email, user.password)
-    if not token:
+    result = login_user(db, user.email, user.password)
+    if not result:
         raise HTTPException(status_code=400, detail="Invalid credentials")
-    return {"access_token": token}
+    token, user_data = result
+    return {"access_token": token, "user": user_data}
 
 @router.get("/test-jwt")
 def test_jwt(token: str = Depends(oauth2_scheme)):
