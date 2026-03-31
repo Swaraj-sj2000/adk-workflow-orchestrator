@@ -5,8 +5,11 @@ from sqlalchemy.orm import Session
 from app.db._database import get_db
 from app.schemas._user import UserCreate, UserLogin
 from app.services._auth_service import register_user, login_user
+from fastapi.security import OAuth2PasswordBearer
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["Auth"])\
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 @router.post("/register")
@@ -20,3 +23,7 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=400, detail="Invalid credentials")
     return {"access_token": token}
+
+@router.get("/test-jwt")
+def test_jwt(token: str = Depends(oauth2_scheme)):
+    return {"msg": "JWT works!", "token": token}

@@ -11,3 +11,7 @@ build/
 *.log
 *.db
 trial.py
+genai_venv/
+venv/
+.idea/
+reset.py
