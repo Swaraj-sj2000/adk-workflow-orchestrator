@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 export default function Decisions() {
   const [dashboard, setDashboard] = useState(null);
@@ -11,25 +11,15 @@ export default function Decisions() {
     fetchData();
   }, []);
 
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
-
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [agenticRes, statsRes] = await Promise.all([
-        fetch(apiUrl('/system/agentic-dashboard'), { headers }),
-        fetch(apiUrl('/decisions/statistics'), { headers }),
+      const [agenticData, statsData] = await Promise.all([
+        apiFetchJson('/system/agentic-dashboard', { auth: true }),
+        apiFetchJson('/decisions/statistics', { auth: true }),
       ]);
-
-      if (agenticRes.ok) {
-        setDashboard(await agenticRes.json());
-      }
-
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        setStats(data.statistics);
-      }
+      setDashboard(agenticData);
+      setStats(statsData.statistics);
     } catch (error) {
       console.error(error);
     }
@@ -38,19 +28,14 @@ export default function Decisions() {
 
   const actOnApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
+      await apiFetchJson(`/projects/${projectId}/team-approval`, {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           approved,
           note: approved ? 'Approved from agentic dashboard.' : 'Rejected from agentic dashboard.',
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not process approval');
       setMessage(approved ? 'Admin approval confirmed. Team invites are now waiting for employee responses.' : 'Plan rejected and admin review triggered.');
       fetchData();
     } catch (error) {

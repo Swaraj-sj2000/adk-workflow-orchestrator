@@ -1,15 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import './Projects.css';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 export default function Projects({ role }) {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
-
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
     fetchProjects();
@@ -18,10 +15,8 @@ export default function Projects({ role }) {
   const fetchProjects = async () => {
     setLoading(true);
     try {
-      const res = await fetch(apiUrl('/projects/'), { headers });
-      if (res.ok) {
-        setProjects(await res.json());
-      }
+      const data = await apiFetchJson('/projects/', { auth: true });
+      setProjects(data);
     } catch (error) {
       console.error(error);
     }
@@ -30,10 +25,8 @@ export default function Projects({ role }) {
 
   const openProject = async (projectId) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/status`), { headers });
-      if (res.ok) {
-        setSelectedProject(await res.json());
-      }
+      const data = await apiFetchJson(`/projects/${projectId}/status`, { auth: true });
+      setSelectedProject(data);
     } catch (error) {
       console.error(error);
     }
@@ -41,19 +34,14 @@ export default function Projects({ role }) {
 
   const updateApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
+      const data = await apiFetchJson(`/projects/${projectId}/team-approval`, {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           approved,
           note: approved ? 'Approved from project center.' : 'Rejected from project center.',
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not update team approval');
       setSelectedProject(data);
       setMessage(approved ? 'Project team plan approved.' : 'Project sent back for admin review.');
       fetchProjects();

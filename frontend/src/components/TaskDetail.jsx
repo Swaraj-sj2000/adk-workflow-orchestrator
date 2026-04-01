@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 export default function TaskDetail({ taskId }) {
   const [task, setTask] = useState(null);
@@ -13,17 +13,21 @@ export default function TaskDetail({ taskId }) {
 
   const fetchTaskData = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { 'Authorization': `Bearer ${token}` };
+      const [taskResult, assignmentResult, progressResult] = await Promise.allSettled([
+        apiFetchJson(`/tasks/${taskId}`, { auth: true }),
+        apiFetchJson(`/task-assignments?task_id=${taskId}`, { auth: true }),
+        apiFetchJson(`/task-progress?task_id=${taskId}`, { auth: true }),
+      ]);
 
-      const tRes = await fetch(apiUrl(`/tasks/${taskId}`), { headers });
-      if (tRes.ok) setTask(await tRes.json());
-
-      const aRes = await fetch(apiUrl(`/task-assignments?task_id=${taskId}`), { headers });
-      if (aRes.ok) setAssignments(await aRes.json());
-
-      const pRes = await fetch(apiUrl(`/task-progress?task_id=${taskId}`), { headers });
-      if (pRes.ok) setProgress(await pRes.json());
+      if (taskResult.status === 'fulfilled') {
+        setTask(taskResult.value);
+      }
+      if (assignmentResult.status === 'fulfilled') {
+        setAssignments(assignmentResult.value);
+      }
+      if (progressResult.status === 'fulfilled') {
+        setProgress(progressResult.value);
+      }
     } catch (err) {
       console.error('Error:', err);
     }

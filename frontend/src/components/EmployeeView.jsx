@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 export default function EmployeeView({ role }) {
   const [data, setData] = useState(null);
@@ -13,25 +13,19 @@ export default function EmployeeView({ role }) {
     fetchData();
   }, [role]);
 
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
-
   const fetchData = async () => {
     setLoading(true);
     try {
-      const endpoint = role === 'admin' ? apiUrl('/system/team-dashboard') : apiUrl('/employees/my-work');
-      const res = await fetch(endpoint, { headers });
-      if (res.ok) {
-        const nextData = await res.json();
-        setData(nextData);
-        if (role === 'admin' && selectedMember) {
-          const refreshedMember = (nextData.members || []).find((member) => member.employee_id === selectedMember.employee_id);
-          setSelectedMember(refreshedMember || null);
-        }
-        if (role !== 'admin' && selectedTask) {
-          const refreshedTask = (nextData.tasks || []).find((task) => task.assignment_id === selectedTask.assignment_id);
-          setSelectedTask(refreshedTask || null);
-        }
+      const endpoint = role === 'admin' ? '/system/team-dashboard' : '/employees/my-work';
+      const nextData = await apiFetchJson(endpoint, { auth: true });
+      setData(nextData);
+      if (role === 'admin' && selectedMember) {
+        const refreshedMember = (nextData.members || []).find((member) => member.employee_id === selectedMember.employee_id);
+        setSelectedMember(refreshedMember || null);
+      }
+      if (role !== 'admin' && selectedTask) {
+        const refreshedTask = (nextData.tasks || []).find((task) => task.assignment_id === selectedTask.assignment_id);
+        setSelectedTask(refreshedTask || null);
       }
     } catch (error) {
       console.error(error);
@@ -41,17 +35,12 @@ export default function EmployeeView({ role }) {
 
   const toggleCheckpoint = async (checkpointId, completed) => {
     try {
-      const res = await fetch(apiUrl(`/employees/checkpoints/${checkpointId}`), {
+      await apiFetchJson(`/employees/checkpoints/${checkpointId}`, {
         method: 'PATCH',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ completed }),
+        auth: true,
+        body: { completed },
       });
-      if (res.ok) {
-        await fetchData();
-      }
+      await fetchData();
     } catch (error) {
       console.error(error);
     }
@@ -62,23 +51,18 @@ export default function EmployeeView({ role }) {
     if (!selectedTask) return;
 
     try {
-      const res = await fetch(apiUrl('/blockers/'), {
+      await apiFetchJson('/blockers/', {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           task_id: selectedTask.task_id,
           blocker_type: concernForm.blocker_type,
           severity: concernForm.severity,
           description: concernForm.description,
-        }),
+        },
       });
-      if (res.ok) {
-        setConcernForm({ blocker_type: 'ambiguity', severity: 'medium', description: '' });
-        await fetchData();
-      }
+      setConcernForm({ blocker_type: 'ambiguity', severity: 'medium', description: '' });
+      await fetchData();
     } catch (error) {
       console.error(error);
     }
@@ -86,21 +70,16 @@ export default function EmployeeView({ role }) {
 
   const respondToInvite = async (projectId, accepted) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/invite-response`), {
+      await apiFetchJson(`/projects/${projectId}/invite-response`, {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           accepted,
           note: inviteNotes[projectId] || '',
-        }),
+        },
       });
-      if (res.ok) {
-        setInviteNotes((current) => ({ ...current, [projectId]: '' }));
-        await fetchData();
-      }
+      setInviteNotes((current) => ({ ...current, [projectId]: '' }));
+      await fetchData();
     } catch (error) {
       console.error(error);
     }
