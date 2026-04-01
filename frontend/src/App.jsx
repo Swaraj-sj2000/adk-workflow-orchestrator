@@ -7,6 +7,7 @@ import EmployeeView from './components/EmployeeView';
 import TaskDetail from './components/TaskDetail';
 import Decisions from './components/Decisions';
 import AutoPMConsole from './components/AutoPMConsole';
+import MultiAgentWorkbench from './components/MultiAgentWorkbench';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -38,6 +39,7 @@ export default function App() {
         {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} />}
         {currentPage === 'decisions' && <Decisions />}
         {currentPage === 'autopm' && currentUser.role === 'admin' && <AutoPMConsole />}
+        {currentPage === 'multi-agent' && currentUser.role === 'admin' && <MultiAgentWorkbench />}
       </div>
     </div>
   );
@@ -47,6 +49,7 @@ function LoginPage({ setCurrentUser }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('employee');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -134,12 +137,12 @@ function LoginPage({ setCurrentUser }) {
               onChange={(e) => setEmail(e.target.value)}
               required
             />
-            <input
-              type="password"
-              placeholder="Password"
+            <PasswordField
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
+              showPassword={showPassword}
+              onToggleVisibility={() => setShowPassword((current) => !current)}
+              placeholder="Password"
             />
             <button type="submit" disabled={loading}>
               {loading ? 'Logging in...' : 'Login'}
@@ -161,12 +164,12 @@ function LoginPage({ setCurrentUser }) {
               onChange={(e) => setEmail(e.target.value)}
               required
             />
-            <input
-              type="password"
-              placeholder="Password"
+            <PasswordField
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
+              showPassword={showPassword}
+              onToggleVisibility={() => setShowPassword((current) => !current)}
+              placeholder="Password"
             />
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="employee">Employee</option>
@@ -179,6 +182,27 @@ function LoginPage({ setCurrentUser }) {
           </form>
         )}
       </div>
+    </div>
+  );
+}
+
+function PasswordField({ value, onChange, showPassword, onToggleVisibility, placeholder }) {
+  return (
+    <div className="password-field">
+      <input
+        type={showPassword ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        required
+      />
+      <button
+        type="button"
+        className="password-toggle"
+        onClick={onToggleVisibility}
+      >
+        {showPassword ? 'Hide' : 'Peek'}
+      </button>
     </div>
   );
 }

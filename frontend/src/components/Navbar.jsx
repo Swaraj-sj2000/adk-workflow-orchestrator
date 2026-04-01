@@ -2,6 +2,8 @@ import React from 'react';
 import './Navbar.css';
 
 export default function Navbar({ user, onLogout, setPage }) {
+  const role = user?.role;
+
   return (
     <nav className="navbar">
       <div className="nav-left">
@@ -10,13 +12,27 @@ export default function Navbar({ user, onLogout, setPage }) {
         </h1>
       </div>
       <div className="nav-center">
-        <button onClick={() => setPage('dashboard')} className="nav-btn">Dashboard</button>
-        <button onClick={() => setPage('projects')} className="nav-btn">Projects</button>
-        <button onClick={() => setPage('employees')} className="nav-btn">Employees</button>
-        {user?.role === 'admin' && (
+        {role === 'admin' && (
           <>
-            <button onClick={() => setPage('decisions')} className="nav-btn">Decisions</button>
+            <button onClick={() => setPage('dashboard')} className="nav-btn">Admin Dashboard</button>
+            <button onClick={() => setPage('projects')} className="nav-btn">Projects</button>
+            <button onClick={() => setPage('employees')} className="nav-btn">Team Dashboard</button>
+            <button onClick={() => setPage('decisions')} className="nav-btn">Agentic Dashboard</button>
             <button onClick={() => setPage('autopm')} className="nav-btn">AutoPM</button>
+            <button onClick={() => setPage('multi-agent')} className="nav-btn">Multi-Agent</button>
+          </>
+        )}
+        {role === 'employee' && (
+          <>
+            <button onClick={() => setPage('dashboard')} className="nav-btn">My Dashboard</button>
+            <button onClick={() => setPage('projects')} className="nav-btn">My Projects</button>
+            <button onClick={() => setPage('employees')} className="nav-btn">My Work</button>
+          </>
+        )}
+        {role === 'client' && (
+          <>
+            <button onClick={() => setPage('dashboard')} className="nav-btn">Client Dashboard</button>
+            <button onClick={() => setPage('projects')} className="nav-btn">Project Status</button>
           </>
         )}
       </div>

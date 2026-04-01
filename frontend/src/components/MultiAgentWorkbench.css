@@ -1,0 +1,107 @@
+.multi-agent-workbench {
+  align-items: start;
+}
+
+.multi-agent-form {
+  display: grid;
+  gap: 12px;
+}
+
+.multi-agent-form textarea,
+.multi-agent-form input,
+.multi-agent-form select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d6d6d6;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.multi-agent-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.multi-agent-loop-box {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+  display: grid;
+  gap: 12px;
+}
+
+.multi-agent-loop-box h3 {
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.multi-agent-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #475569;
+}
+
+.multi-agent-checkbox input {
+  width: auto;
+}
+
+.multi-agent-detail {
+  display: grid;
+  gap: 20px;
+}
+
+.multi-agent-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 15px;
+}
+
+.multi-agent-panels {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 20px;
+}
+
+.multi-agent-actions {
+  list-style: none;
+  margin-top: 10px;
+  padding: 0;
+}
+
+.multi-agent-actions li {
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.workflow-pre {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #dbeafe;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+details summary {
+  cursor: pointer;
+  color: #0f172a;
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+@media (max-width: 960px) {
+  .multi-agent-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .multi-agent-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
