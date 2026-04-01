@@ -8,7 +8,6 @@ import Projects from './components/Projects';
 import EmployeeView from './components/EmployeeView';
 import TaskDetail from './components/TaskDetail';
 import Decisions from './components/Decisions';
-import AutoPMConsole from './components/AutoPMConsole';
 import MultiAgentWorkbench from './components/MultiAgentWorkbench';
 
 export default function App() {
@@ -51,7 +50,6 @@ function AppShell() {
         {currentPage === 'employees' && <EmployeeView role={currentUser.role} />}
         {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} />}
         {currentPage === 'decisions' && <Decisions />}
-        {currentPage === 'autopm' && currentUser.role === 'admin' && <AutoPMConsole />}
         {currentPage === 'multi-agent' && currentUser.role === 'admin' && <MultiAgentWorkbench />}
       </div>
     </div>

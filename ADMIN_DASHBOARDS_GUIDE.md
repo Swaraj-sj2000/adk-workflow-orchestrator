@@ -8,8 +8,7 @@
 
 | Dashboard | Purpose | When to Use | Main Action |
 |-----------|---------|------------|-------------|
-| **Agent Dashboard** | Monitor agent decisions & health | Daily monitoring | Approve/reject low-confidence decisions |
-| **AutoPM Console** | ⚠️ Legacy - redirects to Multi-Agent | (Deprecated) | N/A - will be removed |
+| **Agent Dashboard (Decisions)** | Monitor agent decisions & health | Daily monitoring | Approve/reject low-confidence decisions |
 | **Multi-Agent Workbench** | Run end-to-end workflows manually | Test & debug workflows | Execute full project planning cycle |
 
 ---
@@ -83,26 +82,7 @@ Your Action:
 
 ---
 
-### 2️⃣ **AutoPM Console** (Legacy - Deprecated)
-
-**Purpose**: N/A - Deprecated system
-
-**Status**: ⚠️ **This panel is being phased out**
-
-**What It Says**:
-> "The original AutoPM flow was built around a single service-driven simulation path and is no longer the recommended control surface. This page now routes you into the new multi-agent workflow."
-
-**Why It Exists**:
-- Old system had a different orchestration model
-- Now there's ONE unified multi-agent system
-- AutoPM redirects to Multi-Agent Workbench
-- Will be removed in v2.1
-
-**What To Do**: **Ignore this panel** - Use **Multi-Agent Workbench** instead
-
----
-
-### 3️⃣ **Multi-Agent Workbench** (Power User - Advanced)
+### 2️⃣ **Multi-Agent Workbench** (Power User - Advanced)
 
 **Purpose**: Execute full agent workflows manually, test the system, debug workflows
 
