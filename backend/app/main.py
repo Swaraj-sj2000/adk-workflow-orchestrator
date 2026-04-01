@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db._database import Base, engine
+from app.core._tenant_middleware import TenantMiddleware
 
 # Routes
 from app.api.routes import _auth
@@ -29,7 +30,9 @@ from app.models import (
     _event_queue, _meeting, _client_profile,
     _checkpoint, _communication,
     _performance_point, _audit_log,
-    _workflow_run, _agent_run
+    _workflow_run, _agent_run,
+    # Multi-tenant models
+    _organization, _auth_user, _employee_invite
 )
 
 # Create all tables on startup
@@ -45,6 +48,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add tenant middleware for multi-tenant request handling
+app.add_middleware(TenantMiddleware)
 
 # Routers
 app.include_router(_auth.router)
