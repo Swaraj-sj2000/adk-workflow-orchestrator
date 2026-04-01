@@ -14,7 +14,7 @@ class WorkflowRun(Base):
     id = Column(Integer, primary_key=True, index=True)
     workflow_type = Column(String, nullable=False, index=True)
     status = Column(String, nullable=False, default="running")
-    requested_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    requested_by = Column(String, nullable=False)  # Can be int (User.id) or UUID (AuthUser.id)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     requires_human_review = Column(Boolean, nullable=False, default=False)
     input_payload = Column(JSON, nullable=False, default={})

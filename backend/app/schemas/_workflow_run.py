@@ -1,7 +1,7 @@
 # app/schemas/_workflow_run.py
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,7 +41,7 @@ class WorkflowRunRead(BaseModel):
     id: int
     workflow_type: str
     status: str
-    requested_by: int
+    requested_by: Union[int, str]  # Can be User.id (int) or AuthUser.id (UUID string)
     project_id: Optional[int]
     requires_human_review: bool
     input_payload: Dict[str, Any]
