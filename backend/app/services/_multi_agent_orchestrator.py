@@ -51,6 +51,7 @@ class MultiAgentOrchestrator:
         priority: str = "medium",
         deadline: Optional[datetime] = None,
         persist_project: bool = False,
+        organization_id: str = "seed",
     ) -> WorkflowRun:
         workflow = WorkflowRun(
             workflow_type="project_intake",
@@ -91,6 +92,7 @@ class MultiAgentOrchestrator:
                 budget=budget,
                 priority=priority,
                 deadline=deadline,
+                organization_id=organization_id,
             )
             workflow.project_id = project.id
             shared_context["project_id"] = project.id
@@ -400,11 +402,13 @@ class MultiAgentOrchestrator:
         budget: float,
         priority: str,
         deadline: Optional[datetime],
+        organization_id: str = "seed",
     ) -> tuple[Project, Dict[int, int]]:
         project = Project(
             name=execution_plan["project_title"],
             description=execution_plan["project_summary"],
             admin_id=requested_by,
+            organization_id=organization_id,
             budget=budget,
             priority=priority,
             deadline=deadline,

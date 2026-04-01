@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core._deps import get_current_user, get_db
+from app.core._tenant_context import TenantContext
 from app.models._user import User
+from app.models._auth_user import AuthUser
 from app.schemas._workflow_run import MultiAgentIntakeRequest, MultiAgentLoopRequest, WorkflowRunRead
 from app.services._multi_agent_orchestrator import MultiAgentOrchestrator
 
@@ -20,6 +22,16 @@ def run_intake_workflow(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can run multi-agent workflows")
 
+    # Get organization ID from current user (if AuthUser) or tenant context
+    org_id = None
+    if isinstance(current_user, AuthUser):
+        org_id = current_user.organization_id
+    else:
+        org_id = TenantContext.get_org_id()
+    
+    if not org_id:
+        org_id = "seed"  # Fallback to seed organization
+
     orchestrator = MultiAgentOrchestrator(db)
     return orchestrator.run_intake_workflow(
         request_text=payload.request_text,
@@ -28,6 +40,7 @@ def run_intake_workflow(
         priority=payload.priority,
         deadline=payload.deadline,
         persist_project=payload.persist_project,
+        organization_id=org_id,
     )
 
 
