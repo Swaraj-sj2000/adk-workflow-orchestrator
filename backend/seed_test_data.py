@@ -31,6 +31,7 @@ from app.models import (
     _decision_log,
     _employee_metrics,
     _employee_profile,
+    _auth_user,
     _event_queue,
     _meeting,
     _performance_point,
@@ -40,11 +41,15 @@ from app.models import (
     _task_dependency,
     _task_progress,
     _user,
+    _organization,
     _workflow_run,
 )
 from app.models._employee_metrics import EmployeeMetrics
 from app.models._employee_profile import EmployeeProfile
 from app.models._user import User
+from app.models._organization import Organization
+from app.models._auth_user import AuthUser
+import uuid
 
 
 TEAM = [
@@ -155,10 +160,37 @@ def create_user(db, email: str, password: str, full_name: str, role: str):
 
 
 def seed_team(db):
+    # Create a default seed organization for test data
+    org = Organization(
+        name="Seed Organization",
+        slug="seed",
+        subscription_tier="free",
+        max_employees=100,
+    )
+    db.add(org)
+    db.flush()
+
+    # Create admin in old User table (for backward compatibility)
     admin = create_user(db, **TEAM[0])
+    
+    # Create admin AuthUser in new multi-tenant system
+    admin_auth = AuthUser(
+        id=str(uuid.uuid4()),
+        organization_id=org.id,
+        email=TEAM[0]["email"],
+        password_hash=hash_password(TEAM[0]["password"]),
+        full_name=TEAM[0]["full_name"],
+        role="admin",
+        is_active=True,
+        is_verified=True,
+    )
+    db.add(admin_auth)
+    db.flush()
+    
     employees = []
 
     for member in TEAM[1:]:
+        # Create user in old User table (for backward compatibility)
         user = create_user(
             db,
             email=member["email"],
@@ -166,8 +198,25 @@ def seed_team(db):
             full_name=member["full_name"],
             role="employee",
         )
+        
+        # Create AuthUser in new multi-tenant system
+        auth_user = AuthUser(
+            id=str(uuid.uuid4()),
+            organization_id=org.id,
+            email=member["email"],
+            password_hash=hash_password(member["password"]),
+            full_name=member["full_name"],
+            role="employee",
+            is_active=True,
+            is_verified=True,
+        )
+        db.add(auth_user)
+        db.flush()
+        
         profile = EmployeeProfile(
+            organization_id=org.id,
             user_id=user.id,
+            auth_user_id=auth_user.id,
             skills=member["skills"],
             max_capacity=8.0,
             current_load=0.0,

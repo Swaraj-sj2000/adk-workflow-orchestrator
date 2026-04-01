@@ -37,7 +37,7 @@ class AuthUser(Base):
     
     # Relationships
     organization = relationship("Organization")
-    # Note: employee_profile relationship is defined in EmployeeProfile model
+    employee_profile = relationship("EmployeeProfile", back_populates="auth_user", uselist=False)
     
     __table_args__ = (
         # Unique email per organization (allow same email across orgs)

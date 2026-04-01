@@ -2,7 +2,6 @@
 
 > An autonomous project operations platform that shifts project management decisions from humans to intelligent agents, enabling a single admin to orchestrate multiple client projects with minimal day-to-day coordination overhead.
 
-**Created by**: [Swaraj](https://github.com) — AI Workforce Orchestrator Architect  
 **Status**: Production-ready | **Version**: 2.0 | **License**: MIT
 
 ---
@@ -21,6 +20,7 @@
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [Author](#author)
 
 ---
 
@@ -664,20 +664,6 @@ npm run test -- --watch
 
 ---
 
-## 📄 License
-
-MIT License - See LICENSE file for details
-
----
-
-## 📞 Support
-
-- **Documentation**: See [SYSTEM_ARCHITECTURE.md](SYSTEM_ARCHITECTURE.md) for technical deep dives
-- **Issues**: GitHub Issues tracker
-- **Questions**: Create a Discussion or check existing Q&A
-
----
-
 ## 🎯 Roadmap
 
 - [ ] Real-time WebSocket updates for live dashboards
@@ -690,4 +676,26 @@ MIT License - See LICENSE file for details
 
 ---
 
-**Made with ❤️ for autonomous project orchestration**
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 👤 Author
+
+**Swaraj**  
+Director & Chief Revenue Officer — Lumin Aerospace Pvt. Ltd.
+
+Swaraj is an aerospace professional and systems builder with a focus on intelligent automation, autonomous workflows, and scalable product architecture. The AI Workforce Orchestrator was designed and developed to solve the real coordination overhead faced by lean teams managing multiple concurrent client projects — shifting decision-making from humans to intelligent agent layers while keeping humans in control of what matters.
+
+| | |
+|---|---|
+| **Email** | [swarajsj8102000@gmail.com](mailto:swarajsj8102000@gmail.com) |
+| **LinkedIn** | [linkedin.com/in/swaraj-swaraj-a6339023b](https://www.linkedin.com/in/swaraj-swaraj-a6339023b) |
+| **Organisation** | Lumin Aerospace Pvt. Ltd. |
+| **Role** | Director / CRO |
+
+---
+
+*Built with intent for autonomous project orchestration. If this project helped you or your team, a star on GitHub goes a long way.*
