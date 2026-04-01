@@ -424,6 +424,7 @@ class MultiAgentOrchestrator:
         sequence_to_task_id = {}
         for task_blueprint in execution_plan.get("tasks", []):
             task = Task(
+                organization_id=organization_id,
                 project_id=project.id,
                 description=task_blueprint["title"],
                 difficulty=task_blueprint["difficulty"],
