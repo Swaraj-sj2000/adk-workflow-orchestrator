@@ -16,6 +16,7 @@ class Task(Base):
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     agent_id = Column(Integer, ForeignKey("agents.id"), nullable=True)
     parent_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)  # for subtasks

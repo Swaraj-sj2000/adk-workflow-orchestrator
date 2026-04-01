@@ -9,6 +9,8 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    
     name = Column(String, index=True, nullable=False)
     description = Column(String)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -34,6 +36,7 @@ class Project(Base):
     custom_fields = Column(JSON, nullable=True)  # custom fields (renamed from metadata)
     
     # Relationships
+    organization = relationship("Organization")
     tasks = relationship("Task", back_populates="project")
     meetings = relationship("Meeting", backref="project")
     client = relationship("ClientProfile", backref="projects")
