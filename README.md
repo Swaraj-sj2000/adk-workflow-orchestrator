@@ -1,39 +1,25 @@
-# AI Workforce Orchestrator (AutoPM Hackathon Build)
+# AI Workforce Orchestrator
 
-Autonomous project operations system designed to reduce or remove day-to-day PM overhead.
+An admin-first autonomous project operations platform designed to reduce the need for day-to-day human project management.
 
-This build supports:
-- Project intake from natural language
-- Task generation and team assignment
-- Employee response loop (accept / deny / negotiate)
-- Execution simulation with blockers
-- Daily digest generation
-- Client update drafting
-- Project closure with performance points
+## What It Does
 
-## Tech Stack
+- Lets one admin manage multiple client projects
+- Creates projects from a clean intake flow
+- Tracks client state, approvals, tasks, payments, and employee involvement
+- Exposes admin, team, and agentic dashboards
+- Uses LangChain + Hugging Face for LLM-assisted planning and communication when configured
+- Falls back to deterministic logic when no Hugging Face token is present
+
+## Stack
 
 - Backend: FastAPI + SQLAlchemy + SQLite
 - Frontend: React + Vite
-- LLM: LangChain + HuggingFace (with deterministic fallback if token is missing)
+- LLM layer: LangChain + Hugging Face
 
-## Project Structure
+## Run It
 
-```text
-backend/
-  app/
-    api/routes/
-    models/
-    services/
-frontend/
-  src/components/
-SETUP_GUIDE.md
-SYSTEM_ARCHITECTURE.md
-```
-
-## Quick Start
-
-### 1) Backend
+### 1. Backend
 
 ```bash
 cd backend
@@ -42,20 +28,30 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Optional LLM setup (recommended for demo):
+Optional but recommended for LLM-powered planning:
 
 ```bash
-export HUGGINGFACEHUB_API_TOKEN="hf_xxx_your_token_here"
+export HUGGINGFACEHUB_API_TOKEN="hf_your_token"
 export HF_MODEL_ID="mistralai/Mistral-7B-Instruct-v0.3"
 ```
 
-Run backend:
+Reset and seed the database:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+python seed_test_data.py
 ```
 
-### 2) Frontend
+Start the API:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+API docs:
+
+`http://localhost:8000/docs`
+
+### 2. Frontend
 
 ```bash
 cd frontend
@@ -63,41 +59,31 @@ npm install
 npm run dev
 ```
 
-Open: `http://localhost:3000`
+Open:
 
-## Login and Demo Flow
+`http://localhost:3000`
 
-1. Register a user with role `admin`
-2. Login
-3. Open `AutoPM` tab
-4. Run this sequence:
-   - `Run Intake`
-   - `Assign Team`
-   - `Submit Response` (accepted/denied/negotiating)
-   - `Run Simulation`
-   - `Generate Daily Digest`
-   - `Client Update`
-   - `Close Project` (after all tasks are done)
+## Seeded Access
 
-## Key AutoPM APIs
+Admin:
 
-- `POST /autopm/intake`
-- `POST /autopm/projects/{project_id}/assign`
-- `POST /autopm/assignments/{assignment_id}/respond`
-- `POST /autopm/projects/{project_id}/simulate`
-- `GET /autopm/digest/daily`
-- `POST /autopm/projects/{project_id}/client-update`
-- `POST /autopm/projects/{project_id}/close`
+- Email: `swaraj@orchestrator.ai`
+- Password: `admin123`
 
-Other useful APIs:
-- `GET /projects/`
-- `GET /tasks/`
-- `GET /task-assignments`
-- `GET /decisions/`
+Team:
 
-## Notes
+- 10 employees are seeded
+- all employees start free with `0%` workload
+- there are no seeded projects, tasks, or clients
 
-- If HuggingFace token is not set, system still works with deterministic fallback logic.
-- Root docs:
-  - `SETUP_GUIDE.md`
-  - `SYSTEM_ARCHITECTURE.md`
+## Starting State
+
+After running `python seed_test_data.py`, the system is intentionally clean:
+
+- 1 admin
+- 10 available employees
+- 0 projects
+- 0 tasks
+- 0 clients
+
+That means you can log in as admin and create the first project yourself from the dashboard.

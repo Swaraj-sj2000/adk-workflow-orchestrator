@@ -1,0 +1,1281 @@
+# path: backend/app/api/routes/_autopm.py
+
+# app/api/routes/_autopm.py
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.core._deps import get_db, get_current_user
+from app.models._user import User
+from app.services._autopm_service import AutoPMService
+
+router = APIRouter(prefix="/autopm", tags=["AutoPM"])
+
+
+class IntakeRequest(BaseModel):
+    request_text: str
+    budget: float = 0.0
+    priority: str = "medium"
+    deadline: Optional[datetime] = None
+
+
+class AssignmentResponseRequest(BaseModel):
+    response: str  # accepted / denied / negotiating
+    negotiation_notes: Optional[str] = None
+
+
+class SimulationRequest(BaseModel):
+    seed: Optional[int] = None
+
+
+@router.post("/intake")
+def intake_project(
+    payload: IntakeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can intake projects")
+
+    service = AutoPMService(db)
+    return service.intake_project(
+        request_text=payload.request_text,
+        admin_user_id=current_user.id,
+        budget=payload.budget,
+        priority=payload.priority,
+        deadline=payload.deadline,
+    )
+
+
+@router.post("/projects/{project_id}/assign")
+def assign_project_tasks(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can assign project tasks")
+
+    service = AutoPMService(db)
+    return service.assign_project_tasks(project_id)
+
+
+@router.post("/assignments/{assignment_id}/respond")
+def respond_to_assignment(
+    assignment_id: int,
+    payload: AssignmentResponseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = AutoPMService(db)
+    try:
+        return service.handle_assignment_response(
+            assignment_id=assignment_id,
+            response=payload.response,
+            negotiation_notes=payload.negotiation_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/projects/{project_id}/simulate")
+def simulate_project(
+    project_id: int,
+    payload: SimulationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can run simulation")
+    service = AutoPMService(db)
+    return service.run_project_simulation(project_id, seed=payload.seed)
+
+
+@router.get("/digest/daily")
+def daily_digest(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view digest")
+    service = AutoPMService(db)
+    return service.generate_daily_digest()
+
+
+@router.post("/projects/{project_id}/client-update")
+def client_update(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can generate client updates")
+    service = AutoPMService(db)
+    try:
+        return service.generate_client_update(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/projects/{project_id}/close")
+def close_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can close project")
+    service = AutoPMService(db)
+    try:
+        return service.close_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# path: backend/app/api/routes/_task_assignment.py
+
+# app/api/routes/_task_assignment.py
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.core._deps import get_db, get_current_user
+from app.models._task_assignment import TaskAssignment
+from app.models._user import User
+from app.schemas._task_assignment import TaskAssignmentRead
+
+router = APIRouter(prefix="/task-assignments", tags=["Task Assignments"])
+
+
+@router.get("", response_model=List[TaskAssignmentRead])
+def list_task_assignments(
+    task_id: Optional[int] = None,
+    employee_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(TaskAssignment)
+    if task_id is not None:
+        query = query.filter(TaskAssignment.task_id == task_id)
+    if employee_id is not None:
+        query = query.filter(TaskAssignment.employee_id == employee_id)
+    return query.order_by(TaskAssignment.assigned_at.desc()).all()
+
+
+# path: backend/app/api/routes/_task_progress.py
+
+# app/api/routes/_task_progress.py
+from typing import Optional
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.core._deps import get_db, get_current_user
+from app.models._user import User
+from app.models._task_progress import TaskProgress
+from app.schemas._task_progress import TaskProgressRead, TaskProgressUpdate
+
+router = APIRouter(prefix="/task-progress", tags=["Task Progress"])
+
+
+@router.get("", response_model=Optional[TaskProgressRead])
+def get_task_progress(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    progress = db.query(TaskProgress).filter(TaskProgress.task_id == task_id).first()
+    return progress
+
+
+@router.patch("/{task_id}", response_model=TaskProgressRead)
+def update_task_progress(
+    task_id: int,
+    payload: TaskProgressUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    progress = db.query(TaskProgress).filter(TaskProgress.task_id == task_id).first()
+    if not progress:
+        progress = TaskProgress(task_id=task_id)
+        db.add(progress)
+        db.flush()
+
+    data = payload.dict(exclude_unset=True)
+    for key, value in data.items():
+        setattr(progress, key, value)
+
+    db.merge(progress)
+    db.commit()
+    db.refresh(progress)
+    return progress
+
+
+# path: backend/app/models/_audit_log.py
+
+# app/models/_audit_log.py
+from sqlalchemy import Column, Integer, String, DateTime, JSON, Text
+from app.db._database import Base
+from datetime import datetime
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, nullable=False)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(Integer, nullable=False)
+    decision_reason = Column(Text, nullable=True)
+    performed_by = Column(String, nullable=False, default="agent")  # agent / human
+    context_data = Column(JSON, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+# path: backend/app/models/_checkpoint.py
+
+# app/models/_checkpoint.py
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from app.db._database import Base
+from datetime import datetime
+
+
+class Checkpoint(Base):
+    __tablename__ = "checkpoints"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    due_date = Column(DateTime, nullable=True)
+    status = Column(String, default="pending")  # pending / completed / delayed
+    completed_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# path: backend/app/models/_communication.py
+
+# app/models/_communication.py
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from app.db._database import Base
+from datetime import datetime
+
+
+class Communication(Base):
+    __tablename__ = "communications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False, default="ticket")  # email / ticket / meeting / call
+    from_actor = Column(String, nullable=False)  # agent / admin / employee / client
+    to_actor = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String, default="sent")  # sent / queued / failed / acknowledged
+
+
+# path: backend/app/models/_performance_point.py
+
+# app/models/_performance_point.py
+from sqlalchemy import Column, Integer, ForeignKey, Float, String, DateTime
+from app.db._database import Base
+from datetime import datetime
+
+
+class PerformancePoint(Base):
+    __tablename__ = "performance_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employee_profiles.id"), nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False, index=True)
+    points = Column(Float, nullable=False, default=0.0)
+    reason = Column(String, nullable=False)
+    awarded_at = Column(DateTime, default=datetime.utcnow)
+
+
+# path: backend/app/services/_autopm_service.py
+
+# app/services/_autopm_service.py
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+import random
+
+from sqlalchemy.orm import Session
+
+from app.models._project import Project
+from app.models._task import Task
+from app.models._task_assignment import TaskAssignment
+from app.models._employee_profile import EmployeeProfile
+from app.models._checkpoint import Checkpoint
+from app.models._communication import Communication
+from app.models._performance_point import PerformancePoint
+from app.models._audit_log import AuditLog
+from app.models._blocker import Blocker
+from app.services._assignment_engine import AssignmentEngine
+from app.services._llm_service import LLMService
+
+
+class AutoPMService:
+    def __init__(self, db: Session):
+        self.db = db
+        self.assignment_engine = AssignmentEngine(db)
+        self.llm_service = LLMService()
+
+    def intake_project(
+        self,
+        request_text: str,
+        admin_user_id: int,
+        budget: float = 0.0,
+        priority: str = "medium",
+        deadline: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        parsed = self.llm_service.parse_project_intake(request_text)
+
+        project = Project(
+            name=parsed.get("project_title", "Autonomous Project"),
+            description=parsed.get("project_summary", request_text),
+            admin_id=admin_user_id,
+            budget=budget,
+            priority=priority,
+            deadline=deadline,
+            status="planning",
+            custom_fields={"project_complexity": parsed.get("project_complexity", 0.6)},
+        )
+        self.db.add(project)
+        self.db.flush()
+
+        created_task_ids = []
+        for t in parsed.get("tasks", []):
+            task = Task(
+                project_id=project.id,
+                description=t.get("title", "Task"),
+                difficulty=t.get("difficulty", "medium"),
+                urgency=t.get("urgency", "medium"),
+                estimated_time=float(t.get("estimated_time", 8)),
+                required_skills=t.get("required_skills", {}),
+                status="pending",
+            )
+            self.db.add(task)
+            self.db.flush()
+            created_task_ids.append(task.id)
+
+            self._log(
+                action="task_created_from_intake",
+                entity_type="task",
+                entity_id=task.id,
+                reason=f"Created from intake for project {project.id}",
+                context={"description": task.description},
+            )
+
+        self._log(
+            action="project_intake",
+            entity_type="project",
+            entity_id=project.id,
+            reason="Project intake parsed and tasks generated",
+            context={"task_count": len(created_task_ids)},
+        )
+
+        self.db.commit()
+        return {
+            "project_id": project.id,
+            "project_name": project.name,
+            "task_ids": created_task_ids,
+            "task_count": len(created_task_ids),
+            "llm_enabled": self.llm_service.enabled,
+        }
+
+    def assign_project_tasks(self, project_id: int) -> Dict[str, Any]:
+        tasks = self.db.query(Task).filter(Task.project_id == project_id).all()
+        assigned, skipped = [], []
+
+        for task in tasks:
+            # Skip if active assignment exists.
+            active = self.db.query(TaskAssignment).filter(
+                TaskAssignment.task_id == task.id,
+                TaskAssignment.status.in_(["pending", "accepted", "in-progress"]),
+            ).first()
+            if active:
+                skipped.append(task.id)
+                continue
+
+            assignment, confidence, reasoning = self.assignment_engine.assign_task(task, override=True)
+            if not assignment:
+                skipped.append(task.id)
+                self._log(
+                    action="assignment_failed",
+                    entity_type="task",
+                    entity_id=task.id,
+                    reason=reasoning,
+                    context={},
+                )
+                continue
+
+            assignment.status = "pending"
+            task.status = "pending"
+            self.db.merge(assignment)
+            self.db.merge(task)
+
+            self._communication(
+                type_="ticket",
+                from_actor="agent",
+                to_actor=f"employee:{assignment.employee_id}",
+                subject=f"Task Assignment Offer #{task.id}",
+                body=f"You have been assigned task '{task.description}'. Please accept, deny, or negotiate.",
+                project_id=project_id,
+                task_id=task.id,
+            )
+            self._log(
+                action="task_assigned",
+                entity_type="task",
+                entity_id=task.id,
+                reason=reasoning,
+                context={"employee_id": assignment.employee_id, "confidence": confidence},
+            )
+            assigned.append(
+                {
+                    "task_id": task.id,
+                    "employee_id": assignment.employee_id,
+                    "confidence": round(confidence, 2),
+                }
+            )
+
+        self.db.commit()
+        return {"project_id": project_id, "assigned": assigned, "skipped_task_ids": skipped}
+
+    def handle_assignment_response(
+        self,
+        assignment_id: int,
+        response: str,
+        negotiation_notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        assignment = self.db.query(TaskAssignment).filter(TaskAssignment.id == assignment_id).first()
+        if not assignment:
+            raise ValueError("Assignment not found")
+
+        task = self.db.query(Task).filter(Task.id == assignment.task_id).first()
+        if not task:
+            raise ValueError("Task not found")
+
+        response = response.lower().strip()
+        if response not in ["accepted", "denied", "negotiating"]:
+            raise ValueError("Response must be accepted, denied, or negotiating")
+
+        if response == "accepted":
+            assignment.status = "accepted"
+            assignment.started_at = datetime.utcnow()
+            task.status = "running"
+            self._create_default_checkpoints(task.id)
+            self._log("assignment_accepted", "assignment", assignment.id, "Employee accepted assignment", {})
+
+        elif response == "negotiating":
+            assignment.status = "negotiating"
+            assignment.notes = negotiation_notes
+            if task.deadline:
+                task.deadline = task.deadline + timedelta(days=1)
+            self._log(
+                "assignment_negotiating",
+                "assignment",
+                assignment.id,
+                "Employee requested negotiation",
+                {"notes": negotiation_notes},
+            )
+
+        else:
+            assignment.status = "denied"
+            assignment.notes = negotiation_notes
+            self._log(
+                "assignment_denied",
+                "assignment",
+                assignment.id,
+                "Employee denied assignment",
+                {"notes": negotiation_notes},
+            )
+            reassignment = self._reassign_after_denial(task.id, denied_employee_id=assignment.employee_id)
+            self.db.commit()
+            return {
+                "assignment_id": assignment.id,
+                "response": response,
+                "task_id": task.id,
+                "reassignment": reassignment,
+            }
+
+        self.db.merge(assignment)
+        self.db.merge(task)
+        self.db.commit()
+        return {"assignment_id": assignment.id, "response": response, "task_id": task.id}
+
+    def run_project_simulation(self, project_id: int, seed: Optional[int] = None) -> Dict[str, Any]:
+        if seed is not None:
+            random.seed(seed)
+
+        tasks = self.db.query(Task).filter(Task.project_id == project_id).all()
+        logs = []
+
+        for task in tasks:
+            assignment = self.db.query(TaskAssignment).filter(
+                TaskAssignment.task_id == task.id,
+                TaskAssignment.status.in_(["accepted", "in-progress", "pending"]),
+            ).order_by(TaskAssignment.assigned_at.desc()).first()
+
+            if not assignment:
+                continue
+
+            # Resolve pending offers for demo speed.
+            if assignment.status == "pending":
+                assignment.status = "accepted"
+                assignment.started_at = datetime.utcnow()
+
+            # Stochastic simulation of execution outcomes.
+            roll = random.random()
+            if roll < 0.15:
+                task.status = "blocked"
+                blocker = Blocker(
+                    task_id=task.id,
+                    blocker_type="execution",
+                    severity="high",
+                    description="Automated simulation detected a delivery blocker",
+                    status="open",
+                )
+                self.db.add(blocker)
+                suggestion = self.llm_service.suggest_blocker_resolution(
+                    {"task_id": task.id, "task": task.description, "project_id": project_id}
+                )
+                self._communication(
+                    type_="ticket",
+                    from_actor="agent",
+                    to_actor="admin",
+                    subject=f"Blocker detected on task {task.id}",
+                    body=suggestion,
+                    project_id=project_id,
+                    task_id=task.id,
+                )
+                logs.append({"task_id": task.id, "status": "blocked"})
+
+            elif roll < 0.75:
+                task.status = "running"
+                assignment.status = "in-progress"
+                self._progress_checkpoints(task.id)
+                logs.append({"task_id": task.id, "status": "running"})
+
+            else:
+                task.status = "done"
+                assignment.status = "completed"
+                assignment.completed_at = datetime.utcnow()
+                assignment.actual_hours = max(1.0, (task.estimated_time or 8) * random.uniform(0.85, 1.25))
+                self._complete_all_checkpoints(task.id)
+                logs.append({"task_id": task.id, "status": "done"})
+
+            self.db.merge(task)
+            self.db.merge(assignment)
+            self._log(
+                action="simulation_tick",
+                entity_type="task",
+                entity_id=task.id,
+                reason=f"Task moved to {task.status}",
+                context={"project_id": project_id},
+            )
+
+        self.db.commit()
+        return {"project_id": project_id, "events": logs}
+
+    def generate_daily_digest(self) -> Dict[str, Any]:
+        active_projects = self.db.query(Project).filter(Project.status.in_(["planning", "in-progress"])).all()
+        due_today = self.db.query(Task).filter(Task.status.in_(["pending", "running", "blocked"])).all()
+        open_blockers = self.db.query(Blocker).filter(Blocker.status == "open").all()
+        pending_assignments = self.db.query(TaskAssignment).filter(TaskAssignment.status == "pending").all()
+
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        points_yesterday = self.db.query(PerformancePoint).filter(PerformancePoint.awarded_at >= yesterday).all()
+
+        return {
+            "active_projects": [
+                {"id": p.id, "name": p.name, "status": p.status, "health_score": self._project_health_score(p.id)}
+                for p in active_projects
+            ],
+            "tasks_due_or_active_today": len(due_today),
+            "open_blockers": len(open_blockers),
+            "pending_assignments": len(pending_assignments),
+            "performance_points_awarded_yesterday": sum(pp.points for pp in points_yesterday),
+        }
+
+    def generate_client_update(self, project_id: int) -> Dict[str, Any]:
+        project = self.db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise ValueError("Project not found")
+
+        tasks = self.db.query(Task).filter(Task.project_id == project_id).all()
+        completed = len([t for t in tasks if t.status == "done"])
+        in_progress = len([t for t in tasks if t.status in ["running", "pending"]])
+        blocked = len([t for t in tasks if t.status == "blocked"])
+
+        context = {
+            "project_id": project.id,
+            "project_name": project.name,
+            "project_status": project.status,
+            "completed_tasks": completed,
+            "in_progress_tasks": in_progress,
+            "blocked_tasks": blocked,
+            "health_score": self._project_health_score(project_id),
+        }
+        message = self.llm_service.generate_client_update(context)
+
+        self._communication(
+            type_="email",
+            from_actor="agent",
+            to_actor=f"client:{project.client_id}" if project.client_id else "client:unknown",
+            subject=f"Progress Update: {project.name}",
+            body=message,
+            project_id=project_id,
+            task_id=None,
+        )
+        self.db.commit()
+        return {"project_id": project_id, "message": message}
+
+    def close_project(self, project_id: int) -> Dict[str, Any]:
+        project = self.db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise ValueError("Project not found")
+
+        tasks = self.db.query(Task).filter(Task.project_id == project_id).all()
+        if any(t.status != "done" for t in tasks):
+            raise ValueError("Cannot close project: all tasks are not done yet")
+
+        awarded = self._award_performance_points(project_id, tasks)
+        project.status = "completed"
+        project.completed_at = datetime.utcnow()
+        project.progress = 100
+
+        self._log(
+            action="project_closed",
+            entity_type="project",
+            entity_id=project_id,
+            reason="All tasks done and closure initiated",
+            context={"points_awarded_count": len(awarded)},
+        )
+        self.db.merge(project)
+        self.db.commit()
+        return {"project_id": project_id, "status": project.status, "awards": awarded}
+
+    def _create_default_checkpoints(self, task_id: int) -> None:
+        now = datetime.utcnow()
+        checkpoints = [
+            Checkpoint(task_id=task_id, title="Kickoff & Plan", due_date=now + timedelta(days=1)),
+            Checkpoint(task_id=task_id, title="Mid Execution", due_date=now + timedelta(days=3)),
+            Checkpoint(task_id=task_id, title="Final Delivery", due_date=now + timedelta(days=5)),
+        ]
+        for cp in checkpoints:
+            self.db.add(cp)
+
+    def _progress_checkpoints(self, task_id: int) -> None:
+        cp = self.db.query(Checkpoint).filter(
+            Checkpoint.task_id == task_id,
+            Checkpoint.status == "pending",
+        ).order_by(Checkpoint.created_at.asc()).first()
+        if cp:
+            cp.status = "completed"
+            cp.completed_at = datetime.utcnow()
+            self.db.merge(cp)
+
+    def _complete_all_checkpoints(self, task_id: int) -> None:
+        checkpoints = self.db.query(Checkpoint).filter(Checkpoint.task_id == task_id).all()
+        for cp in checkpoints:
+            if cp.status != "completed":
+                cp.status = "completed"
+                cp.completed_at = datetime.utcnow()
+                self.db.merge(cp)
+
+    def _reassign_after_denial(self, task_id: int, denied_employee_id: int) -> Dict[str, Any]:
+        task = self.db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return {"reassigned": False, "reason": "Task not found"}
+
+        employees = self.db.query(EmployeeProfile).filter(
+            EmployeeProfile.availability_status == "available",
+            EmployeeProfile.id != denied_employee_id,
+            EmployeeProfile.current_load < EmployeeProfile.max_capacity,
+        ).all()
+
+        if not employees:
+            self._log(
+                action="reassignment_failed",
+                entity_type="task",
+                entity_id=task_id,
+                reason="No employees available after denial",
+                context={},
+            )
+            return {"reassigned": False, "reason": "No alternative employee available"}
+
+        scored = [(emp, self.assignment_engine._calculate_employee_score(emp, task)) for emp in employees]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        best_emp, score = scored[0]
+
+        new_assignment = TaskAssignment(
+            task_id=task_id,
+            employee_id=best_emp.id,
+            status="pending",
+            assignment_confidence=score,
+            estimated_hours=task.estimated_time,
+        )
+        self.db.add(new_assignment)
+
+        self._communication(
+            type_="ticket",
+            from_actor="agent",
+            to_actor=f"employee:{best_emp.id}",
+            subject=f"Reassignment Offer for Task #{task_id}",
+            body=f"Task '{task.description}' has been reassigned to you after prior denial.",
+            project_id=task.project_id,
+            task_id=task_id,
+        )
+        self._log(
+            action="task_reassigned",
+            entity_type="task",
+            entity_id=task_id,
+            reason="Reassigned after denial",
+            context={"employee_id": best_emp.id, "confidence": score},
+        )
+        return {"reassigned": True, "employee_id": best_emp.id, "confidence": round(score, 2)}
+
+    def _award_performance_points(self, project_id: int, tasks: List[Task]) -> List[Dict[str, Any]]:
+        awarded = []
+        for task in tasks:
+            assignment = self.db.query(TaskAssignment).filter(
+                TaskAssignment.task_id == task.id,
+                TaskAssignment.status == "completed",
+            ).order_by(TaskAssignment.completed_at.desc()).first()
+            if not assignment:
+                continue
+
+            complexity_weight = {"easy": 0.5, "medium": 0.75, "hard": 1.0}.get(task.difficulty, 0.75)
+            on_time = 1.0
+            if task.deadline and assignment.completed_at and assignment.completed_at > task.deadline:
+                on_time = 0.6
+
+            blocker_penalty = 0.9 if task.status == "blocked" else 1.0
+            points = round(100 * (0.4 * complexity_weight + 0.3 * on_time + 0.2 * blocker_penalty + 0.1 * 1.0), 2)
+
+            pp = PerformancePoint(
+                employee_id=assignment.employee_id,
+                project_id=project_id,
+                task_id=task.id,
+                points=points,
+                reason="Automated closure scoring",
+            )
+            self.db.add(pp)
+            awarded.append({"employee_id": assignment.employee_id, "task_id": task.id, "points": points})
+
+        return awarded
+
+    def _project_health_score(self, project_id: int) -> float:
+        tasks = self.db.query(Task).filter(Task.project_id == project_id).all()
+        if not tasks:
+            return 100.0
+
+        total = len(tasks)
+        done = len([t for t in tasks if t.status == "done"])
+        blocked = len([t for t in tasks if t.status == "blocked"])
+        running = len([t for t in tasks if t.status == "running"])
+        health = 100 * ((done / total) * 0.6 + (running / total) * 0.3 + ((total - blocked) / total) * 0.1)
+        return round(max(0.0, min(100.0, health)), 2)
+
+    def _communication(
+        self,
+        type_: str,
+        from_actor: str,
+        to_actor: str,
+        subject: str,
+        body: str,
+        project_id: Optional[int],
+        task_id: Optional[int],
+    ) -> None:
+        comm = Communication(
+            type=type_,
+            from_actor=from_actor,
+            to_actor=to_actor,
+            subject=subject,
+            body=body,
+            project_id=project_id,
+            task_id=task_id,
+            status="sent",
+        )
+        self.db.add(comm)
+
+    def _log(self, action: str, entity_type: str, entity_id: int, reason: str, context: Dict[str, Any]) -> None:
+        log = AuditLog(
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            decision_reason=reason,
+            performed_by="agent",
+            context_data=context,
+        )
+        self.db.add(log)
+
+
+# path: backend/app/services/_llm_service.py
+
+# app/services/_llm_service.py
+import json
+import os
+import re
+from typing import Dict, Any, List
+
+try:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_huggingface import HuggingFaceEndpoint
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    ChatPromptTemplate = None
+    HuggingFaceEndpoint = None
+
+
+class LLMService:
+    """
+    Thin LLM layer for hackathon use:
+    - Structured project parsing
+    - Client update generation
+    - Blocker resolution suggestion
+    Falls back to deterministic behavior when HF token is not present.
+    """
+
+    def __init__(self):
+        self.model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3")
+        self.token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        self.enabled = bool(self.token and LANGCHAIN_AVAILABLE)
+        self.llm = None
+
+        if self.enabled:
+            self.llm = HuggingFaceEndpoint(
+                repo_id=self.model_id,
+                huggingfacehub_api_token=self.token,
+                temperature=0.2,
+                max_new_tokens=900,
+            )
+
+    def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
+        if not self.enabled:
+            return self._fallback_project_parse(request_text)
+
+        prompt = ChatPromptTemplate.from_template(
+            """
+You are a project planning engine.
+Convert the request into strict JSON only. No markdown.
+
+Required JSON format:
+{{
+  "project_title": "string",
+  "project_summary": "string",
+  "project_complexity": 0.0,
+  "tasks": [
+    {{
+      "title": "string",
+      "description": "string",
+      "difficulty": "easy|medium|hard",
+      "urgency": "low|medium|high|critical",
+      "estimated_time": number,
+      "required_skills": {{"skill_name": 0.0}}
+    }}
+  ]
+}}
+
+Rules:
+- 4 to 8 tasks
+- required_skills values must be between 0 and 1
+- estimated_time in hours
+- project_complexity between 0 and 1
+
+User request:
+{request_text}
+"""
+        )
+
+        raw = (prompt | self.llm).invoke({"request_text": request_text})
+        parsed = self._parse_json(raw)
+
+        if not parsed or "tasks" not in parsed:
+            return self._fallback_project_parse(request_text)
+        return parsed
+
+    def generate_client_update(self, context: Dict[str, Any]) -> str:
+        if not self.enabled:
+            return self._fallback_client_update(context)
+
+        prompt = ChatPromptTemplate.from_template(
+            """
+Draft a concise professional client update email from this project context.
+Tone: confident, clear, no fluff.
+Keep under 180 words.
+
+Context JSON:
+{context}
+"""
+        )
+        return (prompt | self.llm).invoke({"context": json.dumps(context)})
+
+    def suggest_blocker_resolution(self, blocker_context: Dict[str, Any]) -> str:
+        if not self.enabled:
+            return "Suggest splitting task scope, reassigning a backup engineer, and extending deadline by 1-2 days."
+
+        prompt = ChatPromptTemplate.from_template(
+            """
+Given this blocker context, propose 3 practical resolution options.
+Keep it action-oriented.
+
+Blocker context:
+{blocker_context}
+"""
+        )
+        return (prompt | self.llm).invoke({"blocker_context": json.dumps(blocker_context)})
+
+    def _parse_json(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        text = text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return {}
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {}
+
+    def _fallback_project_parse(self, request_text: str) -> Dict[str, Any]:
+        base_tasks: List[Dict[str, Any]] = [
+            {
+                "title": "Requirements and Scope",
+                "description": "Define scope, success criteria, and non-functional constraints.",
+                "difficulty": "medium",
+                "urgency": "high",
+                "estimated_time": 8,
+                "required_skills": {"business_analysis": 0.7, "documentation": 0.6},
+            },
+            {
+                "title": "Backend Service Development",
+                "description": "Build APIs, data models, and orchestration logic.",
+                "difficulty": "hard",
+                "urgency": "high",
+                "estimated_time": 20,
+                "required_skills": {"python": 0.8, "fastapi": 0.8, "sql": 0.6},
+            },
+            {
+                "title": "Frontend Dashboard",
+                "description": "Implement management dashboard and execution views.",
+                "difficulty": "medium",
+                "urgency": "medium",
+                "estimated_time": 14,
+                "required_skills": {"react": 0.8, "javascript": 0.8, "ui_ux": 0.6},
+            },
+            {
+                "title": "LLM Integration",
+                "description": "Wire project parsing and communication generation via LLM.",
+                "difficulty": "hard",
+                "urgency": "medium",
+                "estimated_time": 12,
+                "required_skills": {"llm": 0.8, "prompt_engineering": 0.7},
+            },
+            {
+                "title": "Testing and Demo Readiness",
+                "description": "Run smoke tests, stabilize flows, and prepare demo narrative.",
+                "difficulty": "medium",
+                "urgency": "high",
+                "estimated_time": 10,
+                "required_skills": {"testing": 0.7, "communication": 0.6},
+            },
+        ]
+
+        return {
+            "project_title": request_text[:80] if request_text else "Autonomous PM Project",
+            "project_summary": request_text,
+            "project_complexity": 0.7,
+            "tasks": base_tasks,
+        }
+
+    def _fallback_client_update(self, context: Dict[str, Any]) -> str:
+        return (
+            f"Project update for '{context.get('project_name', 'Project')}': "
+            f"{context.get('completed_tasks', 0)} tasks completed, "
+            f"{context.get('in_progress_tasks', 0)} in progress, "
+            f"{context.get('blocked_tasks', 0)} blocked. "
+            "The team is actively working on pending items and we will share milestone updates as they close."
+        )
+
+
+# path: frontend/src/components/AutoPMConsole.jsx
+
+import React, { useState, useEffect } from 'react';
+
+const API = 'http://localhost:8000';
+
+export default function AutoPMConsole() {
+  const [requestText, setRequestText] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [assignmentProjectId, setAssignmentProjectId] = useState('');
+  const [simProjectId, setSimProjectId] = useState('');
+  const [clientUpdateProjectId, setClientUpdateProjectId] = useState('');
+  const [closeProjectId, setCloseProjectId] = useState('');
+  const [assignments, setAssignments] = useState([]);
+  const [assignmentId, setAssignmentId] = useState('');
+  const [responseType, setResponseType] = useState('accepted');
+  const [output, setOutput] = useState(null);
+  const [digest, setDigest] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const token = localStorage.getItem('token');
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+
+  useEffect(() => {
+    fetchAssignments();
+  }, []);
+
+  const fetchAssignments = async () => {
+    try {
+      const res = await fetch(`${API}/task-assignments`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setAssignments(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const runAction = async (fn) => {
+    setLoading(true);
+    try {
+      const result = await fn();
+      setOutput(result);
+      await fetchAssignments();
+    } catch (err) {
+      setOutput({ error: err.message });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="dashboard">
+      <div className="card full-width">
+        <h2>AutoPM Console</h2>
+        <p style={{ color: '#666', marginBottom: '16px' }}>
+          Intake → Assign → Employee Respond → Simulate → Client Update / Close
+        </p>
+
+        <div style={{ display: 'grid', gap: '10px', marginBottom: '15px' }}>
+          <textarea
+            rows={4}
+            value={requestText}
+            onChange={(e) => setRequestText(e.target.value)}
+            placeholder="Describe a project request..."
+          />
+          <button
+            className="btn btn-primary"
+            disabled={loading || !requestText.trim()}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/intake`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ request_text: requestText, budget: 10000, priority: 'high' })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Intake failed');
+              setProjectId(String(data.project_id));
+              setAssignmentProjectId(String(data.project_id));
+              setSimProjectId(String(data.project_id));
+              setClientUpdateProjectId(String(data.project_id));
+              setCloseProjectId(String(data.project_id));
+              return data;
+            })}
+          >
+            Run Intake
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', marginBottom: '10px' }}>
+          <input
+            value={assignmentProjectId}
+            onChange={(e) => setAssignmentProjectId(e.target.value)}
+            placeholder="Project ID for assignment"
+          />
+          <button
+            className="btn btn-secondary"
+            disabled={loading || !assignmentProjectId}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/projects/${assignmentProjectId}/assign`, {
+                method: 'POST',
+                headers
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Assign failed');
+              return data;
+            })}
+          >
+            Assign Team
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '10px', marginBottom: '10px' }}>
+          <input
+            value={assignmentId}
+            onChange={(e) => setAssignmentId(e.target.value)}
+            placeholder="Assignment ID"
+          />
+          <select value={responseType} onChange={(e) => setResponseType(e.target.value)}>
+            <option value="accepted">accepted</option>
+            <option value="denied">denied</option>
+            <option value="negotiating">negotiating</option>
+          </select>
+          <input value={projectId} onChange={(e) => setProjectId(e.target.value)} placeholder="Project ID" />
+          <button
+            className="btn btn-secondary"
+            disabled={loading || !assignmentId}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/assignments/${assignmentId}/respond`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ response: responseType })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Response failed');
+              return data;
+            })}
+          >
+            Submit Response
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '10px', marginBottom: '10px' }}>
+          <input
+            value={simProjectId}
+            onChange={(e) => setSimProjectId(e.target.value)}
+            placeholder="Project ID for simulation"
+          />
+          <button
+            className="btn btn-primary"
+            disabled={loading || !simProjectId}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/projects/${simProjectId}/simulate`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ seed: 42 })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Simulation failed');
+              return data;
+            })}
+          >
+            Run Simulation
+          </button>
+          <button
+            className="btn btn-secondary"
+            disabled={loading || !clientUpdateProjectId}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/projects/${clientUpdateProjectId}/client-update`, {
+                method: 'POST',
+                headers
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Client update failed');
+              return data;
+            })}
+          >
+            Client Update
+          </button>
+          <button
+            className="btn btn-secondary"
+            disabled={loading || !closeProjectId}
+            onClick={() => runAction(async () => {
+              const res = await fetch(`${API}/autopm/projects/${closeProjectId}/close`, {
+                method: 'POST',
+                headers
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.detail || 'Close failed');
+              return data;
+            })}
+          >
+            Close Project
+          </button>
+        </div>
+
+        <button
+          className="btn"
+          disabled={loading}
+          onClick={() => runAction(async () => {
+            const res = await fetch(`${API}/autopm/digest/daily`, { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Digest failed');
+            setDigest(data);
+            return data;
+          })}
+        >
+          Generate Daily Digest
+        </button>
+      </div>
+
+      <div className="card full-width">
+        <h2>Assignment Offers</h2>
+        {assignments.length === 0 ? (
+          <p>No assignments yet</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Task</th>
+                <th>Employee</th>
+                <th>Status</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assignments.slice(0, 20).map(a => (
+                <tr key={a.id}>
+                  <td>{a.id}</td>
+                  <td>{a.task_id}</td>
+                  <td>{a.employee_id}</td>
+                  <td>{a.status}</td>
+                  <td>{a.assignment_confidence ? a.assignment_confidence.toFixed(2) : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {digest && (
+        <div className="card full-width">
+          <h2>Daily Digest</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+            {JSON.stringify(digest, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {output && (
+        <div className="card full-width">
+          <h2>Last Action Output</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+            {JSON.stringify(output, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
