@@ -1,5 +1,6 @@
 # app/api/routes/_employee.py
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core._deps import get_db, get_current_user
 from app.models._user import User
@@ -7,9 +8,14 @@ from app.models._employee_profile import EmployeeProfile
 from app.models._employee_metrics import EmployeeMetrics
 from app.schemas._employee_profile import EmployeeProfileCreate, EmployeeProfileUpdate, EmployeeProfileRead
 from app.schemas._employee_metrics import EmployeeMetricsRead
+from app.services._project_service import build_client_workspace, build_employee_workspace, update_checkpoint_status
 from typing import List
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
+
+
+class CheckpointToggleRequest(BaseModel):
+    completed: bool
 
 
 @router.post("/profile", response_model=EmployeeProfileRead)
@@ -136,3 +142,35 @@ def route_list_employees(
     
     employees = query.offset(skip).limit(limit).all()
     return employees
+
+
+@router.get("/my-work")
+def route_my_work(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "employee":
+        raise HTTPException(status_code=403, detail="Only employees can view this workspace")
+
+    return build_employee_workspace(db, current_user)
+
+
+@router.patch("/checkpoints/{checkpoint_id}")
+def route_update_checkpoint(
+    checkpoint_id: int,
+    payload: CheckpointToggleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return update_checkpoint_status(db, checkpoint_id, payload.completed, current_user)
+
+
+@router.get("/client-workspace")
+def route_client_workspace(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "client":
+        raise HTTPException(status_code=403, detail="Only clients can view this workspace")
+
+    return build_client_workspace(db, current_user)

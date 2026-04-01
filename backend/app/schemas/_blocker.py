@@ -25,6 +25,10 @@ class BlockerRead(BaseModel):
     severity: str
     description: str
     status: str
+    raised_by_user_id: Optional[int]
+    ai_response: Optional[str]
+    next_action: Optional[str]
+    escalation_recommended: int
     created_at: datetime
     resolved_at: Optional[datetime]
     resolution_notes: Optional[str]

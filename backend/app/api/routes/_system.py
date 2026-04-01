@@ -7,7 +7,16 @@ from app.models._user import User
 from app.services._assignment_engine import AssignmentEngine
 from app.services._monitoring_service import MonitoringService
 from app.services._decision_service import DecisionService
+from app.services._event_service import EventService
+from app.services._project_service import (
+    build_admin_dashboard,
+    build_agentic_dashboard,
+    build_llm_status,
+    build_project_status,
+    build_team_dashboard,
+)
 from app.schemas._decision_log import DecisionLogRead
+from app.schemas._event_queue import EventQueueRead
 from typing import List
 
 router = APIRouter(prefix="/system", tags=["System"])
@@ -96,6 +105,58 @@ def route_project_health(
     return health
 
 
+@router.get("/admin-dashboard")
+def route_admin_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view the admin dashboard")
+
+    return build_admin_dashboard(db)
+
+
+@router.get("/team-dashboard")
+def route_team_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view the team dashboard")
+
+    return build_team_dashboard(db)
+
+
+@router.get("/agentic-dashboard")
+def route_agentic_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view the agentic dashboard")
+
+    return build_agentic_dashboard(db)
+
+
+@router.get("/project-status/{project_id}")
+def route_project_status(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return build_project_status(db, project_id, viewer=current_user)
+
+
+@router.get("/llm-status")
+def route_llm_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view LLM status")
+    return build_llm_status()
+
+
 @router.get("/suggestions/{project_id}")
 def route_get_suggestions(
     project_id: int,
@@ -120,3 +181,28 @@ def route_get_suggestions(
         "reassignment_suggestions": reassignments,
         "requires_admin_attention": risk_summary["needs_intervention"]
     }
+
+
+@router.get("/queue/status")
+def route_queue_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view queue status")
+
+    service = EventService(db)
+    return service.get_queue_status()
+
+
+@router.get("/queue/failed", response_model=List[EventQueueRead])
+def route_failed_events(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view failed events")
+
+    service = EventService(db)
+    return service.get_failed_events(limit=limit)

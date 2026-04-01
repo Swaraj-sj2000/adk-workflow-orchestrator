@@ -1,13 +1,15 @@
 # app/api/routes/_task_progress.py
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from app.core._deps import get_db, get_current_user
 from app.models._user import User
+from app.models._task import Task
 from app.models._task_progress import TaskProgress
 from app.schemas._task_progress import TaskProgressRead, TaskProgressUpdate
+from app.services._event_service import EventService, process_event_queue_batch_async
 
 router = APIRouter(prefix="/task-progress", tags=["Task Progress"])
 
@@ -26,6 +28,7 @@ def get_task_progress(
 def update_task_progress(
     task_id: int,
     payload: TaskProgressUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -42,4 +45,21 @@ def update_task_progress(
     db.merge(progress)
     db.commit()
     db.refresh(progress)
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if task:
+        event_service = EventService(db)
+        event_service.publish_event(
+            event_type="PROJECT_EXECUTION_SIGNAL",
+            entity_type="project",
+            entity_id=task.project_id,
+            payload={
+                "triggered_by": current_user.id,
+                "source": "task_progress_update",
+                "task_id": task_id,
+                "persist_followup_messages": True,
+            },
+        )
+        background_tasks.add_task(process_event_queue_batch_async, 1)
+
     return progress

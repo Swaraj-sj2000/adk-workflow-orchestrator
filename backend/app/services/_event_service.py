@@ -1,5 +1,6 @@
 # app/services/_event_service.py
 from sqlalchemy.orm import Session
+from app.db._database import SessionLocal
 from app.models._event_queue import EventQueue
 from app.models._task import Task
 from app.models._project import Project
@@ -7,6 +8,42 @@ from app.services._assignment_engine import AssignmentEngine
 from typing import Dict, Any, Optional, Callable
 from datetime import datetime
 import json
+import time
+
+
+def process_event_queue_batch_async(batch_size: int = 10) -> Dict[str, Any]:
+    """
+    Background-safe queue processor.
+    Opens a fresh DB session so it can be used from FastAPI background tasks.
+    """
+    db = SessionLocal()
+    try:
+        service = EventService(db)
+        return service.process_pending_events(batch_size=batch_size)
+    finally:
+        db.close()
+
+
+def run_event_worker_loop(batch_size: int = 10, poll_interval_seconds: float = 2.0, max_cycles: Optional[int] = None) -> None:
+    """
+    Poll the event queue in a long-running loop.
+    Intended for a standalone worker process outside the API server.
+    """
+    cycles = 0
+    while True:
+        result = process_event_queue_batch_async(batch_size=batch_size)
+        cycles += 1
+
+        processed_any = (result.get("processed", 0) + result.get("failed", 0)) > 0
+        if processed_any:
+            print(
+                f"[event-worker] processed={result['processed']} failed={result['failed']} total={result['total']}"
+            )
+
+        if max_cycles is not None and cycles >= max_cycles:
+            break
+
+        time.sleep(0 if processed_any else poll_interval_seconds)
 
 
 class EventService:
@@ -96,7 +133,8 @@ class EventService:
             "task_created_task": self._handle_task_created,
             "task_updated_task": self._handle_task_updated,
             "project_created_project": self._handle_project_created,
-            "assignment_complete_task": self._handle_assignment_complete
+            "assignment_complete_task": self._handle_assignment_complete,
+            "project_execution_signal_project": self._handle_project_execution_signal,
         }
     
     def _handle_task_created(self, event: EventQueue) -> None:
@@ -140,6 +178,17 @@ class EventService:
             task.status = "running"
             self.db.merge(task)
             self.db.commit()
+
+    def _handle_project_execution_signal(self, event: EventQueue) -> None:
+        """Run the multi-agent project loop when execution state changes."""
+        from app.services._multi_agent_orchestrator import MultiAgentOrchestrator
+
+        orchestrator = MultiAgentOrchestrator(self.db)
+        orchestrator.run_project_execution_loop(
+            project_id=event.entity_id,
+            requested_by=event.payload.get("triggered_by", 0),
+            persist_followup_messages=event.payload.get("persist_followup_messages", True),
+        )
     
     def get_pending_event_count(self) -> int:
         """Get count of pending events."""
@@ -152,3 +201,25 @@ class EventService:
         return self.db.query(EventQueue).filter(
             EventQueue.status == "failed"
         ).order_by(EventQueue.created_at.desc()).limit(limit).all()
+
+    def get_queue_status(self) -> Dict[str, Any]:
+        pending = self.db.query(EventQueue).filter(EventQueue.status == "pending").count()
+        processing = self.db.query(EventQueue).filter(EventQueue.status == "processing").count()
+        completed = self.db.query(EventQueue).filter(EventQueue.status == "completed").count()
+        failed = self.db.query(EventQueue).filter(EventQueue.status == "failed").count()
+
+        latest = self.db.query(EventQueue).order_by(EventQueue.created_at.desc()).first()
+        return {
+            "pending": pending,
+            "processing": processing,
+            "completed": completed,
+            "failed": failed,
+            "latest_event": {
+                "id": latest.id,
+                "event_type": latest.event_type,
+                "entity_type": latest.entity_type,
+                "entity_id": latest.entity_id,
+                "status": latest.status,
+                "created_at": latest.created_at.isoformat() if latest.created_at else None,
+            } if latest else None,
+        }
