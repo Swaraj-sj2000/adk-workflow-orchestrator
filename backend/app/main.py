@@ -7,6 +7,7 @@ from app.core._tenant_middleware import TenantMiddleware
 
 # Routes
 from app.api.routes import _auth
+from app.api.routes import invites
 from app.api.routes import _project as _project_routes
 from app.api.routes import _agent as _agent_routes
 from app.api.routes import _task as _task_routes
@@ -54,6 +55,7 @@ app.add_middleware(TenantMiddleware)
 
 # Routers
 app.include_router(_auth.router)
+app.include_router(invites.router)
 app.include_router(_project_routes.router)
 app.include_router(_agent_routes.router)
 app.include_router(_task_routes.router)
