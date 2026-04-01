@@ -2,6 +2,7 @@
 
 > An autonomous project operations platform that shifts project management decisions from humans to intelligent agents, enabling a single admin to orchestrate multiple client projects with minimal day-to-day coordination overhead.
 
+**Created by**: [Swaraj](https://github.com) — AI Workforce Orchestrator Architect  
 **Status**: Production-ready | **Version**: 2.0 | **License**: MIT
 
 ---
