@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './Dashboard.css';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 const initialForm = {
   name: '',
@@ -34,28 +34,18 @@ export default function Dashboard({ role }) {
     fetchDashboard();
   }, [role]);
 
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
-
   const fetchDashboard = async () => {
     setLoading(true);
     try {
       if (role === 'admin') {
-        const res = await fetch(apiUrl('/system/admin-dashboard'), { headers });
-        if (res.ok) {
-          const data = await res.json();
-          setDashboard(data);
-        }
+        const data = await apiFetchJson('/system/admin-dashboard', { auth: true });
+        setDashboard(data);
       } else if (role === 'employee') {
-        const res = await fetch(apiUrl('/employees/my-work'), { headers });
-        if (res.ok) {
-          setDashboard(await res.json());
-        }
+        const data = await apiFetchJson('/employees/my-work', { auth: true });
+        setDashboard(data);
       } else {
-        const res = await fetch(apiUrl('/employees/client-workspace'), { headers });
-        if (res.ok) {
-          setDashboard(await res.json());
-        }
+        const data = await apiFetchJson('/employees/client-workspace', { auth: true });
+        setDashboard(data);
       }
     } catch (error) {
       console.error(error);
@@ -65,10 +55,8 @@ export default function Dashboard({ role }) {
 
   const fetchProjectStatus = async (projectId) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/status`), { headers });
-      if (res.ok) {
-        setProjectStatus(await res.json());
-      }
+      const data = await apiFetchJson(`/projects/${projectId}/status`, { auth: true });
+      setProjectStatus(data);
     } catch (error) {
       console.error(error);
     }
@@ -92,19 +80,11 @@ export default function Dashboard({ role }) {
     };
 
     try {
-      const res = await fetch(apiUrl('/projects/'), {
+      const data = await apiFetchJson('/projects/', {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        auth: true,
+        body: payload,
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || 'Project creation failed');
-      }
 
       setMessage(`Project created for ${data.client_name || 'the selected client'}. Review the AI-generated role draft, then invite the proposed team.`);
       setFormData(initialForm);
@@ -121,22 +101,14 @@ export default function Dashboard({ role }) {
 
   const handleApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
+      const data = await apiFetchJson(`/projects/${projectId}/team-approval`, {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           approved,
           note: approved ? 'Approved from admin dashboard.' : 'Rejected from admin dashboard for rework.',
-        }),
+        },
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Could not update approval');
-      }
-      const data = await res.json();
       setProjectStatus(data);
       setMessage(approved ? 'Team draft approved. The selected employees now need to accept the project invite.' : 'Team draft rejected and admin review meeting created.');
       fetchDashboard();

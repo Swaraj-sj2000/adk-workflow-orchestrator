@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './MultiAgentWorkbench.css';
-import { apiUrl } from '../lib/api';
+import { apiFetchJson } from '../lib/http';
 
 function prettyJson(value) {
   return JSON.stringify(value, null, 2);
@@ -20,9 +20,6 @@ export default function MultiAgentWorkbench() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  const token = localStorage.getItem('token');
-  const authHeaders = { 'Authorization': `Bearer ${token}` };
-
   useEffect(() => {
     fetchWorkflows();
     fetchQueueHealth();
@@ -30,9 +27,7 @@ export default function MultiAgentWorkbench() {
 
   const fetchWorkflows = async (workflowId = null) => {
     try {
-      const res = await fetch(apiUrl('/multi-agent/workflows?limit=25'), { headers: authHeaders });
-      if (!res.ok) throw new Error('Failed to load workflow runs');
-      const data = await res.json();
+      const data = await apiFetchJson('/multi-agent/workflows?limit=25', { auth: true });
       setWorkflows(data);
 
       const selectedId = workflowId || selectedWorkflow?.id || data[0]?.id;
@@ -46,9 +41,7 @@ export default function MultiAgentWorkbench() {
 
   const fetchWorkflowDetail = async (workflowId) => {
     try {
-      const res = await fetch(apiUrl(`/multi-agent/workflows/${workflowId}`), { headers: authHeaders });
-      if (!res.ok) throw new Error('Failed to load workflow detail');
-      const data = await res.json();
+      const data = await apiFetchJson(`/multi-agent/workflows/${workflowId}`, { auth: true });
       setSelectedWorkflow(data);
     } catch (err) {
       setMessage(`Failed to load workflow detail: ${err.message}`);
@@ -57,17 +50,12 @@ export default function MultiAgentWorkbench() {
 
   const fetchQueueHealth = async () => {
     try {
-      const [statusRes, failedRes] = await Promise.all([
-        fetch(apiUrl('/system/queue/status'), { headers: authHeaders }),
-        fetch(apiUrl('/system/queue/failed?limit=10'), { headers: authHeaders }),
+      const [statusData, failedData] = await Promise.all([
+        apiFetchJson('/system/queue/status', { auth: true }),
+        apiFetchJson('/system/queue/failed?limit=10', { auth: true }),
       ]);
-
-      if (statusRes.ok) {
-        setQueueStatus(await statusRes.json());
-      }
-      if (failedRes.ok) {
-        setFailedEvents(await failedRes.json());
-      }
+      setQueueStatus(statusData);
+      setFailedEvents(failedData);
     } catch (err) {
       setMessage(`Failed to load queue health: ${err.message}`);
     }
@@ -79,21 +67,16 @@ export default function MultiAgentWorkbench() {
     setMessage('');
 
     try {
-      const res = await fetch(apiUrl('/multi-agent/workflows/intake'), {
+      const data = await apiFetchJson('/multi-agent/workflows/intake', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           request_text: requestText,
           budget: Number(budget),
           priority,
           persist_project: persistProject,
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Workflow launch failed');
 
       setMessage(`Workflow #${data.id} completed with status: ${data.final_output?.autonomy_status || data.status}`);
       setRequestText('');
@@ -111,12 +94,10 @@ export default function MultiAgentWorkbench() {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(apiUrl(`/multi-agent/workflows/${selectedWorkflow.id}/approve`), {
+      const data = await apiFetchJson(`/multi-agent/workflows/${selectedWorkflow.id}/approve`, {
         method: 'POST',
-        headers: authHeaders,
+        auth: true,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Approval failed');
       setSelectedWorkflow(data);
       await fetchWorkflows(data.id);
       await fetchQueueHealth();
@@ -132,18 +113,13 @@ export default function MultiAgentWorkbench() {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(apiUrl(`/multi-agent/projects/${loopProjectId}/loop`), {
+      const data = await apiFetchJson(`/multi-agent/projects/${loopProjectId}/loop`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authHeaders,
-        },
-        body: JSON.stringify({
+        auth: true,
+        body: {
           persist_followup_messages: persistFollowupMessages,
-        }),
+        },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Project loop failed');
       setMessage(`Project loop workflow #${data.id} completed for project ${loopProjectId}.`);
       await fetchWorkflows(data.id);
       await fetchQueueHealth();

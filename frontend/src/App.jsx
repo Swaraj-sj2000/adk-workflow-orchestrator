@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
-import { apiUrl } from './lib/api';
+import { apiFetchJson } from './lib/http';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Projects from './components/Projects';
@@ -78,12 +78,10 @@ function AcceptInvitePage() {
       }
 
       try {
-        const res = await fetch(
-          apiUrl(`/api/v1/auth/validate-invite?invite_code=${encodeURIComponent(inviteCode)}`)
+        const data = await apiFetchJson(
+          `/api/v1/auth/validate-invite?invite_code=${encodeURIComponent(inviteCode)}`
         );
-        const data = await res.json();
-
-        if (!res.ok || !data.valid) {
+        if (!data.valid) {
           setMessage(data.message || 'This invite is invalid or expired.');
           setLoading(false);
           return;
@@ -112,25 +110,17 @@ function AcceptInvitePage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(apiUrl('/api/v1/auth/accept-invite'), {
+      const data = await apiFetchJson('/api/v1/auth/accept-invite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           invite_code: inviteCode,
           full_name: fullName,
           email,
           password,
           skills: [],
           experience_years: null
-        })
+        }
       });
-
-      const data = await res.json();
-      if (!res.ok) {
-        setMessage(data.detail || 'Could not accept invite.');
-        setSubmitting(false);
-        return;
-      }
 
       const user = {
         id: data.user_id,
@@ -250,13 +240,10 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(apiUrl('/api/v1/auth/login'), {
+      const data = await apiFetchJson('/api/v1/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: { email, password }
       });
-      if (!res.ok) throw new Error('Login failed');
-      const data = await res.json();
 
       const user = {
         id: data.user_id,
@@ -281,21 +268,15 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(apiUrl('/api/v1/auth/signup'), {
+      await apiFetchJson('/api/v1/auth/signup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, full_name: fullName, role })
+        body: { email, password, full_name: fullName, role }
       });
-      if (res.ok) {
-        setMessage('Registration successful! Please login.');
-        setIsLogin(true);
-        setEmail('');
-        setPassword('');
-        setFullName('');
-      } else {
-        const data = await res.json();
-        setMessage('Registration failed: ' + (data.detail || 'Unknown error'));
-      }
+      setMessage('Registration successful! Please login.');
+      setIsLogin(true);
+      setEmail('');
+      setPassword('');
+      setFullName('');
     } catch (err) {
       setMessage('Registration failed: ' + err.message);
     }
