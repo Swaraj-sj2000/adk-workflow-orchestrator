@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './MultiAgentWorkbench.css';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 function prettyJson(value) {
   return JSON.stringify(value, null, 2);
@@ -31,7 +30,7 @@ export default function MultiAgentWorkbench() {
 
   const fetchWorkflows = async (workflowId = null) => {
     try {
-      const res = await fetch(`${API}/multi-agent/workflows?limit=25`, { headers: authHeaders });
+      const res = await fetch(apiUrl('/multi-agent/workflows?limit=25'), { headers: authHeaders });
       if (!res.ok) throw new Error('Failed to load workflow runs');
       const data = await res.json();
       setWorkflows(data);
@@ -47,7 +46,7 @@ export default function MultiAgentWorkbench() {
 
   const fetchWorkflowDetail = async (workflowId) => {
     try {
-      const res = await fetch(`${API}/multi-agent/workflows/${workflowId}`, { headers: authHeaders });
+      const res = await fetch(apiUrl(`/multi-agent/workflows/${workflowId}`), { headers: authHeaders });
       if (!res.ok) throw new Error('Failed to load workflow detail');
       const data = await res.json();
       setSelectedWorkflow(data);
@@ -59,8 +58,8 @@ export default function MultiAgentWorkbench() {
   const fetchQueueHealth = async () => {
     try {
       const [statusRes, failedRes] = await Promise.all([
-        fetch(`${API}/system/queue/status`, { headers: authHeaders }),
-        fetch(`${API}/system/queue/failed?limit=10`, { headers: authHeaders }),
+        fetch(apiUrl('/system/queue/status'), { headers: authHeaders }),
+        fetch(apiUrl('/system/queue/failed?limit=10'), { headers: authHeaders }),
       ]);
 
       if (statusRes.ok) {
@@ -80,7 +79,7 @@ export default function MultiAgentWorkbench() {
     setMessage('');
 
     try {
-      const res = await fetch(`${API}/multi-agent/workflows/intake`, {
+      const res = await fetch(apiUrl('/multi-agent/workflows/intake'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,7 +111,7 @@ export default function MultiAgentWorkbench() {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(`${API}/multi-agent/workflows/${selectedWorkflow.id}/approve`, {
+      const res = await fetch(apiUrl(`/multi-agent/workflows/${selectedWorkflow.id}/approve`), {
         method: 'POST',
         headers: authHeaders,
       });
@@ -133,7 +132,7 @@ export default function MultiAgentWorkbench() {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(`${API}/multi-agent/projects/${loopProjectId}/loop`, {
+      const res = await fetch(apiUrl(`/multi-agent/projects/${loopProjectId}/loop`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

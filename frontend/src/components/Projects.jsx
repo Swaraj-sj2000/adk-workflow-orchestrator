@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './Projects.css';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 export default function Projects({ role }) {
   const [projects, setProjects] = useState([]);
@@ -19,7 +18,7 @@ export default function Projects({ role }) {
   const fetchProjects = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/projects/`, { headers });
+      const res = await fetch(apiUrl('/projects/'), { headers });
       if (res.ok) {
         setProjects(await res.json());
       }
@@ -31,7 +30,7 @@ export default function Projects({ role }) {
 
   const openProject = async (projectId) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/status`, { headers });
+      const res = await fetch(apiUrl(`/projects/${projectId}/status`), { headers });
       if (res.ok) {
         setSelectedProject(await res.json());
       }
@@ -42,7 +41,7 @@ export default function Projects({ role }) {
 
   const updateApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/team-approval`, {
+      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
         method: 'POST',
         headers: {
           ...headers,

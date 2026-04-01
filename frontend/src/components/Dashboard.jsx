@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './Dashboard.css';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 const initialForm = {
   name: '',
@@ -42,18 +41,18 @@ export default function Dashboard({ role }) {
     setLoading(true);
     try {
       if (role === 'admin') {
-        const res = await fetch(`${API}/system/admin-dashboard`, { headers });
+        const res = await fetch(apiUrl('/system/admin-dashboard'), { headers });
         if (res.ok) {
           const data = await res.json();
           setDashboard(data);
         }
       } else if (role === 'employee') {
-        const res = await fetch(`${API}/employees/my-work`, { headers });
+        const res = await fetch(apiUrl('/employees/my-work'), { headers });
         if (res.ok) {
           setDashboard(await res.json());
         }
       } else {
-        const res = await fetch(`${API}/employees/client-workspace`, { headers });
+        const res = await fetch(apiUrl('/employees/client-workspace'), { headers });
         if (res.ok) {
           setDashboard(await res.json());
         }
@@ -66,7 +65,7 @@ export default function Dashboard({ role }) {
 
   const fetchProjectStatus = async (projectId) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/status`, { headers });
+      const res = await fetch(apiUrl(`/projects/${projectId}/status`), { headers });
       if (res.ok) {
         setProjectStatus(await res.json());
       }
@@ -93,7 +92,7 @@ export default function Dashboard({ role }) {
     };
 
     try {
-      const res = await fetch(`${API}/projects/`, {
+      const res = await fetch(apiUrl('/projects/'), {
         method: 'POST',
         headers: {
           ...headers,
@@ -107,7 +106,6 @@ export default function Dashboard({ role }) {
         throw new Error(data.detail || 'Project creation failed');
       }
 
-      setMessage(`Project created for ${data.client_name || 'the selected client'}. Team approval is now waiting.`);
       setMessage(`Project created for ${data.client_name || 'the selected client'}. Review the AI-generated role draft, then invite the proposed team.`);
       setFormData(initialForm);
       setShowClientPassword(false);
@@ -123,7 +121,7 @@ export default function Dashboard({ role }) {
 
   const handleApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/team-approval`, {
+      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
         method: 'POST',
         headers: {
           ...headers,

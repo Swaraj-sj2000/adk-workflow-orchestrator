@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 export default function EmployeeView({ role }) {
   const [data, setData] = useState(null);
@@ -20,7 +19,7 @@ export default function EmployeeView({ role }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const endpoint = role === 'admin' ? `${API}/system/team-dashboard` : `${API}/employees/my-work`;
+      const endpoint = role === 'admin' ? apiUrl('/system/team-dashboard') : apiUrl('/employees/my-work');
       const res = await fetch(endpoint, { headers });
       if (res.ok) {
         const nextData = await res.json();
@@ -42,7 +41,7 @@ export default function EmployeeView({ role }) {
 
   const toggleCheckpoint = async (checkpointId, completed) => {
     try {
-      const res = await fetch(`${API}/employees/checkpoints/${checkpointId}`, {
+      const res = await fetch(apiUrl(`/employees/checkpoints/${checkpointId}`), {
         method: 'PATCH',
         headers: {
           ...headers,
@@ -63,7 +62,7 @@ export default function EmployeeView({ role }) {
     if (!selectedTask) return;
 
     try {
-      const res = await fetch(`${API}/blockers/`, {
+      const res = await fetch(apiUrl('/blockers/'), {
         method: 'POST',
         headers: {
           ...headers,
@@ -87,7 +86,7 @@ export default function EmployeeView({ role }) {
 
   const respondToInvite = async (projectId, accepted) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/invite-response`, {
+      const res = await fetch(apiUrl(`/projects/${projectId}/invite-response`), {
         method: 'POST',
         headers: {
           ...headers,

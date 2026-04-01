@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 export default function Decisions() {
   const [dashboard, setDashboard] = useState(null);
@@ -19,8 +18,8 @@ export default function Decisions() {
     setLoading(true);
     try {
       const [agenticRes, statsRes] = await Promise.all([
-        fetch(`${API}/system/agentic-dashboard`, { headers }),
-        fetch(`${API}/decisions/statistics`, { headers }),
+        fetch(apiUrl('/system/agentic-dashboard'), { headers }),
+        fetch(apiUrl('/decisions/statistics'), { headers }),
       ]);
 
       if (agenticRes.ok) {
@@ -39,7 +38,7 @@ export default function Decisions() {
 
   const actOnApproval = async (projectId, approved) => {
     try {
-      const res = await fetch(`${API}/projects/${projectId}/team-approval`, {
+      const res = await fetch(apiUrl(`/projects/${projectId}/team-approval`), {
         method: 'POST',
         headers: {
           ...headers,

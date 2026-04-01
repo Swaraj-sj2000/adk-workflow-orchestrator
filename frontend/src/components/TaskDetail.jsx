@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API = 'http://localhost:8000';
+import { apiUrl } from '../lib/api';
 
 export default function TaskDetail({ taskId }) {
   const [task, setTask] = useState(null);
@@ -17,13 +16,13 @@ export default function TaskDetail({ taskId }) {
       const token = localStorage.getItem('token');
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      const tRes = await fetch(`${API}/tasks/${taskId}`, { headers });
+      const tRes = await fetch(apiUrl(`/tasks/${taskId}`), { headers });
       if (tRes.ok) setTask(await tRes.json());
 
-      const aRes = await fetch(`${API}/task-assignments?task_id=${taskId}`, { headers });
+      const aRes = await fetch(apiUrl(`/task-assignments?task_id=${taskId}`), { headers });
       if (aRes.ok) setAssignments(await aRes.json());
 
-      const pRes = await fetch(`${API}/task-progress?task_id=${taskId}`, { headers });
+      const pRes = await fetch(apiUrl(`/task-progress?task_id=${taskId}`), { headers });
       if (pRes.ok) setProgress(await pRes.json());
     } catch (err) {
       console.error('Error:', err);

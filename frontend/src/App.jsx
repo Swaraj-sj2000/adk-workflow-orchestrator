@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
+import { apiUrl } from './lib/api';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Projects from './components/Projects';
@@ -67,7 +68,6 @@ function AcceptInvitePage() {
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const API = 'http://localhost:8000';
 
   useEffect(() => {
     const validateInvite = async () => {
@@ -79,7 +79,7 @@ function AcceptInvitePage() {
 
       try {
         const res = await fetch(
-          `${API}/api/v1/auth/validate-invite?invite_code=${encodeURIComponent(inviteCode)}`
+          apiUrl(`/api/v1/auth/validate-invite?invite_code=${encodeURIComponent(inviteCode)}`)
         );
         const data = await res.json();
 
@@ -112,7 +112,7 @@ function AcceptInvitePage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/v1/auth/accept-invite`, {
+      const res = await fetch(apiUrl('/api/v1/auth/accept-invite'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -235,7 +235,6 @@ function LoginPage({ setCurrentUser }) {
   const [inviteCodeInput, setInviteCodeInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const API = 'http://localhost:8000';
 
   const goToInvitePage = () => {
     const trimmed = inviteCodeInput.trim();
@@ -251,7 +250,7 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(`${API}/api/v1/auth/login`, {
+      const res = await fetch(apiUrl('/api/v1/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -282,7 +281,7 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch(`${API}/api/v1/auth/signup`, {
+      const res = await fetch(apiUrl('/api/v1/auth/signup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, role })
