@@ -50,6 +50,23 @@ export default function Projects({ role }) {
     }
   };
 
+  const deleteProject = async (projectId) => {
+    if (!window.confirm('Are you sure? This will permanently delete the project and all associated tasks.')) {
+      return;
+    }
+    try {
+      await apiFetchJson(`/projects/${projectId}`, {
+        method: 'DELETE',
+        auth: true,
+      });
+      setMessage('✅ Project deleted successfully.');
+      setSelectedProject(null);
+      fetchProjects();
+    } catch (error) {
+      setMessage(`❌ Error deleting project: ${error.message}`);
+    }
+  };
+
   if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
   return (
@@ -117,12 +134,29 @@ export default function Projects({ role }) {
               <p className="progress-text">{project.progress || 0}% complete</p>
 
               <div className="project-card-actions">
-                <button className="btn btn-secondary" onClick={() => openProject(project.id)}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => openProject(project.id)}
+                  data-tooltip="View detailed project status, tasks, and team assignments"
+                >
                   Open Status
                 </button>
                 {role === 'admin' && project.approval_status === 'awaiting-admin-approval' && (
-                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => updateApproval(project.id, true)}
+                    data-tooltip="Approve this project team plan to proceed with execution"
+                  >
                     Approve
+                  </button>
+                )}
+                {role === 'admin' && (
+                  <button 
+                    className="btn btn-outline-danger" 
+                    onClick={() => deleteProject(project.id)}
+                    data-tooltip="Permanently delete this project and all associated tasks"
+                  >
+                    Delete
                   </button>
                 )}
               </div>
@@ -271,11 +305,31 @@ export default function Projects({ role }) {
 
               {role === 'admin' && selectedProject.approval_status === 'awaiting-admin-approval' && (
                 <div className="project-card-actions">
-                  <button className="btn btn-primary" onClick={() => updateApproval(selectedProject.id, true)}>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => updateApproval(selectedProject.id, true)}
+                    data-tooltip="Approve the recommended team plan and start task assignments"
+                  >
                     Approve Team Plan
                   </button>
-                  <button className="btn btn-danger" onClick={() => updateApproval(selectedProject.id, false)}>
+                  <button 
+                    className="btn btn-danger" 
+                    onClick={() => updateApproval(selectedProject.id, false)}
+                    data-tooltip="Reject this team plan and send it back for revision"
+                  >
                     Reject Team Plan
+                  </button>
+                </div>
+              )}
+
+              {role === 'admin' && (
+                <div className="project-card-actions">
+                  <button 
+                    className="btn btn-outline-danger" 
+                    onClick={() => deleteProject(selectedProject.id)}
+                    data-tooltip="Permanently delete entire project including all tasks and assignments"
+                  >
+                    🗑️ Delete Project
                   </button>
                 </div>
               )}

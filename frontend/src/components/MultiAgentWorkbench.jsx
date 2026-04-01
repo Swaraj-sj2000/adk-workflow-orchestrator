@@ -183,7 +183,12 @@ export default function MultiAgentWorkbench() {
           </div>
 
           <div className="button-group">
-            <button className="btn btn-primary" type="submit" disabled={loading || !requestText.trim()}>
+            <button 
+              className="btn btn-primary" 
+              type="submit" 
+              disabled={loading || !requestText.trim()}
+              data-tooltip="Execute all agents: intake → planning → staffing → risk → execution"
+            >
               {loading ? 'Running Workflow...' : 'Run Multi-Agent Workflow'}
             </button>
             <button
@@ -191,6 +196,7 @@ export default function MultiAgentWorkbench() {
               type="button"
               disabled={loading}
               onClick={() => fetchWorkflows()}
+              data-tooltip="Reload the list of recent workflow executions"
             >
               Refresh Runs
             </button>
@@ -234,7 +240,13 @@ export default function MultiAgentWorkbench() {
       <div className="card full-width">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
           <h2>Worker Queue Health</h2>
-          <button className="btn btn-secondary" type="button" disabled={loading} onClick={fetchQueueHealth}>
+          <button 
+            className="btn btn-secondary" 
+            type="button" 
+            disabled={loading} 
+            onClick={fetchQueueHealth}
+            data-tooltip="Check the status of background task workers"
+          >
             Refresh Queue
           </button>
         </div>
@@ -338,7 +350,12 @@ export default function MultiAgentWorkbench() {
 
             {selectedWorkflow.requires_human_review && (
               <div className="button-group">
-                <button className="btn btn-primary" disabled={loading} onClick={approveWorkflow}>
+                <button 
+                  className="btn btn-primary" 
+                  disabled={loading} 
+                  onClick={approveWorkflow}
+                  data-tooltip="Approve this workflow to proceed with task assignments and execution"
+                >
                   {loading ? 'Approving...' : 'Approve And Continue'}
                 </button>
               </div>

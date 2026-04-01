@@ -228,18 +228,22 @@ export default function Dashboard({ role }) {
             Track project status, client response health, payment state, employee involvement, and the current decision waiting on the team.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate((current) => !current)}>
+        <button 
+          className="btn btn-primary" 
+          onClick={() => setShowCreate((current) => !current)}
+          data-tooltip="Manually create a new project and assign a team"
+        >
           {showCreate ? 'Close New Project Form' : 'New Project'}
         </button>
       </div>
 
       <div className="summary-grid full-width">
-        <SummaryCard label="Active Projects" value={summary.active_projects || 0} />
-        <SummaryCard label="Completed Projects" value={summary.completed_projects || 0} />
-        <SummaryCard label="Clients" value={summary.clients || 0} />
-        <SummaryCard label="Team Available Now" value={summary.employees_available_now || 0} />
-        <SummaryCard label="Average Workload" value={`${summary.average_team_workload || 0}%`} />
-        <SummaryCard label="Waiting Approval" value={summary.projects_waiting_approval || 0} />
+        <SummaryCard label="Active Projects" value={summary.active_projects || 0} tooltip="Number of projects currently in planning or execution" />
+        <SummaryCard label="Completed Projects" value={summary.completed_projects || 0} tooltip="Projects that have been successfully delivered" />
+        <SummaryCard label="Clients" value={summary.clients || 0} tooltip="Total number of active clients" />
+        <SummaryCard label="Team Available Now" value={summary.employees_available_now || 0} tooltip="Team members currently available for assignment" />
+        <SummaryCard label="Average Workload" value={`${summary.average_team_workload || 0}%`} tooltip="Average capacity utilization across the team" />
+        <SummaryCard label="Waiting Approval" value={summary.projects_waiting_approval || 0} tooltip="Projects pending your approval to move forward" />
       </div>
 
       {showCreate && (
@@ -605,9 +609,9 @@ export default function Dashboard({ role }) {
   );
 }
 
-function SummaryCard({ label, value }) {
+function SummaryCard({ label, value, tooltip }) {
   return (
-    <div className="summary-card">
+    <div className="summary-card" data-tooltip={tooltip}>
       <p>{label}</p>
       <div className="metric">{value}</div>
     </div>
