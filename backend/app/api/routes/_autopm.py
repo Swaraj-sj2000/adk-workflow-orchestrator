@@ -2,13 +2,16 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core._deps import get_db, get_current_user
+from app.models._task import Task
+from app.models._task_assignment import TaskAssignment
 from app.models._user import User
 from app.services._autopm_service import AutoPMService
+from app.services._event_service import EventService, process_event_queue_batch_async
 
 router = APIRouter(prefix="/autopm", tags=["AutoPM"])
 
@@ -65,16 +68,36 @@ def assign_project_tasks(
 def respond_to_assignment(
     assignment_id: int,
     payload: AssignmentResponseRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     service = AutoPMService(db)
     try:
-        return service.handle_assignment_response(
+        result = service.handle_assignment_response(
             assignment_id=assignment_id,
             response=payload.response,
             negotiation_notes=payload.negotiation_notes,
         )
+        assignment = db.query(TaskAssignment).filter(TaskAssignment.id == assignment_id).first()
+        task = db.query(Task).filter(Task.id == result.get("task_id")).first() if result.get("task_id") else None
+        if task:
+            event_service = EventService(db)
+            event_service.publish_event(
+                event_type="PROJECT_EXECUTION_SIGNAL",
+                entity_type="project",
+                entity_id=task.project_id,
+                payload={
+                    "triggered_by": current_user.id,
+                    "source": "assignment_response",
+                    "task_id": task.id,
+                    "assignment_id": assignment.id if assignment else assignment_id,
+                    "response": payload.response,
+                    "persist_followup_messages": True,
+                },
+            )
+            background_tasks.add_task(process_event_queue_batch_async, 1)
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

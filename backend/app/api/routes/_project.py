@@ -4,8 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db._database import get_db
-from app.schemas._project import ProjectCreate
-from app.services._project_service import create_project, get_projects
+from app.schemas._project import ProjectCreate, ProjectInviteResponse, TeamApprovalAction
+from app.services._project_service import (
+    build_project_status,
+    create_project,
+    get_clients,
+    get_projects,
+    handle_team_approval,
+    handle_project_invite_response,
+)
 from app.core._deps import get_current_user
 from app.models._project import Project
 
@@ -18,16 +25,7 @@ def create(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    return create_project(
-        db,
-        project.name,
-        project.description,
-        project.budget,
-        admin_id=user.id,
-        client_id=project.client_id,
-        priority=project.priority,
-        deadline=project.deadline,
-    )
+    return create_project(db, project, admin_id=user.id)
 
 
 @router.get("/")
@@ -35,7 +33,59 @@ def read_all(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    return get_projects(db)
+    return get_projects(db, viewer=user)
+
+
+@router.get("/clients")
+def read_clients(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return get_clients(db)
+
+
+@router.get("/{project_id}/status")
+def read_project_status(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return build_project_status(db, project_id, viewer=user)
+
+
+@router.post("/{project_id}/team-approval")
+def act_on_team_approval(
+    project_id: int,
+    payload: TeamApprovalAction,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can confirm project team approval")
+
+    return handle_team_approval(
+        db=db,
+        project_id=project_id,
+        approved=payload.approved,
+        note=payload.note,
+        actor_id=user.id,
+    )
+
+
+@router.post("/{project_id}/invite-response")
+def respond_to_project_invite(
+    project_id: int,
+    payload: ProjectInviteResponse,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return handle_project_invite_response(
+        db=db,
+        project_id=project_id,
+        accepted=payload.accepted,
+        note=payload.note,
+        actor=user,
+    )
 
 
 @router.delete("/{project_id}")
