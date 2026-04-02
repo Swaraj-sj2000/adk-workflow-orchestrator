@@ -243,6 +243,9 @@ def build_admin_dashboard(db: Session):
 
 
 def build_team_dashboard(db: Session):
+    from app.models._task_progress import TaskProgress
+    from app.models._blocker import Blocker
+    
     employees = (
         db.query(EmployeeProfile)
         .options(joinedload(EmployeeProfile.user), joinedload(EmployeeProfile.assignments).joinedload(TaskAssignment.task))
@@ -257,6 +260,38 @@ def build_team_dashboard(db: Session):
             for assignment in employee.assignments
             if assignment.task and assignment.task.project and assignment.task.project.status != "completed"
         ]
+        
+        # Build task details for each active assignment
+        task_details = []
+        for assignment in active_assignments:
+            task = assignment.task
+            project = task.project
+            
+            # Get task progress
+            progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
+            completion_pct = progress.completion_percentage if progress else 0.0
+            is_on_track = progress.is_on_track if progress else 1
+            
+            # Get blockers for this task
+            blockers = db.query(Blocker).filter(Blocker.task_id == task.id, Blocker.resolved == False).all()
+            blocker_count = len(blockers)
+            
+            task_details.append({
+                "assignment_id": assignment.id,
+                "task_id": task.id,
+                "task_title": task.title,
+                "project_name": project.name,
+                "project_id": project.id,
+                "completion_percentage": completion_pct,
+                "is_on_track": bool(is_on_track),
+                "has_blockers": blocker_count > 0,
+                "blocker_count": blocker_count,
+                "estimated_hours": assignment.estimated_hours,
+                "actual_hours_spent": progress.actual_hours_spent if progress else 0.0,
+                "priority": task.priority,
+                "deadline": task.deadline.isoformat() if task.deadline else None,
+            })
+        
         members.append(
             {
                 "employee_id": employee.id,
@@ -274,6 +309,7 @@ def build_team_dashboard(db: Session):
                 "active_projects": sorted(
                     {assignment.task.project.name for assignment in active_assignments if assignment.task and assignment.task.project}
                 ),
+                "tasks": task_details,
             }
         )
 

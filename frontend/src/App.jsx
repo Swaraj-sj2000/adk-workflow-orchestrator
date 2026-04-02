@@ -25,11 +25,21 @@ function AppShell() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
+  const [theme, setTheme] = useState('light');
 
   useEffect(() => {
     const user = localStorage.getItem('user');
     if (user) setCurrentUser(JSON.parse(user));
+    
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    setTheme(savedTheme);
   }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -42,8 +52,8 @@ function AppShell() {
   }
 
   return (
-    <div className="app">
-      <Navbar user={currentUser} onLogout={handleLogout} setPage={setCurrentPage} />
+    <div className={`app theme-${theme}`}>
+      <Navbar user={currentUser} onLogout={handleLogout} setPage={setCurrentPage} theme={theme} onToggleTheme={toggleTheme} />
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
         {currentPage === 'projects' && <Projects role={currentUser.role} />}

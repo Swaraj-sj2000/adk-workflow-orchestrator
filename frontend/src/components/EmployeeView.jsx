@@ -179,6 +179,46 @@ export default function EmployeeView({ role }) {
                 <strong>{(selectedMember.active_projects || []).join(', ') || 'No active projects right now'}</strong>
               </div>
 
+              <h3>Active Tasks</h3>
+              {(selectedMember.tasks || []).length > 0 ? (
+                <div className="list">
+                  {selectedMember.tasks.map((task) => (
+                    <div key={task.assignment_id} className="list-item" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div className="task-line">
+                        <div>
+                          <strong>{task.task_title}</strong>
+                          <p>{task.project_name} • Priority: {task.priority}</p>
+                        </div>
+                        <span className={`status-badge status-${task.is_on_track ? 'approved' : 'rejected'}`}>
+                          {task.is_on_track ? '✅ On Track' : '⚠️ At Risk'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '0.85rem' }}>
+                        <div>
+                          <span style={{ color: '#666' }}>Progress</span>
+                          <div style={{ fontWeight: 'bold', marginTop: '4px' }}>{Math.round(task.completion_percentage)}%</div>
+                          <div style={{ background: '#e0e0e0', height: '4px', borderRadius: '2px', marginTop: '4px', overflow: 'hidden' }}>
+                            <div style={{ background: task.is_on_track ? '#2f7d62' : '#c62828', height: '100%', width: `${task.completion_percentage}%` }}></div>
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ color: '#666' }}>Hours</span>
+                          <div style={{ fontWeight: 'bold', marginTop: '4px' }}>{task.actual_hours_spent.toFixed(1)} / {task.estimated_hours}h</div>
+                        </div>
+                        <div>
+                          <span style={{ color: '#666' }}>Status</span>
+                          <div style={{ fontWeight: 'bold', marginTop: '4px', color: task.has_blockers ? '#c62828' : '#2f7d62' }}>
+                            {task.has_blockers ? `🔴 ${task.blocker_count} blocker${task.blocker_count > 1 ? 's' : ''}` : '✅ Clear'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ fontSize: '0.9rem', color: '#999' }}>No active tasks</p>
+              )}
+
               <h3>Skill Profile</h3>
               <div className="list">
                 {Object.entries(selectedMember.skills || {}).map(([skill, score]) => (

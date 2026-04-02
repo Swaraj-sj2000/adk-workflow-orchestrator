@@ -15,6 +15,7 @@ from app.services._project_service import (
 )
 from app.core._deps import get_current_user
 from app.models._project import Project
+from app.models._task import Task
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -101,6 +102,32 @@ def delete_project(
     if user.role != "admin" and user.id != project.admin_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this project")
 
-    db.delete(project)
-    db.commit()
-    return {"success": True, "project_id": project_id}
+    try:
+        # Delete all related records first (cascade)
+        # Delete task assignments
+        from app.models._task_assignment import TaskAssignment
+        db.query(TaskAssignment).filter(
+            TaskAssignment.task_id.in_(
+                db.query(Task.id).filter(Task.project_id == project_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # Delete task dependencies
+        from app.models._task_dependency import TaskDependency
+        db.query(TaskDependency).filter(
+            TaskDependency.task_id.in_(
+                db.query(Task.id).filter(Task.project_id == project_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # Delete tasks
+        db.query(Task).filter(Task.project_id == project_id).delete(synchronize_session=False)
+        
+        # Delete project
+        db.delete(project)
+        db.commit()
+        
+        return {"success": True, "project_id": project_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")

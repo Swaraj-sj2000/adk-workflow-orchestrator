@@ -2,10 +2,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: white;
+  background: var(--bg-secondary);
   padding: 15px 20px;
-  border-bottom: 1px solid #eee;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .nav-left {
@@ -16,7 +17,7 @@
   font-size: 20px;
   font-weight: bold;
   cursor: pointer;
-  color: #667eea;
+  color: var(--accent-color);
   margin: 0;
 }
 
@@ -32,13 +33,13 @@
   border: none;
   cursor: pointer;
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 14px;
   transition: color 0.3s;
 }
 
 .nav-btn:hover {
-  color: #667eea;
+  color: var(--accent-color);
 }
 
 .nav-right {
@@ -54,10 +55,11 @@
   align-items: center;
   gap: 10px;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .role-badge {
-  background: #667eea;
+  background: var(--accent-color);
   color: white;
   padding: 2px 8px;
   border-radius: 12px;
@@ -65,8 +67,29 @@
   font-weight: 600;
 }
 
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s, border-color 0.3s;
+  width: 36px;
+  height: 36px;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-color);
+}
+
 .logout-btn {
-  background: #dc2626;
+  background: var(--danger-color);
   color: white;
   border: none;
   padding: 8px 16px;
@@ -78,7 +101,7 @@
 }
 
 .logout-btn:hover {
-  background: #b91c1c;
+  background: #a61d1d;
 }
 
 @media (max-width: 768px) {
