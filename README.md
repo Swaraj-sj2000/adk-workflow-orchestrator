@@ -118,3 +118,6 @@ Building autonomous workflows for lean teams managing multiple projects.
 
 - **Email**: swarajsj8102000@gmail.com
 - **LinkedIn**: [swaraj-swaraj-a6339023b](https://www.linkedin.com/in/swaraj-swaraj-a6339023b)
+
+- **Email**: dubeybishal70@gmail.com
+- **LinkedIn**: [swaraj-swaraj-a6339023b](https://www.linkedin.com/in/bishaldubey/)
