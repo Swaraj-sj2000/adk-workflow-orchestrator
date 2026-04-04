@@ -1,12 +1,18 @@
+/* Modern Navbar Component */
+
 .navbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: var(--bg-secondary);
-  padding: 15px 20px;
-  border-bottom: 1px solid var(--border-color);
-  box-shadow: var(--card-shadow);
-  transition: background 0.3s ease, border-color 0.3s ease;
+  padding: 16px 32px;
+  border-bottom: 2px solid var(--border-color);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  backdrop-filter: blur(10px);
 }
 
 .nav-left {
@@ -14,32 +20,63 @@
 }
 
 .logo {
-  font-size: 20px;
-  font-weight: bold;
+  font-size: 24px;
+  font-weight: 800;
   cursor: pointer;
-  color: var(--accent-color);
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 0;
+  transition: all 0.3s ease;
+  letter-spacing: -0.5px;
+}
+
+.logo:hover {
+  transform: scale(1.05);
 }
 
 .nav-center {
   flex: 2;
   display: flex;
   justify-content: center;
-  gap: 20px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .nav-btn {
-  background: none;
+  background: transparent;
   border: none;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
-  font-size: 14px;
-  transition: color 0.3s;
+  font-size: 15px;
+  transition: all 0.3s ease;
+  padding: 10px 18px;
+  border-radius: 10px;
+  position: relative;
+}
+
+.nav-btn::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 3px;
+  background: var(--gradient-primary);
+  transform: translateX(-50%);
+  transition: width 0.3s ease;
+  border-radius: 3px 3px 0 0;
 }
 
 .nav-btn:hover {
   color: var(--accent-color);
+  background: var(--bg-tertiary);
+}
+
+.nav-btn:hover::before {
+  width: 80%;
 }
 
 .nav-right {
@@ -47,80 +84,120 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 15px;
+  gap: 16px;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: 14px;
   color: var(--text-primary);
+  font-weight: 500;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 24px;
+  border: 2px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.user-info:hover {
+  border-color: var(--accent-color);
+  transform: translateY(-2px);
+  box-shadow: var(--card-shadow);
 }
 
 .role-badge {
-  background: var(--accent-color);
+  background: var(--gradient-primary);
   color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
+  padding: 4px 12px;
+  border-radius: 16px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .theme-toggle-btn {
-  background: none;
-  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
   color: var(--text-primary);
-  padding: 6px 10px;
-  border-radius: 4px;
+  padding: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.3s, border-color 0.3s;
-  width: 36px;
-  height: 36px;
+  transition: all 0.3s ease;
+  width: 44px;
+  height: 44px;
 }
 
 .theme-toggle-btn:hover {
-  background: var(--bg-tertiary);
+  background: var(--accent-color);
   border-color: var(--accent-color);
+  color: white;
+  transform: rotate(180deg) scale(1.1);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
 .logout-btn {
-  background: var(--danger-color);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
   border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 12px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 14px;
-  transition: background 0.3s;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .logout-btn:hover {
-  background: #a61d1d;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
 }
 
+.logout-btn:active {
+  transform: translateY(0);
+}
+
+/* Responsive Design */
 @media (max-width: 768px) {
   .navbar {
     flex-direction: column;
-    gap: 10px;
+    gap: 16px;
+    padding: 16px 20px;
   }
 
   .nav-center {
     width: 100%;
     justify-content: flex-start;
+    order: 3;
   }
 
   .nav-right {
     width: 100%;
     justify-content: space-between;
+    order: 2;
+  }
+
+  .nav-left {
+    order: 1;
   }
 
   .user-info {
-    font-size: 12px;
+    font-size: 13px;
+    padding: 6px 12px;
+  }
+
+  .nav-btn {
+    font-size: 14px;
+    padding: 8px 14px;
   }
 }
