@@ -266,7 +266,9 @@ function LoginPage({ setCurrentUser }) {
       localStorage.setItem('user', JSON.stringify(user));
       setCurrentUser(user);
     } catch (err) {
-      setMessage('Login failed: ' + err.message);
+      const errorMsg = err?.message || err?.toString() || 'Login failed. Please check your credentials.';
+      setMessage('Login failed: ' + errorMsg);
+      console.error('Login error:', err);
     }
     setLoading(false);
   };
@@ -286,7 +288,9 @@ function LoginPage({ setCurrentUser }) {
       setPassword('');
       setFullName('');
     } catch (err) {
-      setMessage('Registration failed: ' + err.message);
+      const errorMsg = err?.message || err?.toString() || 'Registration failed. Please try again.';
+      setMessage('Registration failed: ' + errorMsg);
+      console.error('Registration error:', err);
     }
     setLoading(false);
   };
