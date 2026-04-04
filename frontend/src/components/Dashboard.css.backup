@@ -1,0 +1,289 @@
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.dashboard-admin {
+  align-items: start;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.admin-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  background: linear-gradient(135deg, #f7f8f0 0%, #edf6f1 100%);
+  border: 1px solid #d8e4dc;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--accent-color);
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 15px;
+}
+
+.summary-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  border-radius: 12px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--card-shadow);
+}
+
+.summary-card p {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.metric {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--accent-color);
+}
+
+.create-project-card {
+  border: 1px solid #dbe5df;
+}
+
+.project-create-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 13px;
+  color: #4f5f57;
+  font-weight: 600;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #d7e0d8;
+  background: #fcfdfc;
+  color: #203126;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #2f7d62;
+  box-shadow: 0 0 0 3px rgba(47, 125, 98, 0.12);
+}
+
+.form-span-2 {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 16px;
+}
+
+.project-shell {
+  background: #fbfcfb;
+  border: 1px solid #e2e9e4;
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.project-card-top,
+.task-line,
+.section-heading,
+.project-card-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.project-card-top h3,
+.section-heading h2 {
+  margin-bottom: 6px;
+}
+
+.id-line {
+  font-size: 12px;
+  color: #67756d;
+  margin-bottom: 6px;
+}
+
+.project-mini-grid,
+.project-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.info-pill {
+  background: #eff5f1;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-pill span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7b73;
+}
+
+.info-pill strong,
+.detail-card-value {
+  font-size: 14px;
+  color: #1f3328;
+  line-height: 1.4;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #6d746f;
+}
+
+.project-status-panel {
+  border-top: 4px solid #2f7d62;
+}
+
+.task-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: #4b5d54;
+  margin-bottom: 18px;
+}
+
+.two-column-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.people-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.person-chip {
+  background: #f1f5f2;
+  border: 1px solid #dbe4de;
+  border-radius: 999px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.person-chip strong {
+  font-size: 13px;
+  color: #203126;
+}
+
+.person-chip span {
+  font-size: 12px;
+  color: #5e6f65;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.report-preview {
+  min-width: 280px;
+  white-space: pre-wrap;
+}
+
+.empty-state {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #68746d;
+  text-align: center;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+}
+
+.health-item {
+  background: #f9faf8;
+  padding: 15px;
+  border-radius: 12px;
+  text-align: center;
+  border: 1px solid #e3e8e4;
+}
+
+.health-item h4 {
+  font-size: 12px;
+  color: #68766f;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 960px) {
+  .dashboard,
+  .two-column-layout,
+  .project-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-hero,
+  .section-heading,
+  .project-card-actions,
+  .task-line,
+  .project-card-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
