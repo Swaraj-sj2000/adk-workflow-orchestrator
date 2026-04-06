@@ -125,3 +125,8 @@ app.include_router(_multi_agent_routes.router)
 def root():
     logger.debug("Health check endpoint called")
     return {"message": "AI Workforce Orchestrator Running"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}

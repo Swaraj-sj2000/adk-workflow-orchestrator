@@ -21,6 +21,9 @@ class LoggerConfig:
     def __init__(self):
         self.log_dir = Path(os.getenv("LOG_DIR", "./logs"))
         self.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+        self.console_level = os.getenv("LOG_CONSOLE_LEVEL", self.log_level).upper()
+        self.log_to_stdout = os.getenv("LOG_TO_STDOUT", "true").lower() == "true"
+        self.log_file_enabled = os.getenv("LOG_FILE_ENABLED", "true").lower() == "true"
         self.max_bytes = int(os.getenv("LOG_MAX_BYTES", 10 * 1024 * 1024))  # 10MB default
         self.backup_count = int(os.getenv("LOG_BACKUP_COUNT", 5))
         self.log_format = os.getenv(
@@ -29,8 +32,9 @@ class LoggerConfig:
         )
         self.date_format = "%Y-%m-%d %H:%M:%S"
         
-        # Create log directory if it doesn't exist
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        # Create log directory if file logging is enabled
+        if self.log_file_enabled:
+            self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Track configured loggers to avoid duplicate handlers
         self._configured_loggers = set()
@@ -58,35 +62,29 @@ class LoggerConfig:
         # Remove any existing handlers to avoid duplicates
         logger.handlers.clear()
         
-        # Determine log file name
-        if log_file is None:
-            # Extract component name from module path
-            component = name.split(".")[-1] if "." in name else name
-            log_file = f"{component}.log"
-        
-        log_path = self.log_dir / log_file
-        
-        # Create rotating file handler
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_path,
-            maxBytes=self.max_bytes,
-            backupCount=self.backup_count,
-            encoding="utf-8"
-        )
-        file_handler.setLevel(getattr(logging, self.log_level, logging.INFO))
-        
-        # Create console handler for development
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.WARNING)  # Only warnings and above to console
-        
         # Set formatter
         formatter = logging.Formatter(self.log_format, datefmt=self.date_format)
-        file_handler.setFormatter(formatter)
-        console_handler.setFormatter(formatter)
-        
-        # Add handlers
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+
+        if self.log_file_enabled:
+            if log_file is None:
+                component = name.split(".")[-1] if "." in name else name
+                log_file = f"{component}.log"
+            log_path = self.log_dir / log_file
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_path,
+                maxBytes=self.max_bytes,
+                backupCount=self.backup_count,
+                encoding="utf-8"
+            )
+            file_handler.setLevel(getattr(logging, self.log_level, logging.INFO))
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+        if self.log_to_stdout:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(getattr(logging, self.console_level, logging.INFO))
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
         
         # Mark as configured
         self._configured_loggers.add(name)
