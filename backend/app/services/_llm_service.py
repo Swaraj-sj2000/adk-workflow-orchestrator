@@ -4,17 +4,23 @@ import os
 import re
 from typing import Any, Dict, List
 
+from app.core._logging import get_logger
+
+logger = get_logger(__name__)
+
 try:
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 
     LANGCHAIN_AVAILABLE = True
+    logger.info("LangChain dependencies loaded successfully")
 except ImportError:
     LANGCHAIN_AVAILABLE = False
     HumanMessage = None
     SystemMessage = None
     ChatHuggingFace = None
     HuggingFaceEndpoint = None
+    logger.warning("LangChain dependencies not available - fallback mode will be used")
 
 
 class LLMService:
@@ -36,8 +42,15 @@ class LLMService:
         self.chat_model = None
         self.init_error = None
 
+        logger.info(
+            f"Initializing LLM service: model={self.model_id}, "
+            f"temperature={self.temperature}, max_tokens={self.max_new_tokens}, "
+            f"timeout={self.timeout}s, enabled={self.enabled}"
+        )
+
         if self.enabled:
             try:
+                logger.debug(f"Connecting to HuggingFace endpoint: {self.model_id}")
                 endpoint = HuggingFaceEndpoint(
                     repo_id=self.model_id,
                     huggingfacehub_api_token=self.token,
@@ -46,13 +59,20 @@ class LLMService:
                     timeout=self.timeout,
                 )
                 self.chat_model = ChatHuggingFace(llm=endpoint)
+                logger.info(f"LLM service initialized successfully with model: {self.model_id}")
             except Exception as exc:
                 self.chat_model = None
                 self.enabled = False
                 self.init_error = str(exc)
+                logger.error(f"Failed to initialize LLM service: {exc}", exc_info=True)
+        else:
+            logger.warning("LLM service disabled - using fallback mode (no token or LangChain unavailable)")
 
     def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
+        logger.info(f"Parsing project intake request (length={len(request_text)} chars)")
+        
         if not self.enabled:
+            logger.warning("LLM disabled - using fallback project parser")
             return self._fallback_project_parse(request_text)
 
         messages = [
@@ -278,9 +298,13 @@ class LLMService:
 
     def _invoke_text(self, messages: List[Any]) -> str:
         try:
+            logger.debug(f"Invoking LLM with {len(messages)} messages")
             response = self.chat_model.invoke(messages)
-            return getattr(response, "content", str(response)).strip()
-        except Exception:
+            result = getattr(response, "content", str(response)).strip()
+            logger.debug(f"LLM response received (length={len(result)} chars)")
+            return result
+        except Exception as exc:
+            logger.error(f"LLM invocation failed: {exc}", exc_info=True)
             return ""
 
     def _invoke_json(self, messages: List[Any]) -> Dict[str, Any]:
