@@ -23,19 +23,40 @@ export INSTANCE_NAME=orchestrator-sql
 export DB_NAME=orchestrator
 export DB_USER=orchestrator_user
 
-# Check if DB_PASSWORD is provided, otherwise prompt for it
+# Fetch DB_PASSWORD from Secret Manager if not provided
 if [ -z "$DB_PASSWORD" ]; then
-    echo "Error: DB_PASSWORD not set."
-    echo "Please set it with: export DB_PASSWORD='your-password'"
-    echo "Or retrieve it from where you saved it during database setup."
-    exit 1
+    echo "Fetching DB_PASSWORD from Secret Manager..."
+    if gcloud secrets describe db-password --project=$PROJECT_ID &>/dev/null; then
+        export DB_PASSWORD=$(gcloud secrets versions access latest --secret="db-password" --project=$PROJECT_ID)
+        echo "✓ DB_PASSWORD retrieved from Secret Manager"
+    else
+        export DB_PASSWORD=$(openssl rand -base64 32)
+        echo "Generated DB Password: $DB_PASSWORD"
+        echo "IMPORTANT: Save this password securely!"
+
+        gcloud sql users create $DB_USER \
+          --instance=$INSTANCE_NAME \
+          --password="$DB_PASSWORD"
+
+        echo " DB_PASSWORD created"
+    fi
 fi
 
-# Generate SECRET_KEY if not provided
+# Fetch SECRET_KEY from Secret Manager if not provided
 if [ -z "$SECRET_KEY" ]; then
-    export SECRET_KEY=$(openssl rand -base64 32)
-    echo "Generated SECRET_KEY: $SECRET_KEY"
-    echo "IMPORTANT: Save this for future use!"
+    echo "Fetching SECRET_KEY from Secret Manager..."
+    if gcloud secrets describe backend-secret-key --project=$PROJECT_ID &>/dev/null; then
+        export SECRET_KEY=$(gcloud secrets versions access latest --secret="backend-secret-key" --project=$PROJECT_ID)
+        echo "✓ SECRET_KEY retrieved from Secret Manager"
+    else
+        echo "Generating new SECRET_KEY..."
+        export SECRET_KEY=$(openssl rand -base64 32)
+        echo "Generated SECRET_KEY: $SECRET_KEY"
+        echo "IMPORTANT: Save this for future use!"
+        echo ""
+        echo "To store in Secret Manager for future deployments:"
+        echo "echo -n '$SECRET_KEY' | gcloud secrets create backend-secret-key --data-file=-"
+    fi
 fi
 
 # Construct DATABASE_URL (now DB_PASSWORD is defined)
