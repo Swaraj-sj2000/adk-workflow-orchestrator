@@ -2575,7 +2575,7 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
 
         if task_ids:
             db.query(Task).filter(Task.id.in_(task_ids)).delete(synchronize_session=False)
-        db.delete(project)
+        db.query(Project).filter(Project.id == project.id, Project.tenant_id == actor.tenant_id).delete(synchronize_session=False)
         db.commit()
     except Exception:
         db.rollback()
