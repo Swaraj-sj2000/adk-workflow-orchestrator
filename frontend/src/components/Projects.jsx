@@ -153,6 +153,7 @@ export default function Projects({ role }) {
                 <div className="detail-item"><strong>Project ID:</strong> #{project.project_id || project.id}</div>
                 {role === 'admin' && <div className="detail-item"><strong>Client ID:</strong> {project.client_id ? `#${project.client_id}` : 'Not linked'}</div>}
                 {role !== 'client' && <div className="detail-item"><strong>Client:</strong> {project.client_name || `Client #${project.client_id || 'NA'}`}</div>}
+                {role === 'admin' && <div className="detail-item"><strong>Client Contact:</strong> {project.client_contact_person || project.client_user_name || 'Not set'}</div>}
                 <div className="detail-item"><strong>Payment:</strong> {project.payment_status}</div>
                 <div className="detail-item"><strong>Approval:</strong> {project.approval_status || 'n/a'}</div>
                 <div className="detail-item"><strong>Phase:</strong> {project.current_phase || 'n/a'}</div>
@@ -173,6 +174,12 @@ export default function Projects({ role }) {
                 <span>Manager Brief</span>
                 <strong>{project.viewer_guidance || 'No stage brief available yet.'}</strong>
               </div>
+              {project.today_status && (
+                <div className="info-pill">
+                  <span>Today's Status</span>
+                  <strong>{project.today_status}</strong>
+                </div>
+              )}
 
               <div className="progress">
                 <div className="progress-fill" style={{ width: `${project.progress || 0}%` }}></div>
@@ -227,6 +234,12 @@ export default function Projects({ role }) {
                     <strong>{selectedProject.client_id ? `#${selectedProject.client_id}` : 'Not linked'}</strong>
                   </div>
                 )}
+                {role === 'admin' && (
+                  <div className="info-pill">
+                    <span>Client Contact</span>
+                    <strong>{selectedProject.client_contact_person || selectedProject.client_user_name || 'Not set'}</strong>
+                  </div>
+                )}
                 <div className="info-pill">
                   <span>Client Status</span>
                   <strong>{selectedProject.client_status}</strong>
@@ -254,6 +267,18 @@ export default function Projects({ role }) {
                   <span>Decision Support</span>
                   <strong>{selectedProject.decision_support || 'No decision memo available yet.'}</strong>
                 </div>
+                {selectedProject.today_status && (
+                  <div className="info-pill">
+                    <span>Today's Status</span>
+                    <strong>{selectedProject.today_status}</strong>
+                  </div>
+                )}
+                {selectedProject.report_text && (
+                  <div className="info-pill">
+                    <span>Project Report</span>
+                    <strong>{selectedProject.report_text}</strong>
+                  </div>
+                )}
               </div>
 
               {role === 'admin' && (

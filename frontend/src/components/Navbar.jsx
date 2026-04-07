@@ -45,7 +45,7 @@ export default function Navbar({ user, onLogout, setPage, theme, onToggleTheme }
           onClick={onToggleTheme}
           data-tooltip={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
         >
-          {theme === 'light' ? 'Dark' : 'Light'}
+          {theme === 'light' ? '🌙' : '☀️'}
         </button>
         <button onClick={onLogout} className="logout-btn">Logout</button>
       </div>
