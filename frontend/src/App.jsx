@@ -14,11 +14,22 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
+  const [theme, setTheme] = useState('light');
 
   useEffect(() => {
     const user = localStorage.getItem('user');
     if (user) setCurrentUser(JSON.parse(user));
+    const storedTheme = localStorage.getItem('theme');
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      setTheme(storedTheme);
+    }
   }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('theme', theme);
+    }
+  }, [theme, currentUser]);
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -26,13 +37,23 @@ export default function App() {
     setCurrentUser(null);
   };
 
+  const toggleTheme = () => {
+    setTheme((current) => (current === 'light' ? 'dark' : 'light'));
+  };
+
   if (!currentUser) {
     return <LoginPage setCurrentUser={setCurrentUser} />;
   }
 
   return (
-    <div className="app">
-      <Navbar user={currentUser} onLogout={handleLogout} setPage={setCurrentPage} />
+    <div className={`app theme-${theme}`}>
+      <Navbar
+        user={currentUser}
+        onLogout={handleLogout}
+        setPage={setCurrentPage}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
         {currentPage === 'projects' && <Projects role={currentUser.role} />}

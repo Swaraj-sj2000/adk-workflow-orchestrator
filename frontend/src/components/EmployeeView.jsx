@@ -327,7 +327,7 @@ export default function EmployeeView({ role }) {
               {(track.tasks || []).map((task) => (
                 <div key={task.task_id} style={{ marginTop: '10px' }}>
                   <p><strong>{task.task_name}</strong> • {task.estimated_hours}h</p>
-                  <p>{(task.delivery_steps || []).join(' | ') || 'Detailed steps will appear here once activation completes.'}</p>
+                  <p>{(task.delivery_steps || []).join(' | ') || 'Detailed steps will appear here as soon as your invite is accepted and the work package is generated.'}</p>
                 </div>
               ))}
             </div>
@@ -354,6 +354,7 @@ export default function EmployeeView({ role }) {
                 </span>
               </div>
               <p>{project.public_status_label}</p>
+              <p><strong>Project Progress:</strong> {project.progress || 0}%</p>
             </div>
           ))}
         </div>
@@ -382,6 +383,7 @@ export default function EmployeeView({ role }) {
                 </span>
               </div>
               <p>{task.completion_percentage}% complete</p>
+              <p><strong>Project Progress:</strong> {task.project_progress || 0}%</p>
             </div>
           ))}
         </div>
@@ -400,6 +402,10 @@ export default function EmployeeView({ role }) {
               <div className="info-pill">
                 <span>Progress</span>
                 <strong>{selectedTask.completion_percentage}%</strong>
+              </div>
+              <div className="info-pill">
+                <span>Project Progress</span>
+                <strong>{selectedTask.project_progress || 0}%</strong>
               </div>
               <div className="info-pill">
                 <span>Estimate</span>
@@ -499,7 +505,7 @@ export default function EmployeeView({ role }) {
           </>
         ) : (
           <div className="empty-state">
-            <p>{tasks.length > 0 ? 'Select one of your tasks to see the generated execution brief, checkpoints, and completion controls.' : 'Your task path will appear here after the invited team is fully confirmed and the AI manager activates assignments.'}</p>
+            <p>{tasks.length > 0 ? 'Select one of your tasks to see the generated execution brief, checkpoints, and completion controls.' : 'Your task path will appear here as soon as you accept a team invite and assignments are activated for your role.'}</p>
           </div>
         )}
       </div>

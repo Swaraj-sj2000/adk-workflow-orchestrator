@@ -7,6 +7,8 @@ export default function Projects({ role }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRoleTitle, setInviteRoleTitle] = useState('');
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -56,6 +58,55 @@ export default function Projects({ role }) {
       if (!res.ok) throw new Error(data.detail || 'Could not update team approval');
       setSelectedProject(data);
       setMessage(approved ? 'Project team plan approved.' : 'Project sent back for admin review.');
+      fetchProjects();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const deleteProject = async (projectId) => {
+    const confirmed = window.confirm('Delete this project and roll back assignments, workload, and team state?');
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`${API}/projects/${projectId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not delete project');
+      setMessage('Project deleted successfully.');
+      if (selectedProject?.id === projectId) {
+        setSelectedProject(null);
+      }
+      fetchProjects();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
+  const inviteMember = async () => {
+    if (!selectedProject || !inviteEmail.trim()) return;
+
+    try {
+      const res = await fetch(`${API}/invite`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          project_id: selectedProject.id,
+          email: inviteEmail.trim().toLowerCase(),
+          role_title: inviteRoleTitle.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not create invite');
+      setMessage(data.existing_user ? 'Invite created and is now visible in the employee dashboard.' : 'Pending invite created. It will attach automatically when the user registers with that email.');
+      setInviteEmail('');
+      setInviteRoleTitle('');
+      openProject(selectedProject.id);
       fetchProjects();
     } catch (error) {
       setMessage(error.message);
@@ -129,12 +180,17 @@ export default function Projects({ role }) {
               <p className="progress-text">{project.progress || 0}% complete</p>
 
               <div className="project-card-actions">
-                <button className="btn btn-secondary" onClick={() => openProject(project.id)}>
+                <button className="btn btn-secondary" onClick={() => openProject(project.id)} data-tooltip="Open full project status">
                   Open Status
                 </button>
                 {role === 'admin' && project.approval_status === 'awaiting-admin-approval' && (
-                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)}>
+                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)} data-tooltip="Approve the generated team plan">
                     Approve
+                  </button>
+                )}
+                {role === 'admin' && (
+                  <button className="btn btn-danger" onClick={() => deleteProject(project.id)} data-tooltip="Delete the project with a full rollback">
+                    Delete
                   </button>
                 )}
               </div>
@@ -216,12 +272,38 @@ export default function Projects({ role }) {
                   <h3>Team Invite Status</h3>
                   <div className="people-list">
                     {(selectedProject.team_invites || []).map((invite) => (
-                      <div key={`${invite.employee_id}-${invite.title}`} className="person-chip">
+                      <div key={`${invite.invite_id || invite.email}-${invite.title || invite.email}`} className="person-chip">
                         <strong>{invite.name}</strong>
-                        <span>{invite.title}</span>
+                        <span>{invite.title || invite.email}</span>
                         <span>{invite.status}</span>
                       </div>
                     ))}
+                  </div>
+
+                  <h3>Add Team Member By Email</h3>
+                  <div className="project-create-form">
+                    <div className="form-group">
+                      <label>Email</label>
+                      <input
+                        type="email"
+                        value={inviteEmail}
+                        onChange={(event) => setInviteEmail(event.target.value)}
+                        placeholder="engineer@company.com"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Role</label>
+                      <input
+                        value={inviteRoleTitle}
+                        onChange={(event) => setInviteRoleTitle(event.target.value)}
+                        placeholder="Backend Engineer"
+                      />
+                    </div>
+                    <div className="form-actions form-span-2">
+                      <button className="btn btn-primary" type="button" onClick={inviteMember} data-tooltip="Create a tenant-scoped team invite by email">
+                        Send Team Invite
+                      </button>
+                    </div>
                   </div>
 
                   {(selectedProject.replacement_suggestions || []).length > 0 && (
@@ -288,6 +370,13 @@ export default function Projects({ role }) {
                   </button>
                   <button className="btn btn-danger" onClick={() => updateApproval(selectedProject.id, false)}>
                     Reject Team Plan
+                  </button>
+                </div>
+              )}
+              {role === 'admin' && (
+                <div className="project-card-actions">
+                  <button className="btn btn-danger" onClick={() => deleteProject(selectedProject.id)} data-tooltip="Delete the project with a full rollback">
+                    Delete Project
                   </button>
                 </div>
               )}

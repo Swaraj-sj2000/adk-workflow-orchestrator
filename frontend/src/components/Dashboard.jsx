@@ -146,6 +146,29 @@ export default function Dashboard({ role }) {
     }
   };
 
+  const handleDeleteProject = async (projectId) => {
+    const confirmed = window.confirm('Delete this project and roll back assignments, workload, and team state?');
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`${API}/projects/${projectId}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not delete project');
+      }
+      setMessage('Project deleted successfully.');
+      if (projectStatus?.id === projectId) {
+        setProjectStatus(null);
+      }
+      fetchDashboard();
+    } catch (error) {
+      setMessage(error.message);
+    }
+  };
+
   if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
   if (role === 'employee') {
@@ -263,12 +286,12 @@ export default function Dashboard({ role }) {
       </div>
 
       <div className="summary-grid full-width">
-        <SummaryCard label="Active Projects" value={summary.active_projects || 0} />
-        <SummaryCard label="Completed Projects" value={summary.completed_projects || 0} />
-        <SummaryCard label="Clients" value={summary.clients || 0} />
-        <SummaryCard label="Team Available Now" value={summary.employees_available_now || 0} />
-        <SummaryCard label="Average Workload" value={`${summary.average_team_workload || 0}%`} />
-        <SummaryCard label="Waiting Approval" value={summary.projects_waiting_approval || 0} />
+        <SummaryCard label="Active Projects" value={summary.active_projects || 0} tooltip="Projects currently in planning or execution" />
+        <SummaryCard label="Completed Projects" value={summary.completed_projects || 0} tooltip="Projects fully delivered" />
+        <SummaryCard label="Clients" value={summary.clients || 0} tooltip="Clients in the current tenant" />
+        <SummaryCard label="Team Available Now" value={summary.employees_available_now || 0} tooltip="Members with capacity for new work" />
+        <SummaryCard label="Average Workload" value={`${summary.average_team_workload || 0}%`} tooltip="Average current team utilization" />
+        <SummaryCard label="Waiting Approval" value={summary.projects_waiting_approval || 0} tooltip="Projects waiting on admin action" />
       </div>
 
       {showCreate && (
@@ -453,14 +476,17 @@ export default function Dashboard({ role }) {
               <p className="progress-text">{project.progress || 0}% complete</p>
 
               <div className="project-card-actions">
-                <button className="btn btn-secondary" onClick={() => fetchProjectStatus(project.id)}>
+                <button className="btn btn-secondary" onClick={() => fetchProjectStatus(project.id)} data-tooltip="Open the full project status view">
                   Open Project Status
                 </button>
                 {project.approval_status === 'awaiting-admin-approval' && (
-                  <button className="btn btn-primary" onClick={() => handleApproval(project.id, true)}>
+                  <button className="btn btn-primary" onClick={() => handleApproval(project.id, true)} data-tooltip="Approve the generated team plan">
                     Approve Team Plan
                   </button>
                 )}
+                <button className="btn btn-danger" onClick={() => handleDeleteProject(project.id)} data-tooltip="Delete this project with full rollback">
+                  Delete
+                </button>
               </div>
             </article>
           ))}
@@ -489,6 +515,9 @@ export default function Dashboard({ role }) {
                   </button>
                 </>
               )}
+              <button className="btn btn-danger" onClick={() => handleDeleteProject(projectStatus.id)} data-tooltip="Delete this project with full rollback">
+                Delete
+              </button>
             </div>
           </div>
 
@@ -634,9 +663,9 @@ export default function Dashboard({ role }) {
   );
 }
 
-function SummaryCard({ label, value }) {
+function SummaryCard({ label, value, tooltip }) {
   return (
-    <div className="summary-card">
+    <div className="summary-card" data-tooltip={tooltip}>
       <p>{label}</p>
       <div className="metric">{value}</div>
     </div>

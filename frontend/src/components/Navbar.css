@@ -2,9 +2,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: white;
+  background: var(--surface-card);
   padding: 15px 20px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-soft);
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
@@ -16,7 +16,7 @@
   font-size: 20px;
   font-weight: bold;
   cursor: pointer;
-  color: #667eea;
+  color: var(--accent);
   margin: 0;
 }
 
@@ -32,13 +32,13 @@
   border: none;
   cursor: pointer;
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 14px;
   transition: color 0.3s;
 }
 
 .nav-btn:hover {
-  color: #667eea;
+  color: var(--accent);
 }
 
 .nav-right {
@@ -57,11 +57,21 @@
 }
 
 .role-badge {
-  background: #667eea;
+  background: var(--accent);
   color: white;
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 12px;
+  font-weight: 600;
+}
+
+.theme-toggle-btn {
+  background: var(--surface-pill);
+  color: var(--text-primary);
+  border: 1px solid var(--border-soft);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
   font-weight: 600;
 }
 

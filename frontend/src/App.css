@@ -11,15 +11,39 @@ body {
 }
 
 .app {
+  --app-bg: #f4f7f3;
+  --surface-card: #ffffff;
+  --surface-soft: #f9faf8;
+  --surface-pill: #eff5f1;
+  --text-primary: #243229;
+  --text-secondary: #5f6f66;
+  --border-soft: #dbe5df;
+  --accent: #2f7d62;
+  --accent-strong: #276a53;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  background: var(--app-bg);
+  color: var(--text-primary);
+}
+
+.app.theme-dark {
+  --app-bg: #0f1b17;
+  --surface-card: #172621;
+  --surface-soft: #20312b;
+  --surface-pill: #22352f;
+  --text-primary: #e7f0eb;
+  --text-secondary: #a6bbb1;
+  --border-soft: #30433c;
+  --accent: #7dc4a1;
+  --accent-strong: #5cab86;
 }
 
 .container {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  background: var(--app-bg);
 }
 
 /* Login Page */
@@ -171,29 +195,29 @@ body {
 }
 
 .card {
-  background: white;
+  background: var(--surface-card);
   padding: 20px;
   border-radius: 16px;
   box-shadow: 0 12px 30px rgba(28, 44, 35, 0.06);
-  border: 1px solid #e1e8e2;
+  border: 1px solid var(--border-soft);
 }
 
 .card h2 {
   margin-bottom: 15px;
   font-size: 18px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .card p {
   margin: 8px 0;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .metric {
   font-size: 28px;
   font-weight: bold;
-  color: #667eea;
+  color: var(--accent);
   margin: 10px 0;
 }
 
@@ -249,15 +273,15 @@ body {
 
 .list-item {
   padding: 12px;
-  background: #f9faf8;
-  border-left: 4px solid #2f7d62;
+  background: var(--surface-soft);
+  border-left: 4px solid var(--accent);
   cursor: pointer;
   transition: background 0.2s;
   border-radius: 12px;
 }
 
 .list-item:hover {
-  background: #f0f0f0;
+  background: color-mix(in srgb, var(--surface-soft) 85%, white);
 }
 
 /* Tables */
@@ -288,7 +312,7 @@ body {
 .progress {
   width: 100%;
   height: 8px;
-  background: #e0e0e0;
+  background: #d5ddd8;
   border-radius: 4px;
   overflow: hidden;
   margin: 8px 0;
@@ -296,7 +320,7 @@ body {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2f7d62 0%, #5ea67d 100%);
+  background: linear-gradient(90deg, var(--accent) 0%, #5ea67d 100%);
   transition: width 0.3s;
 }
 
@@ -318,17 +342,17 @@ body {
 }
 
 .btn-primary {
-  background: #2f7d62;
+  background: var(--accent);
   color: white;
 }
 
 .btn-primary:hover {
-  background: #276a53;
+  background: var(--accent-strong);
 }
 
 .btn-secondary {
-  background: #e7ece8;
-  color: #203126;
+  background: var(--surface-pill);
+  color: var(--text-primary);
 }
 
 .btn-secondary:hover {
@@ -373,17 +397,77 @@ body {
 .loading {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: var(--text-secondary);
 }
 
 .spinner {
   border: 3px solid #f3f3f3;
-  border-top: 3px solid #2f7d62;
+  border-top: 3px solid var(--accent);
   border-radius: 50%;
   width: 40px;
   height: 40px;
   animation: spin 1s linear infinite;
   margin: 0 auto;
+}
+
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  background: rgba(20, 31, 27, 0.94);
+  color: #f6fbf8;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  width: max-content;
+  max-width: 220px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.app.theme-dark .summary-card,
+.app.theme-dark .project-shell,
+.app.theme-dark .project-card,
+.app.theme-dark .project-detail-card,
+.app.theme-dark .info-pill,
+.app.theme-dark .person-chip,
+.app.theme-dark .health-item,
+.app.theme-dark .admin-hero,
+.app.theme-dark .project-create-form input,
+.app.theme-dark .project-create-form textarea,
+.app.theme-dark .project-create-form select {
+  background: var(--surface-soft);
+  border-color: var(--border-soft);
+  color: var(--text-primary);
+}
+
+.app.theme-dark .eyebrow,
+.app.theme-dark .id-line,
+.app.theme-dark .progress-text,
+.app.theme-dark .project-description,
+.app.theme-dark .detail-item,
+.app.theme-dark .summary-card p,
+.app.theme-dark .info-pill span,
+.app.theme-dark .person-chip span,
+.app.theme-dark .empty-state,
+.app.theme-dark .project-message {
+  color: var(--text-secondary);
+}
+
+.app.theme-dark .info-pill strong,
+.app.theme-dark .detail-card-value,
+.app.theme-dark .project-card-top h3,
+.app.theme-dark .section-heading h2,
+.app.theme-dark .projects-header h1,
+.app.theme-dark .person-chip strong {
+  color: var(--text-primary);
 }
 
 @keyframes spin {

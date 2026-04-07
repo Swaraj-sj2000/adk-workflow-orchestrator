@@ -1,7 +1,7 @@
 import React from 'react';
 import './Navbar.css';
 
-export default function Navbar({ user, onLogout, setPage }) {
+export default function Navbar({ user, onLogout, setPage, theme, onToggleTheme }) {
   const role = user?.role;
 
   return (
@@ -40,6 +40,14 @@ export default function Navbar({ user, onLogout, setPage }) {
         <span className="user-info">
           {user?.email} <span className="role-badge">{user?.role}</span>
         </span>
+        <button
+          type="button"
+          className="theme-toggle-btn"
+          onClick={onToggleTheme}
+          data-tooltip={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+        >
+          {theme === 'light' ? 'Dark' : 'Light'}
+        </button>
         <button onClick={onLogout} className="logout-btn">Logout</button>
       </div>
     </nav>
