@@ -9,6 +9,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     name = Column(String, index=True, nullable=False)
     description = Column(String)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)

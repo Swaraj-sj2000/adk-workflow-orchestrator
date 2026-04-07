@@ -1,12 +1,12 @@
 # backend/app/schemas/_project.py
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Literal
 from datetime import datetime
 
 
 class ProjectCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
+    name: str = Field(min_length=3, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=5000)
     status: str = "planning"
     client_id: Optional[int] = None
     client_email: Optional[str] = None
@@ -21,6 +21,16 @@ class ProjectCreate(BaseModel):
     payment_status: str = "pending"
     priority: str = "medium"
     deadline: Optional[datetime] = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
 
 
 class ProjectUpdate(BaseModel):

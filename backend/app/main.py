@@ -4,6 +4,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.db._database import Base, engine
 from app.core._logging import get_logger
+from app.core._config import settings
+from app.core._rate_limit import RateLimitMiddleware
+from app.core._tenant_middleware import TenantMiddleware
+from app.db._database import SessionLocal
+from app.db._schema import ensure_runtime_schema
 from contextlib import asynccontextmanager
 import time
 
@@ -20,6 +25,7 @@ from app.api.routes import _blocker as _blocker_routes
 from app.api.routes import _meeting as _meeting_routes
 from app.api.routes import _employee as _employee_routes
 from app.api.routes import _autopm as _autopm_routes
+from app.api.routes import _invite as _invite_routes
 from app.api.routes import _task_assignment as _task_assignment_routes
 from app.api.routes import _task_progress as _task_progress_routes
 from app.api.routes import _multi_agent as _multi_agent_routes
@@ -34,8 +40,10 @@ from app.models import (
     _event_queue, _meeting, _client_profile,
     _checkpoint, _communication,
     _performance_point, _audit_log,
-    _workflow_run, _agent_run
+    _workflow_run, _agent_run,
+    _tenant, _team, _team_invite
 )
+from app.services._auth_service import bootstrap_tenant_data
 
 
 @asynccontextmanager
@@ -45,6 +53,13 @@ async def lifespan(app: FastAPI):
     logger.info("=== AI Workforce Orchestrator Starting ===")
     try:
         Base.metadata.create_all(bind=engine)
+        ensure_runtime_schema(engine)
+        db = SessionLocal()
+        try:
+            bootstrap_tenant_data(db)
+            db.commit()
+        finally:
+            db.close()
         logger.info("Database tables created/verified successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}", exc_info=True)
@@ -61,6 +76,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Workforce Orchestrator",
     lifespan=lifespan
+)
+
+app.add_middleware(TenantMiddleware)
+app.add_middleware(
+    RateLimitMiddleware,
+    requests_per_window=settings.BASIC_RATE_LIMIT_REQUESTS,
+    window_seconds=settings.BASIC_RATE_LIMIT_WINDOW_SECONDS,
 )
 
 
@@ -116,6 +138,7 @@ app.include_router(_blocker_routes.router)
 app.include_router(_meeting_routes.router)
 app.include_router(_employee_routes.router)
 app.include_router(_autopm_routes.router)
+app.include_router(_invite_routes.router)
 app.include_router(_task_assignment_routes.router)
 app.include_router(_task_progress_routes.router)
 app.include_router(_multi_agent_routes.router)

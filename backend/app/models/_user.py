@@ -1,6 +1,6 @@
 # backend/app/models/_user.py
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 from app.db._database import Base
 
 class User(Base):
@@ -11,3 +11,4 @@ class User(Base):
     password = Column(String)
     full_name = Column(String, nullable=True)
     role = Column(String)  # admin / employee / client
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
