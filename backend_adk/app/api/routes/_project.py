@@ -8,6 +8,7 @@ from app.schemas._project import ProjectCreate, ProjectInviteResponse, TeamAppro
 from app.services._project_service import (
     build_project_status,
     create_project,
+    delete_project_atomic,
     get_clients,
     get_projects,
     handle_team_approval,
@@ -28,8 +29,10 @@ def create(
     user=Depends(get_current_user)
 ):
     logger.info(f"Creating project: name={project.name}, user_id={user.id}")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create projects")
     try:
-        result = create_project(db, project, admin_id=user.id)
+        result = create_project(db, project, admin=user)
         logger.info(f"Project created successfully: project_id={result.id if hasattr(result, 'id') else 'unknown'}")
         return result
     except Exception as e:
@@ -50,7 +53,9 @@ def read_clients(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return get_clients(db)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view clients")
+    return get_clients(db, user)
 
 
 @router.get("/{project_id}/status")
@@ -103,13 +108,4 @@ def delete_project(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    if user.role != "admin" and user.id != project.admin_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this project")
-
-    db.delete(project)
-    db.commit()
-    return {"success": True, "project_id": project_id}
+    return delete_project_atomic(db, project_id, user)

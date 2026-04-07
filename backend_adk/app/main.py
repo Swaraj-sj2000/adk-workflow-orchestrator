@@ -25,6 +25,7 @@ from app.api.routes import _blocker as _blocker_routes
 from app.api.routes import _meeting as _meeting_routes
 from app.api.routes import _employee as _employee_routes
 from app.api.routes import _autopm as _autopm_routes
+from app.api.routes import _invite as _invite_routes
 from app.api.routes import _task_assignment as _task_assignment_routes
 from app.api.routes import _task_progress as _task_progress_routes
 from app.api.routes import _multi_agent as _multi_agent_routes
@@ -137,6 +138,7 @@ app.include_router(_blocker_routes.router)
 app.include_router(_meeting_routes.router)
 app.include_router(_employee_routes.router)
 app.include_router(_autopm_routes.router)
+app.include_router(_invite_routes.router)
 app.include_router(_task_assignment_routes.router)
 app.include_router(_task_progress_routes.router)
 app.include_router(_multi_agent_routes.router)

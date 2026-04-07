@@ -36,7 +36,7 @@ def route_assign_task(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can assign tasks")
     
-    task = db.query(Task).filter(Task.id == task_id).first()
+    task = db.query(Task).filter(Task.id == task_id, Task.tenant_id == current_user.tenant_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
@@ -113,7 +113,7 @@ def route_admin_dashboard(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can view the admin dashboard")
 
-    return build_admin_dashboard(db)
+    return build_admin_dashboard(db, current_user)
 
 
 @router.get("/team-dashboard")
@@ -124,7 +124,7 @@ def route_team_dashboard(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can view the team dashboard")
 
-    return build_team_dashboard(db)
+    return build_team_dashboard(db, current_user)
 
 
 @router.get("/agentic-dashboard")
@@ -135,7 +135,7 @@ def route_agentic_dashboard(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can view the agentic dashboard")
 
-    return build_agentic_dashboard(db)
+    return build_agentic_dashboard(db, current_user)
 
 
 @router.get("/project-status/{project_id}")
