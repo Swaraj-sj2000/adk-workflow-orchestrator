@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
-const API = 'http://localhost:8000';
+import { API_BASE_URL as API } from '../config';
 
 export default function TaskDetail({ taskId }) {
   const [task, setTask] = useState(null);

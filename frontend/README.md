@@ -6,16 +6,22 @@ A React-based frontend for the AI Workforce Orchestration System. Built with Vit
 
 - **Node.js** 16.0 or higher
 - **npm** 7.0 or higher (or yarn/pnpm)
-- Backend server running on `http://localhost:8000`
+- Backend server running (locally or on Cloud Run)
 
-## Installation
+## Local Development
 
 1. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. **Start the development server:**
+2. **Configure API URL (optional):**
+   ```bash
+   cp .env.example .env
+   # Edit .env to set VITE_API_URL if backend is not on localhost:8000
+   ```
+
+3. **Start the development server:**
    ```bash
    npm run dev
    ```
@@ -29,6 +35,61 @@ npm run build
 ```
 
 This generates an optimized build in the `dist/` directory.
+
+## Cloud Run Deployment
+
+### Prerequisites
+- GCP project with Cloud Run enabled
+- Artifact Registry repository created
+- Backend deployed and URL available
+- Docker installed and authenticated with gcloud
+
+### Deploy to Cloud Run
+
+1. **Update backend URL in the deployment script:**
+   ```bash
+   # Edit deploy_cloud_run_frontend.sh and set:
+   export BACKEND_URL=https://your-backend-url.run.app
+   ```
+
+2. **Authenticate Docker with Artifact Registry:**
+   ```bash
+   gcloud auth configure-docker europe-west1-docker.pkg.dev
+   ```
+
+3. **Run the deployment script:**
+   ```bash
+   chmod +x deploy_cloud_run_frontend.sh
+   ./deploy_cloud_run_frontend.sh
+   ```
+
+4. **Get the deployed URL:**
+   ```bash
+   gcloud run services describe frontend --region europe-west1 --format='value(status.url)'
+   ```
+
+### Manual Docker Build
+
+If you prefer to build and deploy manually:
+
+```bash
+# Build with backend URL
+docker build \
+  --build-arg VITE_API_URL=https://backend-adk-239683568115.europe-west1.run.app \
+  -t europe-west1-docker.pkg.dev/ai-workforce-orchestrator/orchestrator-repo/frontend:latest \
+  .
+
+# Push to Artifact Registry
+docker push europe-west1-docker.pkg.dev/ai-workforce-orchestrator/orchestrator-repo/frontend:latest
+
+# Deploy to Cloud Run
+gcloud run deploy frontend \
+  --image europe-west1-docker.pkg.dev/ai-workforce-orchestrator/orchestrator-repo/frontend:latest \
+  --platform managed \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --port 8080
+```
 
 ## Features
 

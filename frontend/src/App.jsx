@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
+import { API_BASE_URL } from './config';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Projects from './components/Projects';
@@ -60,7 +61,7 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch('http://localhost:8000/auth/login', {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -81,7 +82,7 @@ function LoginPage({ setCurrentUser }) {
     setLoading(true);
     setMessage('');
     try {
-      const res = await fetch('http://localhost:8000/auth/register', {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, full_name: fullName, role })

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './Dashboard.css';
-
-const API = 'http://localhost:8000';
+import { API_BASE_URL as API } from '../config';
 
 const initialForm = {
   name: '',

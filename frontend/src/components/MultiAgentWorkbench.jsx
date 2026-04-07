@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './MultiAgentWorkbench.css';
-
-const API = 'http://localhost:8000';
+import { API_BASE_URL as API } from '../config';
 
 function prettyJson(value) {
   return JSON.stringify(value, null, 2);

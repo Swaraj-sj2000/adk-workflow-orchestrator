@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-
-const API = 'http://localhost:8000';
+import { API_BASE_URL as API } from '../config';
 
 export default function EmployeeView({ role }) {
   const [data, setData] = useState(null);
