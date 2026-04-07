@@ -1,0 +1,18 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'VITE_API_URL=$_VITE_API_URL'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/orchestrator-repo/frontend:latest'
+      - '.'
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/orchestrator-repo/frontend:latest'
+
+substitutions:
+  _REGION: 'europe-west1'
+  _VITE_API_URL: 'https://backend-adk-239683568115.europe-west1.run.app'
+
+timeout: 600s

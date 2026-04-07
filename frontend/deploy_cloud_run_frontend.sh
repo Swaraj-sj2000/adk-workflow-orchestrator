@@ -28,18 +28,20 @@ if [ -z "$PROJECT_ID" ] || [ -z "$REGION" ] || [ -z "$BACKEND_URL" ]; then
     exit 1
 fi
 
-echo "=== Building Docker Image ==="
+echo "=== Building and Pushing Docker Image ==="
 cd "$(dirname "$0")"
 
-# Build the Docker image with backend URL as build arg
-docker build \
-  --build-arg VITE_API_URL=$BACKEND_URL \
-  -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/frontend:latest \
-  .
+# Create a temporary .env file for the build
+echo "VITE_API_URL=$BACKEND_URL" > .env.production
 
-echo ""
-echo "=== Pushing Docker Image ==="
-docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/frontend:latest
+# Use gcloud builds submit with config file
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_VITE_API_URL=$BACKEND_URL,_REGION=$REGION \
+  --timeout=10m
+
+# Clean up
+rm -f .env.production
 
 echo ""
 echo "=== Deploying to Cloud Run ==="

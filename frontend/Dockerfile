@@ -12,9 +12,12 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build argument for API URL
-ARG VITE_API_URL
+# Build argument for API URL - can be passed via gcloud builds submit or docker build
+ARG VITE_API_URL=http://localhost:8000
 ENV VITE_API_URL=$VITE_API_URL
+
+# Show what API URL is being used
+RUN echo "Building with VITE_API_URL: $VITE_API_URL"
 
 # Build the app
 RUN npm run build
