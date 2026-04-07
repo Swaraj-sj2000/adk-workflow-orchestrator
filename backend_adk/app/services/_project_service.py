@@ -178,9 +178,15 @@ def _performance_snapshots(db: Session, employee_ids: List[int]) -> Dict[int, Di
     for employee_id in employee_ids:
         total_points = points_map.get(employee_id, 0.0)
         metrics = metrics_map.get(employee_id)
+        level_progress = _experience_progress(total_points)
         snapshots[employee_id] = {
             "experience_points": total_points,
             "experience_grade": _experience_grade(total_points),
+            "current_level": level_progress["current_level"],
+            "current_level_points": level_progress["current_level_points"],
+            "points_to_next_level": level_progress["points_to_next_level"],
+            "level_progress_percent": level_progress["level_progress_percent"],
+            "next_level_points": level_progress["next_level_points"],
             "efficiency_score": round(float(metrics.efficiency_score or 0.0), 2) if metrics else 0.0,
             "reliability_score": round(float(metrics.reliability_score or 0.0), 2) if metrics else 0.0,
             "tasks_completed": int(metrics.total_tasks_completed or 0) if metrics else 0,
@@ -209,14 +215,172 @@ def _ensure_employee_metrics(db: Session, employee: EmployeeProfile) -> Employee
     return metrics
 
 
-def _task_experience_points(task: Task, assignment: TaskAssignment) -> float:
+def _experience_level(total_points: float) -> int:
+    return max(1, int(float(total_points or 0.0) // 100) + 1)
+
+
+def _experience_progress(total_points: float) -> Dict[str, Any]:
+    normalized_points = round(float(total_points or 0.0), 1)
+    level = _experience_level(normalized_points)
+    level_points = round(normalized_points % 100, 1)
+    return {
+        "current_level": level,
+        "current_level_points": level_points,
+        "points_to_next_level": round(100.0 - level_points, 1),
+        "level_progress_percent": round(level_points, 1),
+        "next_level_points": 100,
+    }
+
+
+def _append_notification(meta: Dict[str, Any], *, kind: str, title: str, message: str, actor: Optional[str] = None) -> None:
+    notifications = list(meta.get("notifications", []))
+    notifications.insert(
+        0,
+        {
+            "kind": kind,
+            "title": title,
+            "message": message,
+            "actor": actor,
+            "created_at": _utcnow().isoformat(),
+        },
+    )
+    meta["notifications"] = notifications[:20]
+
+
+def _recent_performance_notifications(db: Session, employee_id: int, limit: int = 8) -> List[Dict[str, Any]]:
+    points = (
+        db.query(PerformancePoint)
+        .filter(PerformancePoint.employee_id == employee_id)
+        .order_by(PerformancePoint.awarded_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "kind": "experience",
+            "title": "Experience update",
+            "message": f"{point.points:.1f} points {'added' if point.points >= 0 else 'deducted'} for {point.reason.lower()}",
+            "points_delta": round(point.points, 1),
+            "created_at": point.awarded_at.isoformat() if point.awarded_at else None,
+        }
+        for point in points
+    ]
+
+
+def _payment_activity(meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return list(meta.get("payment_updates", []))
+
+
+def _today_status_summary(project: Project, tasks: List[Task], meta: Dict[str, Any]) -> str:
+    done_today = len(
+        [
+            task
+            for task in tasks
+            if task.deadline and task.deadline.date() == _utcnow().date() and task.status == "done"
+        ]
+    )
+    running = len([task for task in tasks if task.status in {"running", "in-progress"}])
+    if project.status == "completed":
+        return "Delivery is complete. Final report, payment confirmation, and history are now available."
+    if running:
+        return f"{running} active workstreams are progressing today. {done_today} milestone items were closed today."
+    if meta.get("approval_status") == "awaiting-team-join":
+        return "Team confirmations are still being collected before full execution ramps up."
+    return "The team is preparing the next delivery checkpoint and status update."
+
+
+def _project_feature_highlights(project: Project) -> List[str]:
+    packet = _project_meta(project).get("planning_packet", {})
+    tasks = packet.get("tasks", []) or []
+    return [task.get("title") for task in tasks[:5] if task.get("title")]
+
+
+def _project_unique_value(project: Project) -> str:
+    packet = _project_meta(project).get("planning_packet", {})
+    structure = packet.get("project_structure") or "A structured delivery plan with AI-led execution guidance and traceable ownership."
+    return f"The project is designed to deliver {structure.lower()} with clear role ownership and measurable progress."
+
+
+def _client_plan_brief(project: Project) -> str:
+    packet = _project_meta(project).get("planning_packet", {})
+    summary = packet.get("project_summary") or project.description or project.name
+    structure = packet.get("project_structure") or "a staged implementation plan"
+    return f"{summary} Delivery will follow {structure.lower()} with visible checkpoints, ownership, and client-ready updates."
+
+
+def _build_project_report(db: Session, project: Project) -> Dict[str, Any]:
+    top_level_tasks = [task for task in project.tasks if task.parent_task_id is None]
+    meta = _project_meta(project)
+    assignments = [assignment for task in top_level_tasks for assignment in task.assignments]
+    involved_employees = _collect_involved_employees(db, assignments, project)
+    feature_highlights = _project_feature_highlights(project)
+    today_status = _today_status_summary(project, top_level_tasks, meta)
+    completed = len([task for task in top_level_tasks if task.status == "done"])
+    running = len([task for task in top_level_tasks if task.status in {"running", "in-progress"}])
+    blocked = len([task for task in top_level_tasks if task.status == "blocked"])
+
+    lines = [
+        f"Project: {project.name}",
+        f"Status: {project.status}",
+        f"Progress: {project.progress}%",
+        f"Payment: {project.payment_status}",
+        f"Budget: {project.budget}",
+        f"Spent: {project.spent}",
+        f"Completed workstreams: {completed}/{len(top_level_tasks) or 1}",
+        f"Running workstreams: {running}",
+        f"Blocked workstreams: {blocked}",
+        f"Client summary: {_client_business_summary(project, top_level_tasks, meta)}",
+        f"Today's status: {today_status}",
+    ]
+    if feature_highlights:
+        lines.append("Feature highlights: " + ", ".join(feature_highlights))
+    if involved_employees:
+        lines.append("Core team: " + ", ".join(member["name"] for member in involved_employees))
+
+    return {
+        "executive_summary": _client_business_summary(project, top_level_tasks, meta),
+        "plan_brief": _client_plan_brief(project),
+        "usp": _project_unique_value(project),
+        "feature_highlights": feature_highlights,
+        "delivery_status": f"{completed} completed, {running} active, {blocked} blocked workstreams",
+        "overall_status": project.status,
+        "today_status": today_status,
+        "team": involved_employees,
+        "task_snapshot": [
+            {
+                "task_id": task.id,
+                "name": task.description,
+                "status": task.status,
+                "estimated_time": task.estimated_time,
+            }
+            for task in top_level_tasks
+        ],
+        "payment_status": project.payment_status,
+        "budget": project.budget,
+        "spent": project.spent,
+        "full_text": "\n".join(lines),
+    }
+
+
+def _recent_project_notifications(meta: Dict[str, Any], limit: int = 8) -> List[Dict[str, Any]]:
+    return list(meta.get("notifications", []))[:limit]
+
+def _task_experience_points(db: Session, task: Task, assignment: TaskAssignment) -> float:
     estimated_hours = float(task.estimated_time or assignment.estimated_hours or 0.0)
     complexity_bonus = {"easy": 8.0, "medium": 16.0, "hard": 24.0}.get(task.difficulty or "medium", 16.0)
     urgency_bonus = {"low": 4.0, "medium": 8.0, "high": 14.0, "critical": 20.0}.get(task.urgency or "medium", 8.0)
     timing_bonus = 12.0
     if task.deadline and assignment.completed_at and assignment.completed_at > task.deadline:
         timing_bonus = 4.0
-    return round(25.0 + min(estimated_hours, 16.0) * 2.5 + complexity_bonus + urgency_bonus + timing_bonus, 1)
+    base_points = 25.0 + min(estimated_hours, 16.0) * 2.5 + complexity_bonus + urgency_bonus + timing_bonus
+    existing_points = (
+        db.query(func.coalesce(func.sum(PerformancePoint.points), 0.0))
+        .filter(PerformancePoint.employee_id == assignment.employee_id)
+        .scalar()
+    )
+    level = _experience_level(float(existing_points or 0.0))
+    level_multiplier = max(0.45, 1.0 - ((level - 1) * 0.08))
+    return round(base_points * level_multiplier, 1)
 
 
 def _award_task_completion_points(db: Session, task: Task, assignment: TaskAssignment) -> Optional[PerformancePoint]:
@@ -240,7 +404,7 @@ def _award_task_completion_points(db: Session, task: Task, assignment: TaskAssig
     assignment.completed_at = assignment.completed_at or _utcnow()
     assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
 
-    points = _task_experience_points(task, assignment)
+    points = _task_experience_points(db, task, assignment)
     point_log = PerformancePoint(
         employee_id=assignment.employee_id,
         project_id=task.project_id,
@@ -345,6 +509,10 @@ def create_project(db: Session, payload: ProjectCreate, admin: User):
             "replacement_suggestions": [],
             "emp_involved_ids": [],
             "report_text": None,
+            "final_report": None,
+            "payment_updates": [],
+            "notifications": [],
+            "client_plan_brief": None,
             "planning_packet": {
                 "project_complexity": planning_packet.get("project_complexity"),
                 "project_summary": planning_packet.get("project_summary"),
@@ -366,6 +534,14 @@ def create_project(db: Session, payload: ProjectCreate, admin: User):
     )
     db.add(project)
     db.flush()
+    project.custom_fields["client_plan_brief"] = _client_plan_brief(project)
+    _append_notification(
+        project.custom_fields,
+        kind="project",
+        title="Project created",
+        message="The project intake is complete and waiting for admin approval on the staffing draft.",
+        actor=admin.full_name or admin.email,
+    )
     team = get_or_create_project_team(db, project, admin.id)
     project.custom_fields["team_id"] = team.id
 
@@ -469,6 +645,13 @@ def build_admin_dashboard(db: Session, admin: User):
     ) if team_size else 0.0
 
     return {
+        "admin": {
+            "user_id": admin.id,
+            "full_name": admin.full_name,
+            "email": admin.email,
+            "role": admin.role,
+            "tenant_id": admin.tenant_id,
+        },
         "summary": {
             "active_projects": len(active_projects),
             "completed_projects": len(completed_projects),
@@ -496,6 +679,11 @@ def build_admin_dashboard(db: Session, admin: User):
             }
             for decision in decisions
         ],
+        "notifications": [
+            notification
+            for project in projects
+            for notification in _recent_project_notifications(_project_meta(project), limit=4)
+        ][:8],
         "clients": get_clients(db, admin),
     }
 
@@ -555,6 +743,11 @@ def build_team_dashboard(db: Session, admin: User):
                 ),
                 "experience_points": performance_entry.get("experience_points", 0.0),
                 "experience_grade": performance_entry.get("experience_grade", "Starter"),
+                "current_level": performance_entry.get("current_level", 1),
+                "current_level_points": performance_entry.get("current_level_points", 0.0),
+                "points_to_next_level": performance_entry.get("points_to_next_level", 100.0),
+                "level_progress_percent": performance_entry.get("level_progress_percent", 0.0),
+                "next_level_points": performance_entry.get("next_level_points", 100),
                 "efficiency_score": performance_entry.get("efficiency_score", 0.0),
                 "reliability_score": performance_entry.get("reliability_score", 0.0),
                 "tasks_completed": performance_entry.get("tasks_completed", 0),
@@ -714,6 +907,7 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
     meta = _refresh_project_team_metadata(db, project)
     visible_client_id = project.client_id if not viewer or viewer.role == "admin" else None
     public_status_label = _client_business_summary(project, top_level_tasks, meta)
+    report = meta.get("final_report") or _build_project_report(db, project)
 
     return {
         "id": project.id,
@@ -726,8 +920,11 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
         "budget": project.budget,
         "spent": project.spent,
         "payment_status": project.payment_status,
+        "payment_updates": _payment_activity(meta),
         "client_id": visible_client_id,
         "client_name": project.client.company_name if project.client else None,
+        "client_contact_person": project.client.contact_person if project.client else None,
+        "client_user_name": project.client.user.full_name if project.client and project.client.user else None,
         "client_email": project.client.user.email if project.client and project.client.user else None,
         "client_status": meta.get("client_status"),
         "client_response_status": meta.get("client_response_status"),
@@ -741,6 +938,12 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
         "viewer_guidance": _guidance_for_viewer(meta, viewer),
         "decision_support": _decision_support_for_viewer(meta, viewer),
         "planning_summary": meta.get("planning_packet", {}).get("project_summary"),
+        "client_plan_brief": meta.get("client_plan_brief") or report["plan_brief"],
+        "usp": report["usp"],
+        "feature_highlights": report["feature_highlights"],
+        "delivery_status": report["delivery_status"],
+        "overall_status": report["overall_status"],
+        "today_status": report["today_status"],
         "role_clusters": meta.get("role_clusters", []),
         "team_invites": _visible_team_invites(meta, viewer),
         "replacement_suggestions": meta.get("replacement_suggestions", []),
@@ -773,7 +976,9 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
             }
             for task in top_level_tasks
         ],
-        "report_text": meta.get("report_text"),
+        "report_text": meta.get("report_text") or report["full_text"],
+        "final_report": meta.get("final_report") or report,
+        "notifications": _recent_project_notifications(meta),
         "presentation_status": meta.get("presentation_status"),
     }
 
@@ -819,6 +1024,12 @@ def handle_team_approval(db: Session, project_id: int, approved: bool, note: Opt
         }
         project.status = "planning"
         project.progress = max(project.progress, 12)
+        _append_notification(
+            meta,
+            kind="approval",
+            title="Staffing draft approved",
+            message="The project team plan was approved and invite responses are now pending.",
+        )
         _log_decision(
             db,
             "team_approval",
@@ -840,6 +1051,12 @@ def handle_team_approval(db: Session, project_id: int, approved: bool, note: Opt
             "employee": llm_service.generate_decision_support("team_rejection", "employee", guidance_context),
         }
         project.status = "on-hold"
+        _append_notification(
+            meta,
+            kind="approval",
+            title="Staffing draft rejected",
+            message="The staffing draft was rejected and moved back to admin review.",
+        )
         _create_admin_meeting(
             db,
             project,
@@ -869,6 +1086,62 @@ def handle_project_invite_response(db: Session, project_id: int, accepted: bool,
 
     invite = find_project_invite_for_actor(db, project_id, actor)
     return handle_team_invite_action(db=db, actor=actor, invite_id=invite.id, token=None, accepted=accepted, note=note)
+
+
+def update_project_payment_status(
+    db: Session,
+    *,
+    project_id: int,
+    payment_status: str,
+    note: Optional[str],
+    actor: User,
+):
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.client).joinedload(ClientProfile.user))
+        .filter(Project.id == project_id, Project.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    client_user_id = project.client.user_id if project.client else None
+    if actor.role not in {"admin", "client"}:
+        raise HTTPException(status_code=403, detail="Only admins or the linked client can update payment status")
+    if actor.role == "client" and actor.id != client_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update payment status for this project")
+
+    allowed_statuses = {"pending", "partial", "completed", "client-confirmed", "admin-confirmed", "disputed"}
+    normalized_status = payment_status.strip().lower()
+    if normalized_status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Payment status must be one of: {', '.join(sorted(allowed_statuses))}")
+
+    project.payment_status = normalized_status
+    meta = _project_meta(project)
+    updates = list(meta.get("payment_updates", []))
+    updates.insert(
+        0,
+        {
+            "status": normalized_status,
+            "note": note,
+            "updated_by": actor.full_name or actor.email,
+            "actor_role": actor.role,
+            "updated_at": _utcnow().isoformat(),
+        },
+    )
+    meta["payment_updates"] = updates[:20]
+    _append_notification(
+        meta,
+        kind="payment",
+        title="Payment status updated",
+        message=f"Payment status is now '{normalized_status}'.",
+        actor=actor.full_name or actor.email,
+    )
+    project.custom_fields = meta
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return build_project_status(db, project.id, viewer=actor)
 
 def handle_team_invite_action(
     db: Session,
@@ -930,6 +1203,13 @@ def handle_team_invite_action(
         }
         project.status = "in-progress"
         project.progress = max(project.progress, 18)
+        _append_notification(
+            meta,
+            kind="invite",
+            title="Team member joined",
+            message=f"{employee_profile.user.full_name if employee_profile.user else actor.email} accepted the invite and their task package is now active.",
+            actor=actor.full_name or actor.email,
+        )
     else:
         meta["team_join_status"] = "rejected"
         meta["approval_status"] = "rejected-by-team"
@@ -958,6 +1238,13 @@ def handle_team_invite_action(
             f"Restaffing meeting for {invite.role_title or 'team slot'}",
             "review",
             f"{employee_profile.user.full_name if employee_profile.user else actor.email} rejected the project invite. Review replacement suggestions.",
+        )
+        _append_notification(
+            meta,
+            kind="invite",
+            title="Team invite rejected",
+            message=f"{employee_profile.user.full_name if employee_profile.user else actor.email} declined the invite. Replacement suggestions were generated.",
+            actor=actor.full_name or actor.email,
         )
 
     meta["team_invites"] = invite_summaries
@@ -1575,6 +1862,7 @@ def _serialize_project_summary(db: Session, project: Project, viewer: Optional[U
     visible_client_id = project.client_id if not viewer or viewer.role == "admin" else None
     team_invites = meta.get("team_invites", [])
     pending_invites = [invite for invite in team_invites if invite.get("status") == "pending"]
+    report = meta.get("final_report") or _build_project_report(db, project)
 
     return {
         "id": project.id,
@@ -1586,9 +1874,12 @@ def _serialize_project_summary(db: Session, project: Project, viewer: Optional[U
         "priority": project.priority,
         "client_id": visible_client_id,
         "client_name": project.client.company_name if project.client else None,
+        "client_contact_person": project.client.contact_person if project.client else None,
+        "client_user_name": project.client.user.full_name if project.client and project.client.user else None,
         "budget": project.budget,
         "spent": project.spent,
         "payment_status": project.payment_status,
+        "payment_updates": _payment_activity(meta),
         "current_phase": meta.get("current_phase"),
         "client_status": meta.get("client_status"),
         "client_response_status": meta.get("client_response_status"),
@@ -1607,6 +1898,9 @@ def _serialize_project_summary(db: Session, project: Project, viewer: Optional[U
         "team_invites": _visible_team_invites(meta, viewer),
         "pending_team_invite_count": len(pending_invites),
         "pending_team_invite_names": [invite.get("name") for invite in pending_invites],
+        "today_status": report["today_status"],
+        "feature_highlights": report["feature_highlights"],
+        "report_text": meta.get("report_text") or report["full_text"],
     }
 
 
@@ -1620,6 +1914,7 @@ def _serialize_completed_project(project: Project):
         "payment_status": project.payment_status,
         "completed_at": project.completed_at.isoformat() if project.completed_at else None,
         "report_text": meta.get("report_text"),
+        "final_report": meta.get("final_report"),
     }
 
 
@@ -1855,6 +2150,7 @@ def build_employee_workspace(db: Session, user: User):
     my_tasks = []
     project_invites = []
     planned_tracks = []
+    project_history = []
 
     invite_projects = (
         db.query(Project)
@@ -1992,17 +2288,20 @@ def build_employee_workspace(db: Session, user: User):
 
         if project.id not in seen_projects:
             seen_projects.add(project.id)
-            my_projects.append(
-                {
-                    "project_id": project.id,
-                    "name": project.name,
-                    "status": project.status,
-                    "progress": project.progress,
-                    "public_status_label": _client_business_summary(project, [task for task in project.tasks if task.parent_task_id is None], meta),
-                    "viewer_guidance": _guidance_for_viewer(meta, user),
-                    "decision_support": _decision_support_for_viewer(meta, user),
-                }
-            )
+            payload = {
+                "project_id": project.id,
+                "name": project.name,
+                "status": project.status,
+                "progress": project.progress,
+                "public_status_label": _client_business_summary(project, [task for task in project.tasks if task.parent_task_id is None], meta),
+                "viewer_guidance": _guidance_for_viewer(meta, user),
+                "decision_support": _decision_support_for_viewer(meta, user),
+                "report_text": meta.get("report_text"),
+            }
+            if project.status == "completed":
+                project_history.append(payload)
+            else:
+                my_projects.append(payload)
 
     overall_personal_progress = round(
         sum(task["completion_percentage"] for task in my_tasks) / len(my_tasks),
@@ -2025,6 +2324,11 @@ def build_employee_workspace(db: Session, user: User):
             "on_leave": profile.availability_status == "on-leave",
             "experience_points": performance.get("experience_points", 0.0),
             "experience_grade": performance.get("experience_grade", "Starter"),
+            "current_level": performance.get("current_level", 1),
+            "current_level_points": performance.get("current_level_points", 0.0),
+            "points_to_next_level": performance.get("points_to_next_level", 100.0),
+            "level_progress_percent": performance.get("level_progress_percent", 0.0),
+            "next_level_points": performance.get("next_level_points", 100),
             "efficiency_score": performance.get("efficiency_score", 0.0),
             "reliability_score": performance.get("reliability_score", 0.0),
             "tasks_completed": performance.get("tasks_completed", 0),
@@ -2036,9 +2340,11 @@ def build_employee_workspace(db: Session, user: User):
             "pending_invites": len([invite for invite in project_invites if invite["status"] == "pending"]),
             "experience_points": performance.get("experience_points", 0.0),
         },
+        "notifications": _recent_performance_notifications(db, profile.id),
         "project_invites": project_invites,
         "planned_tracks": planned_tracks,
         "projects": my_projects,
+        "history": project_history,
         "tasks": my_tasks,
     }
 
@@ -2062,30 +2368,47 @@ def build_client_workspace(db: Session, user: User):
     )
 
     overview = []
+    history = []
     for project in projects:
         meta = _refresh_project_team_metadata(db, project)
         top_level_tasks = [task for task in project.tasks if task.parent_task_id is None]
-        overview.append(
-            {
-                "project_id": project.id,
-                "name": project.name,
-                "status": project.status,
-                "progress": project.progress,
-                "client_status": meta.get("client_status"),
-                "payment_status": project.payment_status,
-                "business_summary": _client_business_summary(project, top_level_tasks, meta),
-                "next_update": meta.get("client_response_status"),
-                "viewer_guidance": _guidance_for_viewer(meta, user),
-            }
-        )
+        report = _build_project_report(db, project)
+        payload = {
+            "project_id": project.id,
+            "name": project.name,
+            "status": project.status,
+            "progress": project.progress,
+            "client_status": meta.get("client_status"),
+            "payment_status": project.payment_status,
+            "payment_updates": _payment_activity(meta),
+            "business_summary": _client_business_summary(project, top_level_tasks, meta),
+            "plan_brief": report["plan_brief"],
+            "usp": report["usp"],
+            "feature_highlights": report["feature_highlights"],
+            "delivery_status": report["delivery_status"],
+            "overall_status": report["overall_status"],
+            "today_status": report["today_status"],
+            "final_report": meta.get("final_report") or report,
+            "next_update": meta.get("client_response_status"),
+            "viewer_guidance": _guidance_for_viewer(meta, user),
+        }
+        if project.status == "completed":
+            history.append(payload)
+        else:
+            overview.append(payload)
 
     return {
         "client": {
             "client_id": client_profile.id,
             "company_name": client_profile.company_name,
             "contact_person": client_profile.contact_person,
+            "full_name": client_profile.user.full_name if client_profile.user else client_profile.contact_person,
+            "email": client_profile.user.email if client_profile.user else None,
+            "role": "client",
         },
+        "notifications": [notification for project in projects for notification in _recent_project_notifications(_project_meta(project), limit=3)][:8],
         "projects": overview,
+        "history": history,
     }
 
 
@@ -2144,6 +2467,19 @@ def update_checkpoint_status(db: Session, checkpoint_id: int, completed: bool, u
         db.add(assignment)
 
     _sync_project_progress(db, task.project_id)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if project:
+        meta = _project_meta(project)
+        actor_label = user.full_name or user.email
+        _append_notification(
+            meta,
+            kind="progress",
+            title="Checkpoint updated",
+            message=f"{actor_label} marked '{checkpoint.title}' as {'completed' if completed else 'pending'}. Project progress is now {project.progress}%.",
+            actor=actor_label,
+        )
+        project.custom_fields = meta
+        db.add(project)
     db.commit()
 
     return {
@@ -2303,6 +2639,57 @@ def _ensure_task_progress(db: Session, task: Task):
     return progress
 
 
+def _release_completed_project_capacity(db: Session, project: Project) -> None:
+    assignments = (
+        db.query(TaskAssignment)
+        .join(Task, Task.id == TaskAssignment.task_id)
+        .filter(Task.project_id == project.id)
+        .all()
+    )
+    employee_loads: Dict[int, float] = {}
+    for assignment in assignments:
+        employee_loads.setdefault(assignment.employee_id, 0.0)
+        employee_loads[assignment.employee_id] += float(assignment.estimated_hours or assignment.actual_hours or 0.0)
+        assignment.status = "completed"
+        assignment.completed_at = assignment.completed_at or _utcnow()
+        db.add(assignment)
+
+    employees = (
+        db.query(EmployeeProfile)
+        .filter(EmployeeProfile.id.in_(employee_loads.keys()) if employee_loads else False)
+        .all()
+    )
+    for employee in employees:
+        employee.current_load = max(0.0, round((employee.current_load or 0.0) - employee_loads.get(employee.id, 0.0), 1))
+        _sync_employee_capacity_state(employee)
+        db.add(employee)
+
+
+def _finalize_completed_project(db: Session, project: Project) -> None:
+    if project.status == "completed" and project.completed_at and (_project_meta(project).get("final_report") is not None):
+        return
+
+    _release_completed_project_capacity(db, project)
+    meta = _project_meta(project)
+    report = _build_project_report(db, project)
+    meta["report_text"] = report["full_text"]
+    meta["final_report"] = report
+    meta["current_phase"] = "history"
+    meta["client_status"] = "delivered"
+    meta["client_response_status"] = "final-report-ready"
+    meta["next_decision"] = "Await final payment confirmation and retain project in history"
+    _append_notification(
+        meta,
+        kind="project",
+        title="Project completed",
+        message="Delivery is complete, resources were released, and the final report is now available in history.",
+    )
+    project.status = "completed"
+    project.completed_at = project.completed_at or _utcnow()
+    project.custom_fields = meta
+    db.add(project)
+
+
 def _replace_checkpoints(db: Session, task: Task, checkpoint_specs: List[Dict]):
     existing = db.query(Checkpoint).filter(Checkpoint.task_id == task.id).all()
     for checkpoint in existing:
@@ -2332,20 +2719,28 @@ def _sync_project_progress(db: Session, project_id: int):
         db.add(project)
         return
 
-    progress_values = []
-    for task in tasks:
-        progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
-        if progress:
-            progress_values.append(progress.completion_percentage)
-        elif task.status == "done":
-            progress_values.append(100.0)
-        else:
-            progress_values.append(0.0)
+    checkpoints = (
+        db.query(Checkpoint)
+        .filter(Checkpoint.task_id.in_([task.id for task in tasks]) if tasks else False)
+        .all()
+    )
+    if checkpoints:
+        completed_checkpoints = len([checkpoint for checkpoint in checkpoints if checkpoint.status == "completed"])
+        project.progress = round((completed_checkpoints / len(checkpoints)) * 100)
+    else:
+        progress_values = []
+        for task in tasks:
+            progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
+            if progress:
+                progress_values.append(progress.completion_percentage)
+            elif task.status == "done":
+                progress_values.append(100.0)
+            else:
+                progress_values.append(0.0)
+        project.progress = round(sum(progress_values) / len(progress_values))
 
-    project.progress = round(sum(progress_values) / len(progress_values))
     if project.progress >= 100:
-        project.status = "completed"
-        project.completed_at = project.completed_at or _utcnow()
+        _finalize_completed_project(db, project)
     elif project.progress > 0 and project.status != "on-hold":
         project.status = "in-progress"
         project.completed_at = None

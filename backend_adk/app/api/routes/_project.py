@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db._database import get_db
-from app.schemas._project import ProjectCreate, ProjectInviteResponse, TeamApprovalAction
+from app.schemas._project import ProjectCreate, ProjectInviteResponse, ProjectPaymentUpdate, TeamApprovalAction
 from app.services._project_service import (
     build_project_status,
     create_project,
@@ -13,6 +13,7 @@ from app.services._project_service import (
     get_projects,
     handle_team_approval,
     handle_project_invite_response,
+    update_project_payment_status,
 )
 from app.core._deps import get_current_user
 from app.models._project import Project
@@ -109,3 +110,19 @@ def delete_project(
     user=Depends(get_current_user),
 ):
     return delete_project_atomic(db, project_id, user)
+
+
+@router.patch("/{project_id}/payment-status")
+def update_payment_status(
+    project_id: int,
+    payload: ProjectPaymentUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return update_project_payment_status(
+        db=db,
+        project_id=project_id,
+        payment_status=payload.payment_status,
+        note=payload.note,
+        actor=user,
+    )

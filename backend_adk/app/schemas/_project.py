@@ -67,3 +67,13 @@ class TeamApprovalAction(BaseModel):
 class ProjectInviteResponse(BaseModel):
     accepted: bool
     note: Optional[str] = None
+
+
+class ProjectPaymentUpdate(BaseModel):
+    payment_status: str = Field(min_length=3, max_length=40)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("payment_status")
+    @classmethod
+    def normalize_payment_status(cls, value: str) -> str:
+        return value.strip().lower()
