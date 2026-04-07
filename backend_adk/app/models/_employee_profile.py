@@ -15,6 +15,8 @@ class EmployeeProfile(Base):
     current_load = Column(Float, default=0.0)  # hours currently assigned
     department = Column(String, nullable=True)
     availability_status = Column(String, default="available")  # available / on-leave / busy
+    duty_start_hour = Column(Float, nullable=True, default=9.0)
+    duty_end_hour = Column(Float, nullable=True, default=18.0)
 
     # Relationships
     user = relationship("User", backref="employee_profile")

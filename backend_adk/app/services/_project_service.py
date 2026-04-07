@@ -15,6 +15,7 @@ from app.models._checkpoint import Checkpoint
 from app.models._blocker import Blocker
 from app.models._communication import Communication
 from app.models._decision_log import DecisionLog
+from app.models._employee_metrics import EmployeeMetrics
 from app.models._employee_profile import EmployeeProfile
 from app.models._event_queue import EventQueue
 from app.models._meeting import Meeting
@@ -42,6 +43,13 @@ from app.schemas._project import ProjectCreate
 
 
 DEFAULT_APPROVAL_WINDOW_MINUTES = 5
+EXPERIENCE_GRADE_THRESHOLDS = (
+    (0, "Starter"),
+    (120, "Contributor"),
+    (300, "Specialist"),
+    (600, "Lead"),
+    (1000, "Principal"),
+)
 logger = get_logger(__name__)
 
 
@@ -77,6 +85,202 @@ def _normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value.tzinfo is None:
         return value
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _format_hour_value(value: Optional[float]) -> Optional[str]:
+    if value is None:
+        return None
+
+    total_minutes = int(round(float(value) * 60))
+    hours = (total_minutes // 60) % 24
+    minutes = total_minutes % 60
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def _duty_window_label(employee: EmployeeProfile) -> str:
+    if employee.duty_start_hour is None or employee.duty_end_hour is None:
+        return "Not set"
+    return f"{_format_hour_value(employee.duty_start_hour)} - {_format_hour_value(employee.duty_end_hour)}"
+
+
+def _is_in_duty_window(employee: EmployeeProfile, when: Optional[datetime] = None) -> bool:
+    if employee.duty_start_hour is None or employee.duty_end_hour is None:
+        return True
+
+    when = when or _utcnow()
+    current_hour = when.hour + (when.minute / 60)
+    start = float(employee.duty_start_hour)
+    end = float(employee.duty_end_hour)
+
+    if start <= end:
+        return start <= current_hour <= end
+    return current_hour >= start or current_hour <= end
+
+
+def _effective_availability_status(employee: EmployeeProfile) -> str:
+    if employee.availability_status == "on-leave":
+        return "on-leave"
+    if not _is_in_duty_window(employee):
+        return "off-duty"
+    return "busy" if (employee.current_load or 0) > 0 else "available"
+
+
+def _shift_status(employee: EmployeeProfile) -> str:
+    status = _effective_availability_status(employee)
+    labels = {
+        "available": "On Duty",
+        "busy": "Busy",
+        "on-leave": "On Leave",
+        "off-duty": "Off Duty",
+    }
+    return labels.get(status, "On Duty")
+
+
+def _sync_employee_capacity_state(employee: EmployeeProfile) -> None:
+    if employee.availability_status == "on-leave":
+        return
+    employee.availability_status = "busy" if (employee.current_load or 0) > 0 else "available"
+
+
+def _experience_grade(total_points: float) -> str:
+    grade = EXPERIENCE_GRADE_THRESHOLDS[0][1]
+    for threshold, label in EXPERIENCE_GRADE_THRESHOLDS:
+        if total_points >= threshold:
+            grade = label
+    return grade
+
+
+def _experience_points_map(db: Session, employee_ids: List[int]) -> Dict[int, float]:
+    if not employee_ids:
+        return {}
+
+    rows = (
+        db.query(PerformancePoint.employee_id, func.coalesce(func.sum(PerformancePoint.points), 0.0))
+        .filter(PerformancePoint.employee_id.in_(employee_ids))
+        .group_by(PerformancePoint.employee_id)
+        .all()
+    )
+    return {employee_id: round(float(total_points or 0.0), 1) for employee_id, total_points in rows}
+
+
+def _employee_metrics_map(db: Session, employee_ids: List[int]) -> Dict[int, EmployeeMetrics]:
+    if not employee_ids:
+        return {}
+    metrics = db.query(EmployeeMetrics).filter(EmployeeMetrics.employee_id.in_(employee_ids)).all()
+    return {metric.employee_id: metric for metric in metrics}
+
+
+def _performance_snapshots(db: Session, employee_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    points_map = _experience_points_map(db, employee_ids)
+    metrics_map = _employee_metrics_map(db, employee_ids)
+    snapshots: Dict[int, Dict[str, Any]] = {}
+
+    for employee_id in employee_ids:
+        total_points = points_map.get(employee_id, 0.0)
+        metrics = metrics_map.get(employee_id)
+        snapshots[employee_id] = {
+            "experience_points": total_points,
+            "experience_grade": _experience_grade(total_points),
+            "efficiency_score": round(float(metrics.efficiency_score or 0.0), 2) if metrics else 0.0,
+            "reliability_score": round(float(metrics.reliability_score or 0.0), 2) if metrics else 0.0,
+            "tasks_completed": int(metrics.total_tasks_completed or 0) if metrics else 0,
+            "tasks_delayed": int(metrics.total_tasks_delayed or 0) if metrics else 0,
+        }
+
+    return snapshots
+
+
+def _ensure_employee_metrics(db: Session, employee: EmployeeProfile) -> EmployeeMetrics:
+    metrics = db.query(EmployeeMetrics).filter(EmployeeMetrics.employee_id == employee.id).first()
+    if metrics:
+        return metrics
+
+    metrics = EmployeeMetrics(
+        employee_id=employee.id,
+        efficiency_score=0.8,
+        reliability_score=0.8,
+        avg_completion_time=0.0,
+        total_tasks_completed=0,
+        total_tasks_failed=0,
+        total_tasks_delayed=0,
+    )
+    db.add(metrics)
+    db.flush()
+    return metrics
+
+
+def _task_experience_points(task: Task, assignment: TaskAssignment) -> float:
+    estimated_hours = float(task.estimated_time or assignment.estimated_hours or 0.0)
+    complexity_bonus = {"easy": 8.0, "medium": 16.0, "hard": 24.0}.get(task.difficulty or "medium", 16.0)
+    urgency_bonus = {"low": 4.0, "medium": 8.0, "high": 14.0, "critical": 20.0}.get(task.urgency or "medium", 8.0)
+    timing_bonus = 12.0
+    if task.deadline and assignment.completed_at and assignment.completed_at > task.deadline:
+        timing_bonus = 4.0
+    return round(25.0 + min(estimated_hours, 16.0) * 2.5 + complexity_bonus + urgency_bonus + timing_bonus, 1)
+
+
+def _award_task_completion_points(db: Session, task: Task, assignment: TaskAssignment) -> Optional[PerformancePoint]:
+    existing = (
+        db.query(PerformancePoint)
+        .filter(
+            PerformancePoint.employee_id == assignment.employee_id,
+            PerformancePoint.task_id == task.id,
+            PerformancePoint.reason == "Automated task completion score",
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    employee = db.query(EmployeeProfile).filter(EmployeeProfile.id == assignment.employee_id).first()
+    if not employee:
+        return None
+
+    metrics = _ensure_employee_metrics(db, employee)
+    assignment.completed_at = assignment.completed_at or _utcnow()
+    assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
+
+    points = _task_experience_points(task, assignment)
+    point_log = PerformancePoint(
+        employee_id=assignment.employee_id,
+        project_id=task.project_id,
+        task_id=task.id,
+        points=points,
+        reason="Automated task completion score",
+    )
+    db.add(point_log)
+
+    completed_before = metrics.total_tasks_completed or 0
+    actual_hours = float(assignment.actual_hours or 0.0)
+    metrics.total_tasks_completed = completed_before + 1
+    if task.deadline and assignment.completed_at and assignment.completed_at > task.deadline:
+        metrics.total_tasks_delayed = (metrics.total_tasks_delayed or 0) + 1
+    metrics.avg_completion_time = round(
+        (((metrics.avg_completion_time or 0.0) * completed_before) + actual_hours) / max(metrics.total_tasks_completed, 1),
+        2,
+    )
+
+    estimated_hours = float(task.estimated_time or assignment.estimated_hours or actual_hours or 1.0)
+    efficiency_sample = min(1.0, estimated_hours / max(actual_hours or estimated_hours, 1.0))
+    metrics.efficiency_score = round(
+        (((metrics.efficiency_score or 0.8) * completed_before) + efficiency_sample) / max(metrics.total_tasks_completed, 1),
+        2,
+    )
+    metrics.reliability_score = round(
+        max(
+            0.5,
+            min(
+                0.99,
+                0.7
+                + min(metrics.total_tasks_completed, 12) * 0.02
+                - (metrics.total_tasks_delayed or 0) * 0.03
+                - (metrics.total_tasks_failed or 0) * 0.05,
+            ),
+        ),
+        2,
+    )
+    db.add(metrics)
+    return point_log
 
 
 def create_project(db: Session, payload: ProjectCreate, admin: User):
@@ -304,6 +508,21 @@ def build_team_dashboard(db: Session, admin: User):
         .order_by(EmployeeProfile.department.asc(), EmployeeProfile.id.asc())
         .all()
     )
+    performance = _performance_snapshots(db, [employee.id for employee in employees])
+    pending_invites = (
+        db.query(TeamInvite, Team, Project)
+        .join(Team, Team.id == TeamInvite.team_id)
+        .join(Project, Project.id == Team.project_id)
+        .filter(TeamInvite.tenant_id == admin.tenant_id, TeamInvite.status == "pending")
+        .order_by(TeamInvite.created_at.desc())
+        .all()
+    )
+    invite_targets = (
+        db.query(Project)
+        .filter(Project.tenant_id == admin.tenant_id, Project.status != "completed")
+        .order_by(Project.created_at.desc())
+        .all()
+    )
 
     members = []
     for employee in employees:
@@ -312,6 +531,7 @@ def build_team_dashboard(db: Session, admin: User):
             for assignment in employee.assignments
             if assignment.task and assignment.task.project and assignment.task.project.status != "completed"
         ]
+        performance_entry = performance.get(employee.id, {})
         members.append(
             {
                 "employee_id": employee.id,
@@ -319,22 +539,51 @@ def build_team_dashboard(db: Session, admin: User):
                 "email": employee.user.email if employee.user else None,
                 "title": _title_from_employee(employee),
                 "department": employee.department,
-                "shift_status": "On Leave" if employee.availability_status == "on-leave" else "On Duty",
-                "availability_status": employee.availability_status,
+                "shift_status": _shift_status(employee),
+                "availability_status": _effective_availability_status(employee),
                 "workload_percent": _workload_percent(employee.current_load, employee.max_capacity),
                 "current_load": employee.current_load,
                 "max_capacity": employee.max_capacity,
                 "skills": employee.skills,
+                "duty_start_hour": employee.duty_start_hour,
+                "duty_end_hour": employee.duty_end_hour,
+                "duty_window": _duty_window_label(employee),
+                "on_leave": employee.availability_status == "on-leave",
                 "active_assignment_count": len(active_assignments),
                 "active_projects": sorted(
                     {assignment.task.project.name for assignment in active_assignments if assignment.task and assignment.task.project}
                 ),
+                "experience_points": performance_entry.get("experience_points", 0.0),
+                "experience_grade": performance_entry.get("experience_grade", "Starter"),
+                "efficiency_score": performance_entry.get("efficiency_score", 0.0),
+                "reliability_score": performance_entry.get("reliability_score", 0.0),
+                "tasks_completed": performance_entry.get("tasks_completed", 0),
+                "tasks_delayed": performance_entry.get("tasks_delayed", 0),
             }
         )
 
     return {
         "team_size": len(members),
         "members": members,
+        "invite_targets": [
+            {
+                "project_id": project.id,
+                "name": project.name,
+                "status": project.status,
+            }
+            for project in invite_targets
+        ],
+        "pending_invites": [
+            {
+                "invite_id": invite.id,
+                "email": invite.email,
+                "project_id": project.id,
+                "project_name": project.name,
+                "role_title": invite.role_title,
+                "created_at": invite.created_at.isoformat() if invite.created_at else None,
+            }
+            for invite, _team, project in pending_invites
+        ],
         "summary": {
             "free_now": len([member for member in members if member["workload_percent"] == 0 and member["availability_status"] != "on-leave"]),
             "on_leave": len([member for member in members if member["availability_status"] == "on-leave"]),
@@ -1087,7 +1336,7 @@ def _assign_project_plan(db: Session, project: Project, recommended_team: List[D
         )
         db.add(assignment)
         employee.current_load = round((employee.current_load or 0) + (task.estimated_time or 0), 1)
-        employee.availability_status = "busy" if employee.current_load > 0 else "available"
+        _sync_employee_capacity_state(employee)
         task.status = "running" if index == 0 else "pending"
         db.flush()
 
@@ -1141,7 +1390,7 @@ def _assign_role_tasks_to_employee(db: Session, project: Project, employee: Empl
         )
         db.add(assignment)
         employee.current_load = round((employee.current_load or 0) + (task.estimated_time or 0), 1)
-        employee.availability_status = "busy" if employee.current_load > 0 else "available"
+        _sync_employee_capacity_state(employee)
         task.status = "running" if index == 0 else task.status
         db.flush()
         _apply_work_package_to_assignment(db, project, task, employee, assignment, llm_service)
@@ -1295,8 +1544,10 @@ def _collect_involved_employees(db: Session, assignments: List[TaskAssignment], 
             "employee_id": employee.id,
             "name": employee.user.full_name if employee.user else f"Employee {employee.id}",
             "title": _title_from_employee(employee),
-            "availability_status": employee.availability_status,
+            "availability_status": _effective_availability_status(employee),
+            "shift_status": _shift_status(employee),
             "workload_percent": _workload_percent(employee.current_load, employee.max_capacity),
+            "duty_window": _duty_window_label(employee),
         }
         for employee in employees
     ]
@@ -1588,6 +1839,7 @@ def build_employee_workspace(db: Session, user: User):
     )
     if not profile:
         raise HTTPException(status_code=404, detail="Employee profile not found")
+    performance = _performance_snapshots(db, [profile.id]).get(profile.id, {})
 
     assignments = (
         db.query(TaskAssignment)
@@ -1763,14 +2015,26 @@ def build_employee_workspace(db: Session, user: User):
             "name": profile.user.full_name if profile.user else user.email,
             "title": _title_from_employee(profile),
             "department": profile.department,
-            "availability_status": profile.availability_status,
+            "availability_status": _effective_availability_status(profile),
+            "shift_status": _shift_status(profile),
             "workload_percent": _workload_percent(profile.current_load, profile.max_capacity),
+            "skills": profile.skills or {},
+            "duty_start_hour": profile.duty_start_hour,
+            "duty_end_hour": profile.duty_end_hour,
+            "duty_window": _duty_window_label(profile),
+            "on_leave": profile.availability_status == "on-leave",
+            "experience_points": performance.get("experience_points", 0.0),
+            "experience_grade": performance.get("experience_grade", "Starter"),
+            "efficiency_score": performance.get("efficiency_score", 0.0),
+            "reliability_score": performance.get("reliability_score", 0.0),
+            "tasks_completed": performance.get("tasks_completed", 0),
         },
         "summary": {
             "active_projects": len(my_projects),
             "assigned_tasks": len(my_tasks),
             "personal_progress_percent": overall_personal_progress,
             "pending_invites": len([invite for invite in project_invites if invite["status"] == "pending"]),
+            "experience_points": performance.get("experience_points", 0.0),
         },
         "project_invites": project_invites,
         "planned_tracks": planned_tracks,
@@ -1866,6 +2130,19 @@ def update_checkpoint_status(db: Session, checkpoint_id: int, completed: bool, u
         task.status = "pending"
     db.add(task)
 
+    if assignment:
+        if completion_percentage >= 100:
+            assignment.status = "completed"
+            assignment.completed_at = assignment.completed_at or _utcnow()
+            assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
+            _award_task_completion_points(db, task, assignment)
+        elif completion_percentage > 0:
+            assignment.status = "in-progress"
+            assignment.started_at = assignment.started_at or _utcnow()
+        else:
+            assignment.status = "assigned"
+        db.add(assignment)
+
     _sync_project_progress(db, task.project_id)
     db.commit()
 
@@ -1924,7 +2201,7 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
         for employee in employees:
             reduction = employee_loads.get(employee.id, 0.0)
             employee.current_load = max(0.0, round((employee.current_load or 0.0) - reduction, 1))
-            employee.availability_status = "available" if employee.current_load == 0 else "busy"
+            _sync_employee_capacity_state(employee)
             db.add(employee)
 
         team_ids = [team.id for team in db.query(Team).filter(Team.project_id == project.id).all()]
@@ -2066,6 +2343,12 @@ def _sync_project_progress(db: Session, project_id: int):
             progress_values.append(0.0)
 
     project.progress = round(sum(progress_values) / len(progress_values))
+    if project.progress >= 100:
+        project.status = "completed"
+        project.completed_at = project.completed_at or _utcnow()
+    elif project.progress > 0 and project.status != "on-hold":
+        project.status = "in-progress"
+        project.completed_at = None
     db.add(project)
 
 
