@@ -30,13 +30,14 @@ def route_create_employee_profile(
     
     # Check if profile already exists
     existing = db.query(EmployeeProfile).filter(
-        EmployeeProfile.user_id == profile.user_id
+        EmployeeProfile.user_id == profile.user_id,
+        EmployeeProfile.tenant_id == current_user.tenant_id,
     ).first()
     
     if existing:
         raise HTTPException(status_code=400, detail="Profile already exists for this user")
     
-    new_profile = EmployeeProfile(**profile.dict())
+    new_profile = EmployeeProfile(**profile.dict(), tenant_id=current_user.tenant_id)
     db.add(new_profile)
     db.flush()
     
@@ -58,7 +59,8 @@ def route_get_employee_profile(
 ):
     """Get employee profile."""
     profile = db.query(EmployeeProfile).filter(
-        EmployeeProfile.id == employee_id
+        EmployeeProfile.id == employee_id,
+        EmployeeProfile.tenant_id == current_user.tenant_id,
     ).first()
     
     if not profile:
@@ -80,7 +82,8 @@ def route_update_employee_profile(
 ):
     """Update employee profile."""
     profile = db.query(EmployeeProfile).filter(
-        EmployeeProfile.id == employee_id
+        EmployeeProfile.id == employee_id,
+        EmployeeProfile.tenant_id == current_user.tenant_id,
     ).first()
     
     if not profile:
@@ -108,7 +111,8 @@ def route_get_employee_metrics(
 ):
     """Get employee performance metrics."""
     profile = db.query(EmployeeProfile).filter(
-        EmployeeProfile.id == employee_id
+        EmployeeProfile.id == employee_id,
+        EmployeeProfile.tenant_id == current_user.tenant_id,
     ).first()
     
     if not profile:
@@ -132,7 +136,7 @@ def route_list_employees(
     current_user: User = Depends(get_current_user)
 ):
     """List all employees (admin only for full list)."""
-    query = db.query(EmployeeProfile)
+    query = db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == current_user.tenant_id)
     
     if current_user.role != "admin":
         # Non-admins can only see available employees

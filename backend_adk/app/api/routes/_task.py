@@ -11,29 +11,33 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 @router.post("/", response_model=TaskRead)
 def route_create_task(task: TaskCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return create_task(db, task)
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can create tasks")
+    return create_task(db, task, current_user)
 
 @router.get("/", response_model=list[TaskRead])
 def route_get_tasks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return get_tasks(db)
+    return get_tasks(db, current_user)
 
 @router.get("/{task_id}", response_model=TaskRead)
 def route_get_task(task_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
+    task = db.query(Task).filter(Task.id == task_id, Task.tenant_id == current_user.tenant_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
 @router.patch("/{task_id}/status", response_model=TaskRead)
 def route_update_status(task_id: int, status_update: TaskUpdateStatus, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    task = update_status(db, task_id, status_update.status)
+    task = update_status(db, task_id, status_update.status, current_user)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
 @router.post("/{task_id}/assign/{agent_id}", response_model=TaskRead)
 def route_assign_agent(task_id: int, agent_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    task = assign_agent(db, task_id, agent_id)
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can assign agents")
+    task = assign_agent(db, task_id, agent_id, current_user)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task

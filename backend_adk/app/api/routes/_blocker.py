@@ -26,7 +26,7 @@ def route_create_blocker(
     current_user: User = Depends(get_current_user)
 ):
     """Create a blocker for a task."""
-    task = db.query(Task).filter(Task.id == blocker.task_id).first()
+    task = db.query(Task).filter(Task.id == blocker.task_id, Task.tenant_id == current_user.tenant_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -122,6 +122,19 @@ def route_get_task_blockers(
     current_user: User = Depends(get_current_user)
 ):
     """Get all blockers for a task."""
+    task = db.query(Task).filter(Task.id == task_id, Task.tenant_id == current_user.tenant_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if current_user.role == "employee":
+        employee_profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == current_user.id).first()
+        assignment = (
+            db.query(TaskAssignment)
+            .filter(TaskAssignment.task_id == task.id, TaskAssignment.employee_id == (employee_profile.id if employee_profile else -1))
+            .first()
+        )
+        if not assignment:
+            raise HTTPException(status_code=403, detail="You can only view blockers for your assigned tasks")
+
     blockers = db.query(Blocker).filter(
         Blocker.task_id == task_id,
         Blocker.status != "resolved"
@@ -141,6 +154,9 @@ def route_update_blocker(
     blocker = db.query(Blocker).filter(Blocker.id == blocker_id).first()
     if not blocker:
         raise HTTPException(status_code=404, detail="Blocker not found")
+    task = db.query(Task).filter(Task.id == blocker.task_id, Task.tenant_id == current_user.tenant_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     
     if blocker_update.status:
         blocker.status = blocker_update.status
@@ -155,7 +171,7 @@ def route_update_blocker(
     db.commit()
     db.refresh(blocker)
 
-    task = db.query(Task).filter(Task.id == blocker.task_id).first()
+    task = db.query(Task).filter(Task.id == blocker.task_id, Task.tenant_id == current_user.tenant_id).first()
     if task:
         event_service = EventService(db)
         event_service.publish_event(
@@ -185,6 +201,9 @@ def route_get_blocker(
     blocker = db.query(Blocker).filter(Blocker.id == blocker_id).first()
     if not blocker:
         raise HTTPException(status_code=404, detail="Blocker not found")
+    task = db.query(Task).filter(Task.id == blocker.task_id, Task.tenant_id == current_user.tenant_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     return blocker
 
 
@@ -202,27 +221,28 @@ def route_delete_blocker(
     blocker = db.query(Blocker).filter(Blocker.id == blocker_id).first()
     if not blocker:
         raise HTTPException(status_code=404, detail="Blocker not found")
+    task = db.query(Task).filter(Task.id == blocker.task_id, Task.tenant_id == current_user.tenant_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     
     blocker.status = "resolved"
     blocker.resolved_at = datetime.utcnow()
     db.merge(blocker)
     db.commit()
 
-    task = db.query(Task).filter(Task.id == blocker.task_id).first()
-    if task:
-        event_service = EventService(db)
-        event_service.publish_event(
-            event_type="PROJECT_EXECUTION_SIGNAL",
-            entity_type="project",
-            entity_id=task.project_id,
-            payload={
-                "triggered_by": current_user.id,
-                "source": "blocker_deleted",
-                "task_id": task.id,
-                "blocker_id": blocker.id,
-                "persist_followup_messages": True,
-            },
-        )
-        background_tasks.add_task(process_event_queue_batch_async, 1)
+    event_service = EventService(db)
+    event_service.publish_event(
+        event_type="PROJECT_EXECUTION_SIGNAL",
+        entity_type="project",
+        entity_id=task.project_id,
+        payload={
+            "triggered_by": current_user.id,
+            "source": "blocker_deleted",
+            "task_id": task.id,
+            "blocker_id": blocker.id,
+            "persist_followup_messages": True,
+        },
+    )
+    background_tasks.add_task(process_event_queue_batch_async, 1)
     
     return {"success": True, "blocker_id": blocker_id}
