@@ -8,6 +8,7 @@ class EmployeeProfile(Base):
     __tablename__ = "employee_profiles"
 
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     skills = Column(JSON, nullable=False, default={})  # {"python": 0.9, "fastapi": 0.8, ...}
     max_capacity = Column(Float, default=8.0)  # hours per day

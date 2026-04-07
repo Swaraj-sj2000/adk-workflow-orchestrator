@@ -1,15 +1,34 @@
 # backend/app/schemas/_user.py
 
-from pydantic import BaseModel, EmailStr
+from typing import Literal, Optional
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str
-    role: str
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=2, max_length=120)
+    role: Literal["admin", "employee", "client"]
+    tenant_name: Optional[str] = Field(default=None, max_length=120)
+    tenant_slug: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailStr) -> str:
+        return value.strip().lower()
+
+    @field_validator("full_name")
+    @classmethod
+    def normalize_full_name(cls, value: str) -> str:
+        return value.strip()
 
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailStr) -> str:
+        return value.strip().lower()

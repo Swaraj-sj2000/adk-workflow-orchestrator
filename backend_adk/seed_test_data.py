@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import sys
 
-sys.path.insert(0, "/home/swaraj/sj_code/genai_apac_2026/agentic_orchestrator/backend")
+sys.path.insert(0, "/home/swaraj/sj_code/genai_apac_2026/agentic_orchestrator/backend_adk")
 
 from app.core._security import hash_password
 from app.db._database import Base, SessionLocal, engine
+from app.services._auth_service import ensure_default_tenant
 from app.models import (
     _agent,
     _agent_run,
@@ -39,6 +40,9 @@ from app.models import (
     _task_assignment,
     _task_dependency,
     _task_progress,
+    _team,
+    _team_invite,
+    _tenant,
     _user,
     _workflow_run,
 )
@@ -142,12 +146,13 @@ def reset_database():
     Base.metadata.create_all(bind=engine)
 
 
-def create_user(db, email: str, password: str, full_name: str, role: str):
+def create_user(db, email: str, password: str, full_name: str, role: str, tenant_id: int):
     user = User(
         email=email,
         password=hash_password(password),
         full_name=full_name,
         role=role,
+        tenant_id=tenant_id,
     )
     db.add(user)
     db.flush()
@@ -155,7 +160,8 @@ def create_user(db, email: str, password: str, full_name: str, role: str):
 
 
 def seed_team(db):
-    admin = create_user(db, **TEAM[0])
+    tenant = ensure_default_tenant(db)
+    admin = create_user(db, tenant_id=tenant.id, **TEAM[0])
     employees = []
 
     for member in TEAM[1:]:
@@ -165,8 +171,10 @@ def seed_team(db):
             password=member["password"],
             full_name=member["full_name"],
             role="employee",
+            tenant_id=tenant.id,
         )
         profile = EmployeeProfile(
+            tenant_id=tenant.id,
             user_id=user.id,
             skills=member["skills"],
             max_capacity=8.0,

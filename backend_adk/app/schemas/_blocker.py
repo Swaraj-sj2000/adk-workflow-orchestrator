@@ -1,14 +1,24 @@
 # app/schemas/_blocker.py
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
 
 class BlockerCreate(BaseModel):
     task_id: int
-    blocker_type: str
+    blocker_type: str = Field(min_length=3, max_length=40)
     severity: str = "medium"
-    description: str
+    description: str = Field(min_length=5, max_length=1000)
+
+    @field_validator("blocker_type", "severity")
+    @classmethod
+    def normalize_small_fields(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str) -> str:
+        return value.strip()
 
 
 class BlockerUpdate(BaseModel):

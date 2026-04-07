@@ -1,5 +1,5 @@
 # app/schemas/_task.py
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Dict, List
 from enum import Enum
 from datetime import datetime
@@ -17,12 +17,17 @@ class TaskCreate(BaseModel):
     project_id: int
     parent_task_id: Optional[int] = None
     agent_id: Optional[int] = None
-    description: str
+    description: str = Field(min_length=3, max_length=500)
     difficulty: str = "medium"
     urgency: str = "medium"
     estimated_time: Optional[float] = None
     required_skills: Dict[str, float] = {}
     deadline: Optional[datetime] = None
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str) -> str:
+        return value.strip()
 
 
 class TaskRead(BaseModel):
