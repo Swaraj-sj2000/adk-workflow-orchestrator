@@ -93,8 +93,19 @@ def route_update_employee_profile(
         raise HTTPException(status_code=403, detail="Not authorized")
     
     update_data = profile_update.dict(exclude_unset=True)
+    if current_user.role != "admin":
+        allowed_fields = {"skills", "availability_status", "duty_start_hour", "duty_end_hour"}
+        forbidden = set(update_data.keys()) - allowed_fields
+        if forbidden:
+            raise HTTPException(status_code=403, detail="Employees can only update skills, leave status, and duty hours")
+        if update_data.get("availability_status") == "busy":
+            raise HTTPException(status_code=400, detail="Busy status is managed automatically from assignments")
+
     for key, value in update_data.items():
         setattr(profile, key, value)
+
+    if profile.availability_status != "on-leave":
+        profile.availability_status = "busy" if (profile.current_load or 0) > 0 else "available"
     
     db.merge(profile)
     db.commit()
@@ -117,6 +128,9 @@ def route_get_employee_metrics(
     
     if not profile:
         raise HTTPException(status_code=404, detail="Employee not found")
+
+    if current_user.role != "admin" and current_user.id != profile.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
     
     metrics = db.query(EmployeeMetrics).filter(
         EmployeeMetrics.employee_id == employee_id

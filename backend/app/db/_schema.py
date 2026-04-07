@@ -13,6 +13,8 @@ ADDITIVE_COLUMNS = {
     },
     "employee_profiles": {
         "tenant_id": "INTEGER",
+        "duty_start_hour": "FLOAT",
+        "duty_end_hour": "FLOAT",
     },
     "client_profiles": {
         "tenant_id": "INTEGER",
