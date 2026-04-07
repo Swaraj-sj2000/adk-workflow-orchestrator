@@ -18,7 +18,6 @@ export default function Navbar({ user, onLogout, setPage, theme, onToggleTheme }
             <button onClick={() => setPage('projects')} className="nav-btn">Projects</button>
             <button onClick={() => setPage('employees')} className="nav-btn">Team Dashboard</button>
             <button onClick={() => setPage('decisions')} className="nav-btn">Agentic Dashboard</button>
-            <button onClick={() => setPage('autopm')} className="nav-btn">AutoPM</button>
             <button onClick={() => setPage('multi-agent')} className="nav-btn">Multi-Agent</button>
           </>
         )}

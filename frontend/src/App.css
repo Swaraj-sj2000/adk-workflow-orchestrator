@@ -240,6 +240,7 @@ body {
 .status-on-duty { background: #d1fae5; color: #047857; }
 .status-approved { background: #dbeafe; color: #1d4ed8; }
 .status-busy { background: #fef3c7; color: #d97706; }
+.status-off-duty { background: #e0f2fe; color: #0c4a6e; }
 .status-overloaded { background: #fee2e2; color: #dc2626; }
 .status-on-leave { background: #e5e7eb; color: #4b5563; }
 .status-planning,
@@ -282,6 +283,29 @@ body {
 
 .list-item:hover {
   background: color-mix(in srgb, var(--surface-soft) 85%, white);
+}
+
+.workspace-message {
+  padding: 14px 18px;
+}
+
+.workspace-success {
+  border-left: 4px solid #10b981;
+}
+
+.workspace-error {
+  border-left: 4px solid #ef4444;
+}
+
+.split-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.muted-copy {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* Tables */

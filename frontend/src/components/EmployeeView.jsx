@@ -1,12 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { API_BASE_URL as API } from '../config';
 
+const initialConcernForm = {
+  blocker_type: 'ambiguity',
+  severity: 'medium',
+  description: '',
+};
+
+const initialInviteForm = {
+  projectId: '',
+  email: '',
+  roleTitle: '',
+};
+
+const initialProfileForm = {
+  skillsText: '',
+  dutyStart: '09:00',
+  dutyEnd: '18:00',
+  onLeave: false,
+};
+
 export default function EmployeeView({ role }) {
   const [data, setData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
-  const [concernForm, setConcernForm] = useState({ blocker_type: 'ambiguity', severity: 'medium', description: '' });
+  const [concernForm, setConcernForm] = useState(initialConcernForm);
   const [inviteNotes, setInviteNotes] = useState({});
+  const [inviteForm, setInviteForm] = useState(initialInviteForm);
+  const [profileForm, setProfileForm] = useState(initialProfileForm);
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,17 +46,31 @@ export default function EmployeeView({ role }) {
       if (res.ok) {
         const nextData = await res.json();
         setData(nextData);
-        if (role === 'admin' && selectedMember) {
-          const refreshedMember = (nextData.members || []).find((member) => member.employee_id === selectedMember.employee_id);
-          setSelectedMember(refreshedMember || null);
-        }
-        if (role !== 'admin' && selectedTask) {
-          const refreshedTask = (nextData.tasks || []).find((task) => task.assignment_id === selectedTask.assignment_id);
-          setSelectedTask(refreshedTask || null);
+        if (role === 'admin') {
+          if (selectedMember) {
+            const refreshedMember = (nextData.members || []).find((member) => member.employee_id === selectedMember.employee_id);
+            setSelectedMember(refreshedMember || null);
+          }
+          setInviteForm((current) => ({
+            ...current,
+            projectId: current.projectId || String(nextData.invite_targets?.[0]?.project_id || ''),
+          }));
+        } else {
+          if (selectedTask) {
+            const refreshedTask = (nextData.tasks || []).find((task) => task.assignment_id === selectedTask.assignment_id);
+            setSelectedTask(refreshedTask || null);
+          }
+          setProfileForm({
+            skillsText: formatSkillsText(nextData.employee?.skills || {}),
+            dutyStart: toHourInput(nextData.employee?.duty_start_hour),
+            dutyEnd: toHourInput(nextData.employee?.duty_end_hour),
+            onLeave: Boolean(nextData.employee?.on_leave),
+          });
         }
       }
     } catch (error) {
       console.error(error);
+      setMessage('Could not load workspace data.');
     }
     setLoading(false);
   };
@@ -50,10 +86,12 @@ export default function EmployeeView({ role }) {
         body: JSON.stringify({ completed }),
       });
       if (res.ok) {
+        setMessage('Checkpoint updated.');
         await fetchData();
       }
     } catch (error) {
       console.error(error);
+      setMessage('Could not update checkpoint.');
     }
   };
 
@@ -76,11 +114,13 @@ export default function EmployeeView({ role }) {
         }),
       });
       if (res.ok) {
-        setConcernForm({ blocker_type: 'ambiguity', severity: 'medium', description: '' });
+        setConcernForm(initialConcernForm);
+        setMessage('Concern submitted to the AI lead.');
         await fetchData();
       }
     } catch (error) {
       console.error(error);
+      setMessage('Could not submit concern.');
     }
   };
 
@@ -99,11 +139,79 @@ export default function EmployeeView({ role }) {
       });
       if (res.ok) {
         setInviteNotes((current) => ({ ...current, [projectId]: '' }));
+        setMessage(accepted ? 'Project invite accepted.' : 'Project invite rejected.');
         await fetchData();
       }
     } catch (error) {
       console.error(error);
+      setMessage('Could not update invite response.');
     }
+  };
+
+  const inviteMember = async (event) => {
+    event.preventDefault();
+    if (!inviteForm.projectId || !inviteForm.email.trim()) return;
+
+    try {
+      const res = await fetch(`${API}/invite`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          project_id: Number(inviteForm.projectId),
+          email: inviteForm.email.trim().toLowerCase(),
+          role_title: inviteForm.roleTitle.trim() || null,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.detail || 'Could not create invite');
+      }
+      setInviteForm((current) => ({ ...current, email: '', roleTitle: '' }));
+      setMessage(payload.existing_user ? 'Invite created. The employee can now accept it from their dashboard.' : 'Pending invite created. It will attach automatically when the user registers.');
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      setMessage(error.message);
+    }
+  };
+
+  const saveProfile = async (availabilityOverride = null) => {
+    const employeeId = data?.employee?.employee_id;
+    if (!employeeId) return;
+
+    try {
+      const res = await fetch(`${API}/employees/${employeeId}/profile`, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          skills: parseSkillsText(profileForm.skillsText),
+          duty_start_hour: fromHourInput(profileForm.dutyStart),
+          duty_end_hour: fromHourInput(profileForm.dutyEnd),
+          availability_status: availabilityOverride || (profileForm.onLeave ? 'on-leave' : 'available'),
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.detail || 'Could not update profile');
+      }
+      setMessage('Profile updated. Team board status will refresh automatically.');
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      setMessage(error.message);
+    }
+  };
+
+  const toggleLeaveStatus = async () => {
+    const nextOnLeave = !profileForm.onLeave;
+    setProfileForm((current) => ({ ...current, onLeave: nextOnLeave }));
+    await saveProfile(nextOnLeave ? 'on-leave' : 'available');
   };
 
   if (loading) return <div className="loading"><div className="spinner"></div></div>;
@@ -111,8 +219,17 @@ export default function EmployeeView({ role }) {
   if (role === 'admin') {
     const members = data?.members || [];
     const summary = data?.summary || {};
+    const inviteTargets = data?.invite_targets || [];
+    const pendingInvites = data?.pending_invites || [];
+
     return (
       <div className="dashboard">
+        {message && (
+          <div className={`card full-width workspace-message workspace-${messageTone(message)}`}>
+            <strong>{message}</strong>
+          </div>
+        )}
+
         <div className="card full-width">
           <p className="eyebrow">Team Dashboard</p>
           <h2>Employee status across your AI service team</h2>
@@ -133,6 +250,70 @@ export default function EmployeeView({ role }) {
               <p>Team Size</p>
               <div className="metric">{data?.team_size || 0}</div>
             </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>Add Member By Email</h2>
+          <form className="project-create-form" onSubmit={inviteMember}>
+            <div className="form-group">
+              <label>Project Team</label>
+              <select
+                value={inviteForm.projectId}
+                onChange={(event) => setInviteForm((current) => ({ ...current, projectId: event.target.value }))}
+                required
+              >
+                <option value="">Select project</option>
+                {inviteTargets.map((project) => (
+                  <option key={project.project_id} value={project.project_id}>
+                    {project.name} ({project.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Employee Email</label>
+              <input
+                type="email"
+                value={inviteForm.email}
+                onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
+                placeholder="nitin@orchestrator.ai"
+                required
+              />
+            </div>
+            <div className="form-group form-span-2">
+              <label>Role Title</label>
+              <input
+                value={inviteForm.roleTitle}
+                onChange={(event) => setInviteForm((current) => ({ ...current, roleTitle: event.target.value }))}
+                placeholder="Backend Engineer"
+              />
+            </div>
+            <div className="form-actions form-span-2">
+              <button className="btn btn-primary" type="submit">Send Team Invite</button>
+            </div>
+          </form>
+        </div>
+
+        <div className="card">
+          <h2>Pending Team Invites</h2>
+          <div className="list">
+            {pendingInvites.length > 0 ? pendingInvites.map((invite) => (
+              <div key={invite.invite_id} className="list-item">
+                <div className="task-line">
+                  <div>
+                    <strong>{invite.email}</strong>
+                    <p>{invite.project_name}</p>
+                  </div>
+                  <span className="status-badge status-pending">pending</span>
+                </div>
+                <p>{invite.role_title || 'Role to be finalized by admin'}</p>
+              </div>
+            )) : (
+              <div className="list-item">
+                <p>No pending invites right now.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -159,6 +340,7 @@ export default function EmployeeView({ role }) {
                   </span>
                 </div>
                 <p>{member.workload_percent}% workload</p>
+                <p>{member.duty_window || 'Duty hours not set'} | XP {Math.round(member.experience_points || 0)}</p>
               </div>
             ))}
           </div>
@@ -186,12 +368,36 @@ export default function EmployeeView({ role }) {
                   <strong>{selectedMember.workload_percent}%</strong>
                 </div>
                 <div className="info-pill">
-                  <span>Active Assignments</span>
-                  <strong>{selectedMember.active_assignment_count}</strong>
+                  <span>Duty Window</span>
+                  <strong>{selectedMember.duty_window || 'Not set'}</strong>
                 </div>
                 <div className="info-pill">
-                  <span>Capacity</span>
-                  <strong>{selectedMember.current_load} / {selectedMember.max_capacity}h</strong>
+                  <span>Status</span>
+                  <strong>{selectedMember.shift_status}</strong>
+                </div>
+                <div className="info-pill">
+                  <span>XP Grade</span>
+                  <strong>{selectedMember.experience_grade}</strong>
+                </div>
+                <div className="info-pill">
+                  <span>XP Points</span>
+                  <strong>{Math.round(selectedMember.experience_points || 0)}</strong>
+                </div>
+                <div className="info-pill">
+                  <span>Efficiency</span>
+                  <strong>{Math.round((selectedMember.efficiency_score || 0) * 100)}%</strong>
+                </div>
+                <div className="info-pill">
+                  <span>Reliability</span>
+                  <strong>{Math.round((selectedMember.reliability_score || 0) * 100)}%</strong>
+                </div>
+                <div className="info-pill">
+                  <span>Completed Tasks</span>
+                  <strong>{selectedMember.tasks_completed}</strong>
+                </div>
+                <div className="info-pill">
+                  <span>Delayed Tasks</span>
+                  <strong>{selectedMember.tasks_delayed}</strong>
                 </div>
               </div>
 
@@ -214,7 +420,7 @@ export default function EmployeeView({ role }) {
             </>
           ) : (
             <div className="empty-state">
-              <p>Select a team member to see their detailed status, active projects, and skill profile.</p>
+              <p>Select a team member to see their detailed status, active projects, duty hours, and experience profile.</p>
             </div>
           )}
         </div>
@@ -230,6 +436,12 @@ export default function EmployeeView({ role }) {
 
   return (
     <div className="dashboard">
+      {message && (
+        <div className={`card full-width workspace-message workspace-${messageTone(message)}`}>
+          <strong>{message}</strong>
+        </div>
+      )}
+
       <div className="card full-width">
         <p className="eyebrow">My Work</p>
         <h2>{employee.name}</h2>
@@ -254,7 +466,82 @@ export default function EmployeeView({ role }) {
             <p>Pending Invites</p>
             <div className="metric">{data?.summary?.pending_invites || 0}</div>
           </div>
+          <div className="summary-card">
+            <p>XP Grade</p>
+            <div className="detail-card-value">{employee.experience_grade || 'Starter'}</div>
+          </div>
         </div>
+      </div>
+
+      <div className="card">
+        <h2>My Availability and Skills</h2>
+        <div className="project-mini-grid">
+          <div className="info-pill">
+            <span>Current Status</span>
+            <strong>{employee.shift_status || 'On Duty'}</strong>
+          </div>
+          <div className="info-pill">
+            <span>Duty Window</span>
+            <strong>{employee.duty_window || 'Not set'}</strong>
+          </div>
+          <div className="info-pill">
+            <span>XP Points</span>
+            <strong>{Math.round(employee.experience_points || 0)}</strong>
+          </div>
+          <div className="info-pill">
+            <span>Efficiency</span>
+            <strong>{Math.round((employee.efficiency_score || 0) * 100)}%</strong>
+          </div>
+          <div className="info-pill">
+            <span>Reliability</span>
+            <strong>{Math.round((employee.reliability_score || 0) * 100)}%</strong>
+          </div>
+          <div className="info-pill">
+            <span>Completed Tasks</span>
+            <strong>{employee.tasks_completed || 0}</strong>
+          </div>
+        </div>
+
+        <form
+          className="project-create-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveProfile();
+          }}
+        >
+          <div className="form-group form-span-2">
+            <label>Skills</label>
+            <textarea
+              rows="5"
+              value={profileForm.skillsText}
+              onChange={(event) => setProfileForm((current) => ({ ...current, skillsText: event.target.value }))}
+              placeholder={`python: 0.9\nfastapi: 0.8\nreact: 0.7`}
+            />
+            <p className="muted-copy">Use one skill per line. Scores accept `0.0-1.0` or percentages like `85`.</p>
+          </div>
+          <div className="form-group">
+            <label>Duty Start</label>
+            <input
+              type="time"
+              value={profileForm.dutyStart}
+              onChange={(event) => setProfileForm((current) => ({ ...current, dutyStart: event.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label>Duty End</label>
+            <input
+              type="time"
+              value={profileForm.dutyEnd}
+              onChange={(event) => setProfileForm((current) => ({ ...current, dutyEnd: event.target.value }))}
+            />
+          </div>
+          <div className="form-actions form-span-2 split-actions">
+            <button className="btn btn-primary" type="submit">Save Skills and Duty Hours</button>
+            <button className="btn btn-secondary" type="button" onClick={toggleLeaveStatus}>
+              {profileForm.onLeave ? 'Mark Back On Duty' : 'Mark On Leave'}
+            </button>
+          </div>
+        </form>
       </div>
 
       <div className="card">
@@ -265,7 +552,7 @@ export default function EmployeeView({ role }) {
               <div className="task-line">
                 <div>
                   <strong>{invite.project_name}</strong>
-                  <p>Project #{invite.project_id} • {invite.title}</p>
+                  <p>Project #{invite.project_id} | {invite.title}</p>
                 </div>
                 <span className={`status-badge status-${(invite.status || 'pending').replace(/\s+/g, '-')}`}>
                   {invite.status}
@@ -318,7 +605,7 @@ export default function EmployeeView({ role }) {
               <div className="task-line">
                 <div>
                   <strong>{track.project_name}</strong>
-                  <p>Project #{track.project_id} • {track.role_title}</p>
+                  <p>Project #{track.project_id} | {track.role_title}</p>
                 </div>
                 <span className={`status-badge status-${(track.invite_status || 'pending').replace(/\s+/g, '-')}`}>
                   {track.invite_status}
@@ -326,7 +613,7 @@ export default function EmployeeView({ role }) {
               </div>
               {(track.tasks || []).map((task) => (
                 <div key={task.task_id} style={{ marginTop: '10px' }}>
-                  <p><strong>{task.task_name}</strong> • {task.estimated_hours}h</p>
+                  <p><strong>{task.task_name}</strong> | {task.estimated_hours}h</p>
                   <p>{(task.delivery_steps || []).join(' | ') || 'Detailed steps will appear here as soon as your invite is accepted and the work package is generated.'}</p>
                 </div>
               ))}
@@ -511,4 +798,49 @@ export default function EmployeeView({ role }) {
       </div>
     </div>
   );
+}
+
+function formatSkillsText(skills) {
+  return Object.entries(skills || {})
+    .map(([skill, score]) => `${skill}: ${score}`)
+    .join('\n');
+}
+
+function parseSkillsText(text) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reduce((accumulator, line) => {
+      const [rawSkill, rawScore] = line.split(':');
+      if (!rawSkill) return accumulator;
+      const skill = rawSkill.trim().toLowerCase();
+      if (!skill) return accumulator;
+
+      let score = Number(String(rawScore || '0').trim());
+      if (Number.isNaN(score)) score = 0;
+      if (score > 1) score = score / 100;
+      accumulator[skill] = Math.max(0, Math.min(score, 1));
+      return accumulator;
+    }, {});
+}
+
+function toHourInput(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '09:00';
+  const totalMinutes = Math.round(Number(value) * 60);
+  const hours = `${Math.floor(totalMinutes / 60) % 24}`.padStart(2, '0');
+  const minutes = `${totalMinutes % 60}`.padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function fromHourInput(value) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(':').map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return Number((hours + minutes / 60).toFixed(2));
+}
+
+function messageTone(message) {
+  const lowered = String(message || '').toLowerCase();
+  return lowered.includes('could not') || lowered.includes('failed') || lowered.includes('error') ? 'error' : 'success';
 }
