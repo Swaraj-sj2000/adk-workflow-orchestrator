@@ -119,32 +119,8 @@ Create database:
 
 ```bash
 gcloud sql databases create $DB_NAME \
-  --instance=$INSTANCE_NAME
+  --inGenerate SECRET_KEY and store in Secret Manager
 ```
-
-Create database user with strong password:
-
-```bash
-export DB_PASSWORD=$(openssl rand -base64 32)
-echo "Generated DB Password: $DB_PASSWORD"
-echo "IMPORTANT: Save this password securely!"
-
-gcloud sql users create $DB_USER \
-  --instance=$INSTANCE_NAME \
-  --password="$DB_PASSWORD"
-```
-
-Construct the DATABASE_URL for Cloud Run (using Unix socket):
-
-```bash
-export DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@/${DB_NAME}?host=/cloudsql/${PROJECT_ID}:${REGION}:${INSTANCE_NAME}"
-
-echo "DATABASE_URL: $DATABASE_URL"
-```
-
-**Note:** `psycopg2-binary` is already included in `requirements.txt`.
-
-## 4) Generate SECRET_KEY and store in Secret Manager
 
 Generate a secure SECRET_KEY:
 
@@ -180,117 +156,37 @@ gcloud secrets add-iam-policy-binding database-url \
   --condition=None
 ```
 
-## 5) Initialize database schema
+## 6) Initialize database schema
 
-Before deploying, initialize the database tables via Cloud SQL proxy:
+Before deploying, initialize the database tables. You can do this locally or via Cloud SQL proxy:
 
-**Step 1: Download Cloud SQL Proxy (if not already installed)**
-
-```bash
-# On Cloud Shell (already has it, skip this)
-# On macOS/Linux
-curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.0/cloud-sql-proxy.linux.amd64
-chmod +x cloud-sql-proxy
-```
-
-**Step 2: Start Cloud SQL Proxy**
+**Option A: Using Cloud SQL Proxy (recommended)**
 
 ```bash
+# Download and start Cloud SQL proxy
 cloud-sql-proxy ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} --port 5432 &
 
 # Wait a few seconds for proxy to connect
 sleep 5
-```
 
-**Step 3: Set DATABASE_URL to localhost (via proxy)**
-
-```bash
+# Run database initialization script (if you have one)
+# Or use alembic for migrations
 export DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
-```
-
-**Step 4: Run seed_test_data.py to initialize and populate database**
-
-```bash
-# Run the seed script to create tables and add test data
-python seed_test_data.py
-```
-
-**Alternative: Manual table creation (if seed script doesn't work)**
-
-```bash
 python -c "
 from app.db._database import engine, Base
 from app.models import *  # Import all models
 Base.metadata.create_all(bind=engine)
 print('Database tables created successfully!')
 "
-```
 
-**Step 5: Stop the proxy**
-
-```bash
+# Stop the proxy
 pkill cloud-sql-proxy
 ```
 
-## 6) Build and push container
-
-From `backend_adk` directory:
+**Option B: Using seed script**
 
 ```bash
-cd /Users/rawatp1/Documents/Repository_local/Hackathon/adk-workflow-orchestrator/backend_adk
-
-gcloud builds submit --tag ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest
-```
-
-## 7) Deploy Cloud Run service
-
-Deploy with service account, secrets, and Cloud SQL connection:
-
-```bash
-gcloud run deploy backend-adk \
-  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
-  --platform managed \
-  --region $REGION \
-  --service-account=$SERVICE_ACCOUNT \
-  --allow-unauthenticated \
-  --port 8080 \
-  --cpu 1 \
-  --memory 1Gi \
-  --timeout 300 \
-  --concurrency 40 \
-  --min-instances 0 \
-  --max-instances 10 \
-  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
-  --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
-  --set-env-vars GOOGLE_CLOUD_LOCATION=$REGION \
-  --set-env-vars LOG_LEVEL=INFO \
-  --set-env-vars LOG_TO_STDOUT=true \
-  --set-env-vars LOG_FILE_ENABLED=false \
-  --set-secrets DATABASE_URL=database-url:latest \
-  --set-secrets SECRET_KEY=backend-secret-key:latest
-```
-
-**Alternative:** Set env vars directly (less secure, but simpler for testing):
-
-```bash
-gcloud run deploy backend-adk \
-  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
-  --platform managed \
-  --region $REGION \
-  --service-account=$SERVICE_ACCOUNT \
-  --allow-unauthenticated \
-  --port 8080 \
-  --cpu 1 \
-  --memory 1Gi \
-  --timeout 300 \
-  --concurrency 40 \
-  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="$DATABASE_URL",SECRET_KEY="$SECRET_KEY"
-```
-
-## 8) Verify deployment
+# I8) Verify deployment
 
 Get the deployed service URL:
 
@@ -317,41 +213,68 @@ Test a sample API endpoint:
 ```bash
 # Example: Check projects endpoint
 curl $SERVICE_URL/api/projects
+  --memory 1Gi \
+  --timeout 300 \
+  --concurrency 40 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
+  --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+  --set-env-vars GOOGLE_CLOUD_LOCATION=$REGION \
+  --set-env-vars LOG_LEVEL=INFO \
+  --set-env-vars LOG_TO_STDOUT=true \
+  --set-env-vars LOG_FILE_ENABLED=false \
+  --set-secrets DATABASE_URL=database-url:latest \
+  --set-secrets SECRET_KEY=backend-secret-key:latest
 ```
 
-## 9) Event worker strategy (important)
+**Alternative:** Set env vars directly (less secure):
 
-`run_event_worker.py` is a long-running worker and should **not** run in the same Cloud Run API service.
+```bash
+gcloud run deploy backend-adk \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
+  --platform managed \
+  --region $REGION \
+  --service-account=$SERVICE_ACCOUNT \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 1Gi \
+  -9timeout 300 \
+  --concurrency 40 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="$DATABASE_URL",SECRET_KEY="$SECRET_KEY"
+## 4) Build and push container
 
-Options:
-- Cloud Run Job triggered by Cloud Scheduler
-- Cloud Tasks + API endpoint to process batches
-- Separate worker service with explicit control
+From `backend_adk` directory:
 
-## 10) Recommended follow-up hardening
+```bash
+gcl10ud builds submit --tag YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/orchestrator-repo/backend-adk:latest
+```
 
-- Restrict CORS in production (`allow_origins` not `*`)
-- Move `SECRET_KEY` and DB password to Secret Manager (already done in step 4)
-- Add explicit `/healthz` endpoint if you want distinct health probing
-- Add DB migrations with Alembic in CI/CD
-- Set min instances for cold-start sensitive workloads
+## 5) Deploy Cloud Run service
 
-## 11) Complete environment variables reference
+Create/choose service account (recommended):
+- Grant `Vertex AI User` role
+- If using Secret Manager: `Secret Manager Secret Accessor`
+- I11) Completeoud SQL: `Cloud SQL Client`
 
-Required:
-- `GOOGLE_CLOUD_PROJECT`
-- `GOOGLE_CLOUD_LOCATION`
-- `GOOGLE_GENAI_USE_VERTEXAI=true`
-- `GEMINI_MODEL=gemini-2.5-flash`
-- `DATABASE_URL`
-- `SECRET_KEY`
+Deploy:
 
-Recommended:
-- `LOG_LEVEL=INFO`
-- `LOG_TO_STDOUT=true`
-- `LOG_FILE_ENABLED=false`
-
-## 12) Quick reference: All variables used
+```bash
+gcloud run deploy backend-adk \
+  --image YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/orchestrator-repo/backend-adk:latest \
+  --platform managed \
+  --region YOUR_REGION \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 1Gi \
+  --timeout 300 \
+  --concurrency 40 \
+  --2) Quick reference: All variables used
 
 Save these for future updates or troubleshooting:
 
@@ -370,6 +293,68 @@ export SECRET_KEY=<your-generated-secret>
 export SERVICE_URL=$(gcloud run services describe backend-adk --region $REGION --format='value(status.url)')
 ```
 
-## 13) Known current code caveat
+## 13et-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=YOUR_REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false \
+  --set-env-vars DATABASE_URL="YOUR_DATABASE_URL"
+```
+
+If using Cloud SQL Unix socket, also add:
+
+```bash
+--add-cloudsql-instances PROJECT:REGION:INSTANCE
+```
+
+## 6) Verify deployment
+
+Get URL:
+
+```bash
+gcloud run services describe backend-adk --region YOUR_REGION --format='value(status.url)'
+```
+
+Health checks:
+
+```bash
+curl https://SERVICE_URL/
+```
+
+Check logs:
+
+```bash
+gcloud run services logs read backend-adk --region YOUR_REGION --limit 100
+```
+
+## 7) Event worker strategy (important)
+
+`run_event_worker.py` is a long-running worker and should **not** run in the same Cloud Run API service.
+
+Options:
+- Cloud Run Job triggered by Cloud Scheduler
+- Cloud Tasks + API endpoint to process batches
+- Separate worker service with explicit control
+
+## 8) Recommended follow-up hardening
+
+- Restrict CORS in production (`allow_origins` not `*`)
+- Move `SECRET_KEY` and DB password to Secret Manager
+- Add explicit `/healthz` endpoint if you want distinct health probing
+- Add DB migrations with Alembic in CI/CD
+- Set min instances for cold-start sensitive workloads
+
+## 9) Minimal environment variables reference
+
+Required:
+- `GOOGLE_CLOUD_PROJECT`
+- `GOOGLE_CLOUD_LOCATION`
+- `GOOGLE_GENAI_USE_VERTEXAI=true`
+- `GEMINI_MODEL=gemini-2.5-flash`
+- `DATABASE_URL`
+- `SECRET_KEY`
+
+Recommended:
+- `LOG_LEVEL=INFO`
+- `LOG_TO_STDOUT=true`
+- `LOG_FILE_ENABLED=false`
+
+## 10) Known current code caveat
 
 Ensure `app/services/_llm_service.py` uses Vertex/Gemini runtime dependencies that exist in `requirements.txt`. If this file is reverted to LangChain imports, deployment will fail unless LangChain dependencies are reintroduced.
