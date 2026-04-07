@@ -1,0 +1,23 @@
+gcloud run deploy backend-adk \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
+  --platform managed \
+  --region $REGION \
+  --service-account=$SERVICE_ACCOUNT \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 1Gi \
+  --timeout 300 \
+  --concurrency 40 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
+  --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+  --set-env-vars GOOGLE_CLOUD_LOCATION=$REGION \
+  --set-env-vars LOG_LEVEL=INFO \
+  --set-env-vars LOG_TO_STDOUT=true \
+  --set-env-vars LOG_FILE_ENABLED=false \
+  --set-secrets DATABASE_URL=database-url:latest \
+  --set-secrets SECRET_KEY=backend-secret-key:latest
