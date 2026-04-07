@@ -20,17 +20,33 @@ This repository now includes:
 
 ## 2) Required GCP setup
 
-Set your project and region:
+Set your project and region (replace with your values):
 
 ```bash
-gcloud config set project YOUR_PROJECT_ID
-gcloud config set run/region YOUR_REGION
+export PROJECT_ID=ai-workforce-orchestrator
+export REGION=europe-west1
+
+gcloud config set project $PROJECT_ID
+gcloud config set run/region $REGION
 ```
 
-Enable APIs:
+Get project number (needed for service accounts):
 
 ```bash
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com aiplatform.googleapis.com
+export PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+```
+
+Enable all required APIs:
+
+```bash
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  aiplatform.googleapis.com \
+  compute.googleapis.com \
+  sqladmin.googleapis.com \
+  secretmanager.googleapis.com
 ```
 
 Create Artifact Registry repo (one-time):
@@ -38,37 +54,194 @@ Create Artifact Registry repo (one-time):
 ```bash
 gcloud artifacts repositories create orchestrator-repo \
   --repository-format=docker \
-  --location=YOUR_REGION \
+  --location=$REGION \
   --description="Docker images for backend_adk"
 ```
 
-## 3) Choose production database
-
-### Recommended: Cloud SQL Postgres
-
-Create Cloud SQL instance/database/user (example names):
-- Instance: `orchestrator-sql`
-- DB: `orchestrator`
-- User: `orchestrator_user`
-
-Then set SQLAlchemy URL like:
+Create service account for Cloud Run:
 
 ```bash
-DATABASE_URL=postgresql+psycopg2://orchestrator_user:PASSWORD@/orchestrator?host=/cloudsql/PROJECT:REGION:INSTANCE
+export SA_NAME=ai-workflow-orchestrator
+export SERVICE_ACCOUNT=${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+
+gcloud iam service-accounts create ${SA_NAME} \
+  --display-name="Service Account for AI Workflow Orchestrator"
 ```
 
-If you use Postgres, add driver to `requirements.txt`:
+Grant necessary IAM roles to the service account:
 
-```txt
-psycopg2-binary>=2.9.9
+```bash
+# Vertex AI User - for Gemini API calls
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/aiplatform.user"
+
+# Cloud SQL Client - for database connections
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/cloudsql.client"
+
+# Secret Manager Secret Accessor - for accessing secrets
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+
+# Allow Cloud Build to use storage
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.admin"
 ```
 
+## 3) Set up production database (Cloud SQL Postgres)
+
+Create Cloud SQL Postgres instance:
+
+```bash
+export INSTANCE_NAME=orchestrator-sql
+export DB_NAME=orchestrator
+export DB_USER=orchestrator_user
+
+gcloud sql instances create $INSTANCE_NAME \
+  --database-version=POSTGRES_15 \
+  --tier=db-f1-micro \
+  --region=$REGION \
+  --root-password=temp-root-password-change-me \
+  --database-flags=cloudsql.iam_authentication=on
+```
+
+Create database:
+
+```bash
+gcloud sql databases create $DB_NAME \
+  --inGenerate SECRET_KEY and store in Secret Manager
+
+Generate a secure SECRET_KEY:
+
+```bash
+export SECRET_KEY=$(openssl rand -base64 32)
+echo "Generated SECRET_KEY: $SECRET_KEY"
+```
+
+Store it in Secret Manager:
+
+```bash
+echo -n "$SECRET_KEY" | gcloud secrets create backend-secret-key \
+  --data-file=- \
+  --replication-policy="automatic"
+
+# Grant service account access to the secret
+gcloud secrets add-iam-policy-binding backend-secret-key \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Store DATABASE_URL in Secret Manager (recommended for production):
+
+```bash
+echo -n "$DATABASE_URL" | gcloud secrets create database-url \
+  --data-file=- \
+  --replication-policy="automatic"
+
+gcloud secrets add-iam-policy-binding database-url \
+  --member="serviceAccount:$SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+```
+6) Initialize database schema
+
+Before deploying, initialize the database tables. You can do this locally or via Cloud SQL proxy:
+
+**Option A: Using Cloud SQL Proxy (recommended)**
+
+```bash
+# Download and start Cloud SQL proxy
+cloud-sql-proxy ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} --port 5432 &
+
+# Wait a few seconds for proxy to connect
+sleep 5
+
+# Run database initialization script (if you have one)
+# Or use alembic for migrations
+export DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+python -c "
+from app.db._database import engine, Base
+from app.models import *  # Import all models
+Base.metadata.create_all(bind=engine)
+print('Database tables created successfully!')
+"
+
+# Stop the proxy
+pkill cloud-sql-proxy
+```
+
+**Option B: Using seed script**
+
+```bash
+# I8) Verify deployment
+
+Get the deployed service URL:
+
+```bash
+export SERVICE_URL=$(gcloud run services describe backend-adk --region $REGION --format='value(status.url)')
+echo "Service URL: $SERVICE_URL"
+```
+
+Test health endpoint:
+
+```bash
+curl $SERVICE_URL/
+curl $SERVICE_URL/docs  # FastAPI OpenAPI documentation
+```
+
+Check deployment logs:
+
+```bash
+gcloud run services logs read backend-adk --region $REGION --limit 100
+```
+
+Test a sample API endpoint:
+
+```bash
+# Example: Check projects endpoint
+curl $SERVICE_URL/api/projects
+  --memory 1Gi \
+  --timeout 300 \
+  --concurrency 40 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
+  --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
+  --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
+  --set-env-vars GOOGLE_CLOUD_LOCATION=$REGION \
+  --set-env-vars LOG_LEVEL=INFO \
+  --set-env-vars LOG_TO_STDOUT=true \
+  --set-env-vars LOG_FILE_ENABLED=false \
+  --set-secrets DATABASE_URL=database-url:latest \
+  --set-secrets SECRET_KEY=backend-secret-key:latest
+```
+
+**Alternative:** Set env vars directly (less secure):
+
+```bash
+gcloud run deploy backend-adk \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
+  --platform managed \
+  --region $REGION \
+  --service-account=$SERVICE_ACCOUNT \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 1Gi \
+  -9timeout 300 \
+  --concurrency 40 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:${INSTANCE_NAME} \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="$DATABASE_URL",SECRET_KEY="$SECRET_KEY"
 ## 4) Build and push container
 
 From `backend_adk` directory:
 
 ```bash
-gcloud builds submit --tag YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/orchestrator-repo/backend-adk:latest
+gcl10ud builds submit --tag YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/orchestrator-repo/backend-adk:latest
 ```
 
 ## 5) Deploy Cloud Run service
@@ -76,7 +249,7 @@ gcloud builds submit --tag YOUR_REGION-docker.pkg.dev/YOUR_PROJECT_ID/orchestrat
 Create/choose service account (recommended):
 - Grant `Vertex AI User` role
 - If using Secret Manager: `Secret Manager Secret Accessor`
-- If using Cloud SQL: `Cloud SQL Client`
+- I11) Completeoud SQL: `Cloud SQL Client`
 
 Deploy:
 
@@ -91,7 +264,26 @@ gcloud run deploy backend-adk \
   --memory 1Gi \
   --timeout 300 \
   --concurrency 40 \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=YOUR_REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false \
+  --2) Quick reference: All variables used
+
+Save these for future updates or troubleshooting:
+
+```bash
+export PROJECT_ID=ai-workforce-orchestrator
+export REGION=europe-west1
+export PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+export SA_NAME=ai-workflow-orchestrator
+export SERVICE_ACCOUNT=${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
+export INSTANCE_NAME=orchestrator-sql
+export DB_NAME=orchestrator
+export DB_USER=orchestrator_user
+export DB_PASSWORD=<your-generated-password>
+export DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@/${DB_NAME}?host=/cloudsql/${PROJECT_ID}:${REGION}:${INSTANCE_NAME}"
+export SECRET_KEY=<your-generated-secret>
+export SERVICE_URL=$(gcloud run services describe backend-adk --region $REGION --format='value(status.url)')
+```
+
+## 13et-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,GOOGLE_CLOUD_LOCATION=YOUR_REGION,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false \
   --set-env-vars DATABASE_URL="YOUR_DATABASE_URL"
 ```
 
