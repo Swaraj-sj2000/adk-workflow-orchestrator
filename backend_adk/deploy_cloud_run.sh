@@ -1,29 +1,36 @@
 #!/bin/bash
-
-# Exit on any error
 set -e
 
-echo "=== Cloud Run Deployment Script ==="
+echo "=== Cloud Run Full Deployment Script ==="
 
+# -------------------------
 # Project Configuration
-export PROJECT_ID=ai-workforce-orchestrator
+# -------------------------
+export PROJECT_ID=havoc-ai-prod
 export REGION=europe-west1
+export IMAGE_NAME=backend-adk
+export REPO_NAME=orchestrator-repo
+export IMAGE_URI=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/${IMAGE_NAME}:latest
 
 gcloud config set project $PROJECT_ID
 gcloud config set run/region $REGION
 
-export PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-
-# Service Account Configuration
+# -------------------------
+# Service Account
+# -------------------------
 export SA_NAME=ai-workflow-orchestrator
 export SERVICE_ACCOUNT=${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com
 
+# -------------------------
 # Database Configuration
+# -------------------------
 export INSTANCE_NAME=orchestrator-sql
 export DB_NAME=orchestrator
 export DB_USER=orchestrator_user
 
-# Fetch DB_PASSWORD from Secret Manager if not provided
+# -------------------------
+# Secrets: DB_PASSWORD
+# -------------------------
 if [ -z "$DB_PASSWORD" ]; then
     echo "Fetching DB_PASSWORD from Secret Manager..."
     if gcloud secrets describe db-password --project=$PROJECT_ID &>/dev/null; then
@@ -31,58 +38,49 @@ if [ -z "$DB_PASSWORD" ]; then
         echo "✓ DB_PASSWORD retrieved from Secret Manager"
     else
         export DB_PASSWORD=$(openssl rand -base64 32)
-        echo "Generated DB Password: $DB_PASSWORD"
+        echo "Generated DB_PASSWORD: $DB_PASSWORD"
         echo "IMPORTANT: Save this password securely!"
-
-        gcloud sql users create $DB_USER \
-          --instance=$INSTANCE_NAME \
-          --password="$DB_PASSWORD"
-
-        echo " DB_PASSWORD created"
     fi
 fi
 
-# Fetch SECRET_KEY from Secret Manager if not provided
+# -------------------------
+# Secrets: SECRET_KEY
+# -------------------------
 if [ -z "$SECRET_KEY" ]; then
     echo "Fetching SECRET_KEY from Secret Manager..."
     if gcloud secrets describe backend-secret-key --project=$PROJECT_ID &>/dev/null; then
         export SECRET_KEY=$(gcloud secrets versions access latest --secret="backend-secret-key" --project=$PROJECT_ID)
         echo "✓ SECRET_KEY retrieved from Secret Manager"
     else
-        echo "Generating new SECRET_KEY..."
         export SECRET_KEY=$(openssl rand -base64 32)
         echo "Generated SECRET_KEY: $SECRET_KEY"
-        echo "IMPORTANT: Save this for future use!"
-        echo ""
-        echo "To store in Secret Manager for future deployments:"
-        echo "echo -n '$SECRET_KEY' | gcloud secrets create backend-secret-key --data-file=-"
+        echo "IMPORTANT: Save this for future deployments!"
     fi
 fi
 
-# Construct DATABASE_URL (now DB_PASSWORD is defined)
+# -------------------------
+# Construct DATABASE_URL
+# -------------------------
 export DATABASE_URL="postgresql+psycopg2://${DB_USER}:${DB_PASSWORD}@/${DB_NAME}?host=/cloudsql/${PROJECT_ID}:${REGION}:${INSTANCE_NAME}"
 
-echo ""
-echo "=== Configuration Summary ==="
-echo "PROJECT_ID: $PROJECT_ID"
-echo "REGION: $REGION"
-echo "SERVICE_ACCOUNT: $SERVICE_ACCOUNT"
-echo "INSTANCE_NAME: $INSTANCE_NAME"
-echo "DB_NAME: $DB_NAME"
-echo "DB_USER: $DB_USER"
-echo "SECRET_KEY: ${SECRET_KEY:0:10}... (truncated)"
-echo "DATABASE_URL: postgresql+psycopg2://${DB_USER}:****@/${DB_NAME}?host=/cloudsql/..."
-echo ""
+# -------------------------
+# Build Docker Image
+# -------------------------
+echo "=== Building Docker Image ==="
+docker build -t $IMAGE_URI .
 
-# Verify all required variables are set
-if [ -z "$DB_PASSWORD" ] || [ -z "$PROJECT_ID" ] || [ -z "$REGION" ] || [ -z "$INSTANCE_NAME" ] || [ -z "$SERVICE_ACCOUNT" ] || [ -z "$SECRET_KEY" ]; then
-    echo "Error: Missing required environment variables."
-    exit 1
-fi
+# -------------------------
+# Push Docker Image
+# -------------------------
+echo "=== Pushing Docker Image to Artifact Registry ==="
+docker push $IMAGE_URI
 
+# -------------------------
+# Deploy to Cloud Run
+# -------------------------
 echo "=== Deploying to Cloud Run ==="
-gcloud run deploy backend-adk \
-  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest \
+gcloud run deploy $IMAGE_NAME \
+  --image $IMAGE_URI \
   --platform managed \
   --region $REGION \
   --service-account=$SERVICE_ACCOUNT \
@@ -101,5 +99,5 @@ gcloud run deploy backend-adk \
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Get your service URL with:"
-echo "gcloud run services describe backend-adk --region $REGION --format='value(status.url)'"
+echo "Service URL:"
+gcloud run services describe $IMAGE_NAME --region $REGION --format='value(status.url)'
