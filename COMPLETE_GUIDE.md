@@ -612,9 +612,11 @@ Important rule:
 
 That allows both backends to evolve in parallel while targeting different runtime integrations.
 
-## 15. Setup And Runtime URLs
+## 15. Environment And Runtime Reference
 
-Use environment-specific placeholders instead of hardcoded localhost references:
+### 15.1 Placeholder Pattern
+
+Use environment-specific placeholders instead of hardcoded localhost references when preparing new environments:
 
 - frontend app: `https://<frontend-host>`
 - primary backend: `https://<backend-host>`
@@ -632,6 +634,40 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 BASIC_RATE_LIMIT_REQUESTS=120
 BASIC_RATE_LIMIT_WINDOW_SECONDS=60
 ```
+
+### 15.2 Current Hackathon Deployment Reference
+
+The current hackathon deployment values are:
+
+- Google Cloud project: `havoc-ai-prod`
+- region: `europe-west1`
+- frontend URL: `https://frontend-adk-974381609416.europe-west1.run.app/`
+- backend ADK URL: `https://backend-adk-974381609416.europe-west1.run.app/`
+- backend ADK docs: `https://backend-adk-974381609416.europe-west1.run.app/docs`
+- Artifact Registry image path: `europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest`
+- service account: `ai-workflow-orchestrator@havoc-ai-prod.iam.gserviceaccount.com`
+
+Cloud SQL runtime values:
+
+- instance name: `orchestrator-sql`
+- instance connection name: `havoc-ai-prod:europe-west1:orchestrator-sql`
+- public IP: `130.211.104.30`
+- database name: `orchestrator`
+- database user: `orchestrator_user`
+- PostgreSQL port: `5432`
+
+Local proxy connection string:
+
+```bash
+postgresql+psycopg2://orchestrator_user:B%40ta2910@127.0.0.1:5432/orchestrator
+```
+
+Operational note:
+
+- do not use the public IP directly for normal development or seeding
+- use Cloud SQL Proxy locally
+- use the Cloud SQL Unix socket path on Cloud Run
+- keep `backend_adk/deploy_cloud_run.sh` aligned with the real database name `orchestrator`
 
 ## 16. Local Setup
 
@@ -697,23 +733,194 @@ Before shipping or demoing:
    - final report is available
 9. run the same validation against `backend_adk`
 
-## 19. Deployment Notes
+## 19. Cloud Run And Cloud SQL Operations Manual
 
-Cloud Run deployment should treat `backend/` and `backend_adk/` as separate services if you want them live together.
+This section is the practical deployment and recovery guide for the current ADK-backed demo environment.
 
-Recommended deployment placeholders:
+### 19.1 What Gets Submitted For The Hackathon
 
-- primary backend service URL: `https://<backend-host>`
-- ADK backend service URL: `https://<backend-adk-host>`
-- frontend service URL: `https://<frontend-host>`
+The public demo link to share is:
 
-Recommended rollout order:
+- `https://frontend-adk-974381609416.europe-west1.run.app/`
 
-1. deploy backend to staging
-2. validate schema additions and seed compatibility
-3. validate frontend against staging backend
-4. deploy frontend
-5. deploy `backend_adk` separately after validating the mirrored behavior
+Supporting links:
+
+- backend ADK API: `https://backend-adk-974381609416.europe-west1.run.app/`
+- backend ADK Swagger docs: `https://backend-adk-974381609416.europe-west1.run.app/docs`
+
+System path:
+
+`browser -> frontend Cloud Run -> backend_adk Cloud Run -> Cloud SQL`
+
+### 19.2 Deploy Order
+
+Recommended deploy order for the current cloud environment:
+
+1. build and deploy `backend_adk`
+2. verify backend docs and logs
+3. ensure `frontend` points to the correct backend ADK URL
+4. deploy `frontend`
+5. seed Cloud SQL
+6. verify login, project creation, invite flow, and reporting
+
+### 19.3 Backend_ADK Cloud Run Settings
+
+The deployed backend depends on these settings remaining consistent:
+
+- `PROJECT_ID=havoc-ai-prod`
+- `REGION=europe-west1`
+- `INSTANCE_NAME=orchestrator-sql`
+- `DB_NAME=orchestrator`
+- `DB_USER=orchestrator_user`
+
+Cloud Run must include:
+
+- `--add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql`
+- a valid `DATABASE_URL`
+- a stable `SECRET_KEY`
+- the service account `ai-workflow-orchestrator@havoc-ai-prod.iam.gserviceaccount.com`
+
+The service account needs at least:
+
+- `roles/cloudsql.client`
+- `roles/aiplatform.user`
+- `roles/logging.logWriter`
+
+### 19.4 Safe Seeding Flow For Demo Data
+
+The current seed script is:
+
+- `backend_adk/seed_test_data.py`
+
+Important behavior:
+
+- it drops all tables
+- it recreates the schema
+- it seeds 1 admin and 10 employees
+- it is safe only when you intentionally want a clean demo reset
+
+Current demo credentials after seeding:
+
+- admin: `swaraj@orchestrator.ai` / `admin123`
+- employees: emails from `backend_adk/seed_test_data.py` / `team123456`
+
+Use this exact local seeding flow:
+
+1. start Cloud SQL Proxy in one terminal
+
+```bash
+cloud-sql-proxy havoc-ai-prod:europe-west1:orchestrator-sql --port 5432
+```
+
+2. in a second terminal, activate the ADK backend environment
+
+```bash
+cd ~/adk-workflow-orchestrator/backend_adk
+source venv/bin/activate
+```
+
+3. export the database URL that points at the proxy
+
+```bash
+export DATABASE_URL='postgresql+psycopg2://orchestrator_user:B%40ta2910@127.0.0.1:5432/orchestrator'
+```
+
+4. execute the seed
+
+```bash
+python seed_test_data.py
+```
+
+5. verify the live app using the frontend URL
+
+If the app needs richer demo data later, add a second dedicated demo seed script instead of overloading the clean reset script.
+
+### 19.5 Cloud SQL Connection Failure Checklist
+
+These are the most common causes of connection problems in the current setup:
+
+- Cloud SQL Proxy is not running locally
+- the proxy is running, but the app is pointing at the wrong port or host
+- the real database name is `orchestrator`, but `DATABASE_URL` is using a different name such as `orchestrator_db`
+- the Cloud Run service is still using an older revision with stale environment variables
+- `backend_adk/deploy_cloud_run.sh` and the real Cloud SQL database name are out of sync
+- the database password in the deployed service does not match the database user password
+- `DB_PASSWORD` or `SECRET_KEY` were regenerated accidentally during redeploy because they were unset
+- the Cloud Run service account is missing `roles/cloudsql.client`
+- `--add-cloudsql-instances` was omitted in the deploy command
+- the seed succeeded against one database while the live backend points to another
+- the operator attempted to connect through the public IP instead of using Cloud SQL Proxy or the Cloud Run socket path
+
+### 19.6 Fast Diagnosis Commands
+
+Useful commands when something looks wrong:
+
+Check the real database list:
+
+```bash
+gcloud sql databases list --instance=orchestrator-sql
+```
+
+Check the Cloud Run service URL:
+
+```bash
+gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)'
+```
+
+Check recent backend logs:
+
+```bash
+gcloud run services logs read backend-adk --region europe-west1 --limit=100
+```
+
+Check frontend URL:
+
+```bash
+gcloud run services describe frontend-adk --region europe-west1 --format='value(status.url)'
+```
+
+Check Cloud SQL instance state:
+
+```bash
+gcloud sql instances describe orchestrator-sql
+```
+
+### 19.7 Pre-Demo Sanity Checklist
+
+Before sharing the link publicly:
+
+1. open the frontend URL in a clean browser session
+2. log in with the seeded admin account
+3. verify employee accounts can also log in
+4. create a sample client and project
+5. confirm project planning artifacts appear
+6. send and accept at least one team invite
+7. update one employee checkpoint and confirm progress changes on both employee and admin views
+8. verify client-facing status and payment sections render
+9. check `/docs` for backend availability
+10. check backend logs for database or auth errors
+
+### 19.8 Git Sync Sequence Before A Fresh Push
+
+When you want to sync your branch with `main` safely:
+
+1. commit or stash local changes
+2. fetch remote updates
+3. rebase your feature branch on top of `origin/main` or `origin/pankaj-dev`, whichever is your true integration branch
+4. resolve conflicts locally
+5. run quick verification
+6. push the updated feature branch
+
+Example:
+
+```bash
+git checkout feature/secure-multitenant-refactor
+git fetch origin
+git rebase origin/main
+git push --force-with-lease origin feature/secure-multitenant-refactor
+```
+
+If `pankaj-dev` is your real release branch, replace `origin/main` with `origin/pankaj-dev`.
 
 ## 20. Summary
 

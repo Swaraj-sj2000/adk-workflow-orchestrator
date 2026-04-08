@@ -225,6 +225,6 @@ Use [COMPLETE_GUIDE.md](COMPLETE_GUIDE.md) for:
 - backend vs backend_adk explanation
 - security and validation details
 - logging and debugging guidance
-- deployment notes
-- Cloud Run placeholders
+- deployment notes and operator runbook
+- current Cloud Run URLs and Cloud SQL reference
 - testing and rollout checklist
