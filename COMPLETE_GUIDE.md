@@ -741,7 +741,7 @@ This section is the practical deployment and recovery guide for the current ADK-
 
 The public demo link to share is:
 
-- `https://frontend-adk-974381609416.europe-west1.run.app/`
+- `https://frontend-974381609416.europe-west1.run.app/`
 
 Supporting links:
 
