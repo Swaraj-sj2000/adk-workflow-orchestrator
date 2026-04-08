@@ -29,8 +29,8 @@ Automates 80-90% of project management decisions:
 ## 🏗️ System Architecture
 
 ### High-Level Overview
+<img width="1112" height="273" alt="compact_flowchart drawio" src="https://github.com/user-attachments/assets/8c70b441-55b8-45ba-be29-5483fbc68da8" />
 
-![System Architecture](architecture_diagram_ppt.png)
 
 **Understanding the architecture** (simple explanation):
 
@@ -226,3 +226,5 @@ Building autonomous workflows for lean teams managing multiple projects.
 
 - **Email**: swarajsj8102000@gmail.com
 - **LinkedIn**: [swaraj-swaraj-a6339023b](https://www.linkedin.com/in/swaraj-swaraj-a6339023b)
+- **Email**: dubeybishal70@gmail.com
+- **LinkedIn**: [bishaldubey](https://www.linkedin.com/in/bishaldubey/)
