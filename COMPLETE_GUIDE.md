@@ -641,7 +641,7 @@ The current hackathon deployment values are:
 
 - Google Cloud project: `havoc-ai-prod`
 - region: `europe-west1`
-- frontend URL: `https://frontend-adk-974381609416.europe-west1.run.app/`
+- frontend URL: `https://frontend-974381609416.europe-west1.run.app/`
 - backend ADK URL: `https://backend-adk-974381609416.europe-west1.run.app/`
 - backend ADK docs: `https://backend-adk-974381609416.europe-west1.run.app/docs`
 - Artifact Registry image path: `europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest`
@@ -741,7 +741,7 @@ This section is the practical deployment and recovery guide for the current ADK-
 
 The public demo link to share is:
 
-- `https://frontend-adk-974381609416.europe-west1.run.app/`
+- `https://frontend-974381609416.europe-west1.run.app/`
 
 Supporting links:
 
