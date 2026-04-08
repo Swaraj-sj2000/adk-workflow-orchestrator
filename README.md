@@ -218,7 +218,7 @@ Use placeholders in docs and environment configuration rather than hardcoding lo
 
 ## Where To Read More
 
-Use [COMPLETE_GUIDE.md](/home/swaraj/sj_code/genai_apac_2026/agentic_orchestrator/COMPLETE_GUIDE.md) for:
+Use [COMPLETE_GUIDE.md](COMPLETE_GUIDE.md) for:
 
 - detailed architecture
 - full data flow
