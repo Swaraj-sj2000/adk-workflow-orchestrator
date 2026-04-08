@@ -6,11 +6,11 @@ set -e
 echo "=== Frontend Cloud Run Deployment Script ==="
 
 # Project Configuration
-export PROJECT_ID=ai-workforce-orchestrator
+export PROJECT_ID=havoc-ai-prod
 export REGION=europe-west1
 
 # Backend API URL
-export BACKEND_URL=https://backend-adk-239683568115.europe-west1.run.app
+export BACKEND_URL=https://backend-adk-974381609416.europe-west1.run.app
 
 gcloud config set project $PROJECT_ID
 gcloud config set run/region $REGION

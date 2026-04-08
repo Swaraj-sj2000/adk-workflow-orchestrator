@@ -13,6 +13,6 @@ images:
 
 substitutions:
   _REGION: 'europe-west1'
-  _VITE_API_URL: 'https://backend-adk-239683568115.europe-west1.run.app'
+  _VITE_API_URL: 'https://backend-adk-974381609416.europe-west1.run.app'
 
 timeout: 600s
