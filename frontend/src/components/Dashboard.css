@@ -336,3 +336,130 @@
     align-items: stretch;
   }
 }
+
+
+/* Team Grid Layout */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.team-member-card {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.team-member-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.team-member-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.team-member-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.team-member-header strong {
+  font-size: 16px;
+  color: #1f2937;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.team-member-title {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.team-member-id {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 2px 0 0 0;
+}
+
+.team-member-workload {
+  margin-bottom: 12px;
+}
+
+.workload-bar-container {
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.workload-bar {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.workload-bar.workload-low {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.workload-bar.workload-medium {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.workload-bar.workload-high {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.workload-label {
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.team-member-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.skill-tag {
+  background: #f3f4f6;
+  color: #4b5563;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.team-member-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.duty-time {
+  font-size: 12px;
+  color: #6b7280;
+}

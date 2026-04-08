@@ -392,6 +392,66 @@ export default function MultiAgentWorkbench() {
               </div>
 
               <div className="card">
+                <h2>Recommended Team</h2>
+                {finalOutput.staffing?.staffing_recommendations ? (
+                  <div className="list">
+                    {finalOutput.staffing.staffing_recommendations.map((rec) => (
+                      <div key={rec.task_sequence} className="list-item">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <strong>Task {rec.task_sequence}: {rec.task_title}</strong>
+                          {rec.recommended_owner && (
+                            <span className={`status-badge status-${rec.recommended_owner.score > 0.7 ? 'low' : 'high'}`}>
+                              {(rec.recommended_owner.score * 100).toFixed(0)}% match
+                            </span>
+                          )}
+                        </div>
+                        {rec.recommended_owner ? (
+                          <div style={{ marginLeft: '12px', fontSize: '14px' }}>
+                            <p style={{ margin: '4px 0' }}>
+                              <strong>Recommended:</strong> Employee #{rec.recommended_owner.employee_profile_id}
+                            </p>
+                            <p style={{ margin: '4px 0', color: '#6b7280' }}>
+                              Workload: {rec.recommended_owner.current_load}/{rec.recommended_owner.max_capacity} hours 
+                              ({((rec.recommended_owner.current_load / rec.recommended_owner.max_capacity) * 100).toFixed(0)}% capacity)
+                            </p>
+                            <p style={{ margin: '4px 0', color: '#6b7280' }}>
+                              Skills: {Object.entries(rec.recommended_owner.skills || {})
+                                .map(([skill, level]) => `${skill} (${(level * 100).toFixed(0)}%)`)
+                                .join(', ') || 'No skills listed'}
+                            </p>
+                          </div>
+                        ) : (
+                          <p style={{ color: '#ef4444', marginLeft: '12px' }}>⚠️ No suitable employee found for this task</p>
+                        )}
+                        
+                        {rec.recommended_candidates && rec.recommended_candidates.length > 1 && (
+                          <details style={{ marginTop: '8px', marginLeft: '12px' }}>
+                            <summary style={{ cursor: 'pointer', color: '#667eea' }}>
+                              View {rec.recommended_candidates.length - 1} alternative candidate(s)
+                            </summary>
+                            <div style={{ marginTop: '8px' }}>
+                              {rec.recommended_candidates.slice(1).map((candidate) => (
+                                <div key={candidate.employee_profile_id} style={{ marginLeft: '12px', marginTop: '8px', paddingLeft: '12px', borderLeft: '2px solid #e5e7eb' }}>
+                                  <p style={{ margin: '2px 0', fontSize: '13px' }}>
+                                    <strong>Employee #{candidate.employee_profile_id}</strong> - {(candidate.score * 100).toFixed(0)}% match
+                                  </p>
+                                  <p style={{ margin: '2px 0', fontSize: '12px', color: '#9ca3af' }}>
+                                    Workload: {candidate.current_load}/{candidate.max_capacity} hours
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>No staffing recommendations available. Run an intake workflow with persist_project enabled.</p>
+                )}
+              </div>
+
+              <div className="card">
                 <h2>Execution Outcome</h2>
                 {finalOutput.execution_coordination ? (
                   <>

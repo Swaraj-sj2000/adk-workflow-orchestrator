@@ -666,17 +666,105 @@ export default function Dashboard({ role }) {
               </div>
             </div>
             <div>
-              <h3>Employees Involved</h3>
-              <div className="people-list">
-                {(projectStatus.emp_involved || []).map((member) => (
-                  <div key={member.employee_id} className="person-chip">
-                    <strong>{member.name}</strong>
-                    <span>{member.title}</span>
-                    <span>{member.workload_percent}% workload</span>
-                    <span>{member.duty_window || member.shift_status}</span>
-                  </div>
-                ))}
-              </div>
+              <h3>{projectStatus.approval_status === 'awaiting-admin-approval' ? 'Drafted Team (Pending Approval)' : 'Team Members'}</h3>
+              {projectStatus.approval_status === 'awaiting-admin-approval' ? (
+                <div className="team-grid">
+                  {(projectStatus.team_invites || []).filter(invite => invite.employee_id).map((invite) => (
+                    <div key={invite.employee_id || invite.email} className="team-member-card">
+                      <div className="team-member-header">
+                        <div className="team-member-avatar">
+                          {invite.name?.charAt(0) || 'E'}
+                        </div>
+                        <div>
+                          <strong>{invite.name || invite.email}</strong>
+                          <p className="team-member-title">{invite.title || 'Team Member'}</p>
+                          <p className="team-member-id">ID: #{invite.employee_id}</p>
+                        </div>
+                      </div>
+                      
+                      {invite.role_skills && invite.role_skills.length > 0 && (
+                        <div className="team-member-skills">
+                          {invite.role_skills.slice(0, 3).map((skill) => (
+                            <span key={skill} className="skill-tag">
+                              {skill}
+                            </span>
+                          ))}
+                          {invite.role_skills.length > 3 && (
+                            <span className="skill-tag">+{invite.role_skills.length - 3} more</span>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="team-member-status">
+                        <span className={`status-badge status-${invite.status === 'accepted' ? 'approved' : 'pending'}`}>
+                          {invite.status || 'Drafted'}
+                        </span>
+                        {invite.role_focus && invite.role_focus.length > 0 && (
+                          <span className="duty-time" title={invite.role_focus.join(', ')}>
+                            {invite.role_focus.length} task{invite.role_focus.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {invite.capacity_reasoning && (
+                        <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px', lineHeight: '1.4' }}>
+                          {invite.capacity_reasoning}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="team-grid">
+                  {(projectStatus.emp_involved || []).map((member) => (
+                    <div key={member.employee_id} className="team-member-card">
+                      <div className="team-member-header">
+                        <div className="team-member-avatar">
+                          {member.name?.charAt(0) || 'E'}
+                        </div>
+                        <div>
+                          <strong>{member.name}</strong>
+                          <p className="team-member-title">{member.title || 'Team Member'}</p>
+                          <p className="team-member-id">ID: #{member.employee_id}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="team-member-workload">
+                        <div className="workload-bar-container">
+                          <div 
+                            className={`workload-bar workload-${
+                              member.workload_percent > 80 ? 'high' : 
+                              member.workload_percent > 50 ? 'medium' : 'low'
+                            }`}
+                            style={{ width: `${member.workload_percent}%` }}
+                          ></div>
+                        </div>
+                        <span className="workload-label">{member.workload_percent}% capacity</span>
+                      </div>
+                      
+                      {member.skills && Object.keys(member.skills).length > 0 && (
+                        <div className="team-member-skills">
+                          {Object.entries(member.skills).slice(0, 3).map(([skill, level]) => (
+                            <span key={skill} className="skill-tag">
+                              {skill} {(level * 100).toFixed(0)}%
+                            </span>
+                          ))}
+                          {Object.keys(member.skills).length > 3 && (
+                            <span className="skill-tag">+{Object.keys(member.skills).length - 3} more</span>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="team-member-status">
+                        <span className={`status-badge status-${member.shift_status === 'available' ? 'approved' : 'pending'}`}>
+                          {member.shift_status || 'On Duty'}
+                        </span>
+                        <span className="duty-time">{member.duty_window || '9:00 - 18:00'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

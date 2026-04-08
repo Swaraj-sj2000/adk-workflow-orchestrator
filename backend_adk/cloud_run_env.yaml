@@ -1,0 +1,24 @@
+# Cloud Run Environment Variables for Backend ADK
+# Use this file with: gcloud run services update backend-adk --env-vars-file=cloud_run_env.yaml
+
+# Google Cloud & Vertex AI
+GOOGLE_CLOUD_PROJECT: "havoc-ai-prod"
+GOOGLE_CLOUD_LOCATION: "us-central1"
+GOOGLE_GENAI_USE_VERTEXAI: "true"
+
+# Gemini Model
+GEMINI_MODEL: "gemini-2.0-flash-exp"
+GEMINI_TEMPERATURE: "0.2"
+GEMINI_MAX_TOKENS: "900"
+ADK_TIMEOUT: "60"
+
+# Rate Limiting
+BASIC_RATE_LIMIT_REQUESTS: "100"
+BASIC_RATE_LIMIT_WINDOW_SECONDS: "60"
+
+# Application
+DEBUG: "false"
+LOG_LEVEL: "INFO"
+
+# Note: DATABASE_URL and SECRET_KEY should be set as secrets, not environment variables
+# Use: gcloud run services update backend-adk --set-secrets=DATABASE_URL=database-url:latest,SECRET_KEY=secret-key:latest
