@@ -49,6 +49,22 @@
   gap: 15px;
 }
 
+.palette-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.palette-picker select {
+  border: 1px solid var(--border-soft);
+  background: var(--surface-pill);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
 .user-info {
   display: flex;
   align-items: center;

@@ -1,7 +1,7 @@
 import React from 'react';
 import './Navbar.css';
 
-export default function Navbar({ user, onLogout, setPage, theme, onToggleTheme }) {
+export default function Navbar({ user, onLogout, setPage, theme, palette, onChangePalette, onToggleTheme }) {
   const role = user?.role;
 
   return (
@@ -47,6 +47,14 @@ export default function Navbar({ user, onLogout, setPage, theme, onToggleTheme }
         >
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
+        <label className="palette-picker">
+          <span>Palette</span>
+          <select value={palette} onChange={(event) => onChangePalette(event.target.value)}>
+            <option value="sage">Sage</option>
+            <option value="ocean">Ocean</option>
+            <option value="sunset">Sunset</option>
+          </select>
+        </label>
         <button onClick={onLogout} className="logout-btn">Logout</button>
       </div>
     </nav>

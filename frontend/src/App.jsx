@@ -14,6 +14,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
   const [theme, setTheme] = useState('light');
+  const [palette, setPalette] = useState('sage');
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -22,13 +23,18 @@ export default function App() {
     if (storedTheme === 'dark' || storedTheme === 'light') {
       setTheme(storedTheme);
     }
+    const storedPalette = localStorage.getItem('palette');
+    if (storedPalette) {
+      setPalette(storedPalette);
+    }
   }, []);
 
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('theme', theme);
+      localStorage.setItem('palette', palette);
     }
-  }, [theme, currentUser]);
+  }, [theme, palette, currentUser]);
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -45,12 +51,14 @@ export default function App() {
   }
 
   return (
-    <div className={`app theme-${theme}`}>
+    <div className={`app theme-${theme} palette-${palette}`}>
       <Navbar
         user={currentUser}
         onLogout={handleLogout}
         setPage={setCurrentPage}
         theme={theme}
+        palette={palette}
+        onChangePalette={setPalette}
         onToggleTheme={toggleTheme}
       />
       <div className="container">

@@ -34,8 +34,11 @@ export default function Dashboard({ role }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [actionKey, setActionKey] = useState('');
   const [showClientPassword, setShowClientPassword] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(true);
+  const [draftReplacementSelections, setDraftReplacementSelections] = useState({});
+  const [taskReplacementSelections, setTaskReplacementSelections] = useState({});
 
   useEffect(() => {
     fetchDashboard();
@@ -70,6 +73,20 @@ export default function Dashboard({ role }) {
       if (res.ok) {
         const data = await res.json();
         setProjectStatus(data);
+        setDraftReplacementSelections((current) => {
+          const next = { ...current };
+          (data.draft_team || []).forEach((member) => {
+            if (!(member.employee_id in next)) next[member.employee_id] = '';
+          });
+          return next;
+        });
+        setTaskReplacementSelections((current) => {
+          const next = { ...current };
+          (data.tasks || []).forEach((task) => {
+            if (!(task.id in next)) next[task.id] = '';
+          });
+          return next;
+        });
         setPaymentForm({
           payment_status: data.payment_status || 'pending',
           note: '',
@@ -126,6 +143,9 @@ export default function Dashboard({ role }) {
   };
 
   const handleApproval = async (projectId, approved) => {
+    const nextActionKey = `${approved ? 'approve' : 'reject'}-${projectId}`;
+    if (actionKey) return;
+    setActionKey(nextActionKey);
     try {
       const res = await fetch(`${API}/projects/${projectId}/team-approval`, {
         method: 'POST',
@@ -145,12 +165,16 @@ export default function Dashboard({ role }) {
       fetchDashboard();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
   const handleDeleteProject = async (projectId) => {
     const confirmed = window.confirm('Delete this project and roll back assignments, workload, and team state?');
     if (!confirmed) return;
+    if (actionKey) return;
+    setActionKey(`delete-${projectId}`);
 
     try {
       const res = await fetch(`${API}/projects/${projectId}`, {
@@ -164,10 +188,14 @@ export default function Dashboard({ role }) {
       fetchDashboard();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
   const handlePaymentUpdate = async (projectId) => {
+    if (actionKey) return;
+    setActionKey(`payment-${projectId}`);
     try {
       const res = await fetch(`${API}/projects/${projectId}/payment-status`, {
         method: 'PATCH',
@@ -185,6 +213,67 @@ export default function Dashboard({ role }) {
       fetchDashboard();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
+    }
+  };
+
+  const handleDraftReplacement = async (projectId, currentEmployeeId) => {
+    const replacementEmployeeId = Number(draftReplacementSelections[currentEmployeeId] || 0);
+    if (!replacementEmployeeId || actionKey) return;
+    setActionKey(`draft-replace-${projectId}-${currentEmployeeId}`);
+    try {
+      const res = await fetch(`${API}/projects/${projectId}/draft-team`, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          current_employee_id: currentEmployeeId,
+          replacement_employee_id: replacementEmployeeId,
+          note: 'Updated from admin draft-team editor.',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not replace draft team member');
+      setProjectStatus(data);
+      setDraftReplacementSelections((current) => ({ ...current, [currentEmployeeId]: '' }));
+      setMessage('Draft team updated.');
+      fetchDashboard();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
+    }
+  };
+
+  const handleTaskReassignment = async (projectId, taskId) => {
+    const replacementEmployeeId = Number(taskReplacementSelections[taskId] || 0);
+    if (!replacementEmployeeId || actionKey) return;
+    setActionKey(`task-reassign-${projectId}-${taskId}`);
+    try {
+      const res = await fetch(`${API}/projects/${projectId}/tasks/${taskId}/reassign`, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          replacement_employee_id: replacementEmployeeId,
+          note: 'Reassigned from admin dashboard.',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not reassign task');
+      setProjectStatus(data);
+      setTaskReplacementSelections((current) => ({ ...current, [taskId]: '' }));
+      setMessage('Task reassigned successfully.');
+      fetchDashboard();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -560,11 +649,15 @@ export default function Dashboard({ role }) {
         onOpen={fetchProjectStatus}
         actions={(project) => (
           <div className="project-card-actions">
-            <button className="btn btn-secondary" onClick={() => fetchProjectStatus(project.id)}>Open Project Status</button>
+            <button className="btn btn-secondary" onClick={() => fetchProjectStatus(project.id)} disabled={Boolean(actionKey)}>Open Project Status</button>
             {project.approval_status === 'awaiting-admin-approval' && (
-              <button className="btn btn-primary" onClick={() => handleApproval(project.id, true)}>Approve Team Plan</button>
+              <button className="btn btn-primary" onClick={() => handleApproval(project.id, true)} disabled={Boolean(actionKey)}>
+                {actionKey === `approve-${project.id}` ? 'Approving...' : 'Approve Team Plan'}
+              </button>
             )}
-            <button className="btn btn-danger" onClick={() => handleDeleteProject(project.id)}>Delete</button>
+            <button className="btn btn-danger" onClick={() => handleDeleteProject(project.id)} disabled={Boolean(actionKey)}>
+              {actionKey === `delete-${project.id}` ? 'Deleting...' : 'Delete'}
+            </button>
           </div>
         )}
         renderExtra={(project) => (
@@ -602,13 +695,26 @@ export default function Dashboard({ role }) {
             <div className="project-card-actions">
               {projectStatus.approval_status === 'awaiting-admin-approval' && (
                 <>
-                  <button className="btn btn-primary" onClick={() => handleApproval(projectStatus.id, true)}>Approve</button>
-                  <button className="btn btn-danger" onClick={() => handleApproval(projectStatus.id, false)}>Reject</button>
+                  <button className="btn btn-primary" onClick={() => handleApproval(projectStatus.id, true)} disabled={Boolean(actionKey)}>
+                    {actionKey === `approve-${projectStatus.id}` ? 'Approving...' : 'Approve'}
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleApproval(projectStatus.id, false)} disabled={Boolean(actionKey)}>
+                    {actionKey === `reject-${projectStatus.id}` ? 'Rejecting...' : 'Reject'}
+                  </button>
                 </>
               )}
-              <button className="btn btn-danger" onClick={() => handleDeleteProject(projectStatus.id)}>Delete</button>
+              <button className="btn btn-danger" onClick={() => handleDeleteProject(projectStatus.id)} disabled={Boolean(actionKey)}>
+                {actionKey === `delete-${projectStatus.id}` ? 'Deleting...' : 'Delete'}
+              </button>
             </div>
           </div>
+
+          {actionKey && (
+            <div className="info-pill">
+              <span>Processing</span>
+              <strong>Your last action is still being applied. Buttons stay disabled until the update completes.</strong>
+            </div>
+          )}
 
           <div className="project-status-grid">
             <DetailCard title="Client Company" value={projectStatus.client_name} />
@@ -629,6 +735,51 @@ export default function Dashboard({ role }) {
               <strong>{projectStatus.usp}</strong>
             </div>
           </div>
+
+          {projectStatus.approval_status === 'awaiting-admin-approval' && (
+            <div className="card full-width">
+              <div className="section-heading">
+                <div>
+                  <h3>Draft Team Before Approval</h3>
+                  <p className="id-line">Review the AI-drafted team before approval. You can swap a member with another available person of the same role.</p>
+                </div>
+              </div>
+              <div className="people-list">
+                {(projectStatus.draft_team || []).map((member) => (
+                  <div key={member.employee_id} className="person-chip">
+                    <strong>{member.name}</strong>
+                    <span>{member.title}</span>
+                    <span>{member.workload_percent}% workload</span>
+                    <span>{member.shift_status || member.availability_status}</span>
+                    {(member.replacement_options || []).length > 0 && (
+                      <div className="inline-actions">
+                        <select
+                          value={draftReplacementSelections[member.employee_id] || ''}
+                          onChange={(event) => setDraftReplacementSelections((current) => ({ ...current, [member.employee_id]: event.target.value }))}
+                          disabled={Boolean(actionKey)}
+                        >
+                          <option value="">Swap with same-role teammate</option>
+                          {member.replacement_options.map((option) => (
+                            <option key={option.employee_id} value={option.employee_id}>
+                              {option.name} ({option.workload_percent}% load)
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          disabled={!draftReplacementSelections[member.employee_id] || Boolean(actionKey)}
+                          onClick={() => handleDraftReplacement(projectStatus.id, member.employee_id)}
+                        >
+                          {actionKey === `draft-replace-${projectStatus.id}-${member.employee_id}` ? 'Updating...' : 'Replace'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="project-mini-grid">
             <InfoPill label="Delivery Status" value={projectStatus.delivery_status} />
@@ -677,6 +828,53 @@ export default function Dashboard({ role }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          <div>
+            <h3>Task Ownership</h3>
+            <div className="list">
+              {(projectStatus.tasks || []).map((task) => (
+                <div key={task.id} className="list-item">
+                  <div className="task-line">
+                    <strong>{task.description}</strong>
+                    <span className={`status-badge status-${(task.status || 'pending').replace(/\s+/g, '-')}`}>
+                      {task.status}
+                    </span>
+                  </div>
+                  <p>{task.required_role || 'Role pending'} • {task.estimated_time || 0}h estimated</p>
+                  <p>
+                    Assigned:{' '}
+                    {(task.assignments || []).length > 0
+                      ? task.assignments.map((assignment) => assignment.employee_name || `Employee #${assignment.employee_id}`).join(', ')
+                      : 'Not assigned yet'}
+                  </p>
+                  {(task.replacement_options || []).length > 0 && (
+                    <div className="inline-actions">
+                      <select
+                        value={taskReplacementSelections[task.id] || ''}
+                        onChange={(event) => setTaskReplacementSelections((current) => ({ ...current, [task.id]: event.target.value }))}
+                        disabled={Boolean(actionKey)}
+                      >
+                        <option value="">Reassign to same-role teammate</option>
+                        {task.replacement_options.map((option) => (
+                          <option key={option.employee_id} value={option.employee_id}>
+                            {option.name} ({option.workload_percent}% load)
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        disabled={!taskReplacementSelections[task.id] || Boolean(actionKey)}
+                        onClick={() => handleTaskReassignment(projectStatus.id, task.id)}
+                      >
+                        {actionKey === `task-reassign-${projectStatus.id}-${task.id}` ? 'Reassigning...' : 'Reassign'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 

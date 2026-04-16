@@ -30,6 +30,7 @@ export default function EmployeeView({ role }) {
   const [profileForm, setProfileForm] = useState(initialProfileForm);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [actionKey, setActionKey] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -76,6 +77,8 @@ export default function EmployeeView({ role }) {
   };
 
   const toggleCheckpoint = async (checkpointId, completed) => {
+    if (actionKey) return;
+    setActionKey(`checkpoint-${checkpointId}`);
     try {
       const res = await fetch(`${API}/employees/checkpoints/${checkpointId}`, {
         method: 'PATCH',
@@ -92,6 +95,8 @@ export default function EmployeeView({ role }) {
     } catch (error) {
       console.error(error);
       setMessage('Could not update checkpoint.');
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -125,6 +130,8 @@ export default function EmployeeView({ role }) {
   };
 
   const respondToInvite = async (projectId, accepted) => {
+    if (actionKey) return;
+    setActionKey(`${accepted ? 'accept' : 'reject'}-${projectId}`);
     try {
       const res = await fetch(`${API}/projects/${projectId}/invite-response`, {
         method: 'POST',
@@ -145,12 +152,16 @@ export default function EmployeeView({ role }) {
     } catch (error) {
       console.error(error);
       setMessage('Could not update invite response.');
+    } finally {
+      setActionKey('');
     }
   };
 
   const inviteMember = async (event) => {
     event.preventDefault();
     if (!inviteForm.projectId || !inviteForm.email.trim()) return;
+    if (actionKey) return;
+    setActionKey(`invite-${inviteForm.projectId}`);
 
     try {
       const res = await fetch(`${API}/invite`, {
@@ -175,12 +186,16 @@ export default function EmployeeView({ role }) {
     } catch (error) {
       console.error(error);
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
   const saveProfile = async (availabilityOverride = null) => {
     const employeeId = data?.employee?.employee_id;
     if (!employeeId) return;
+    if (actionKey) return;
+    setActionKey(`profile-${employeeId}`);
 
     try {
       const res = await fetch(`${API}/employees/${employeeId}/profile`, {
@@ -205,6 +220,8 @@ export default function EmployeeView({ role }) {
     } catch (error) {
       console.error(error);
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -290,7 +307,9 @@ export default function EmployeeView({ role }) {
               />
             </div>
             <div className="form-actions form-span-2">
-              <button className="btn btn-primary" type="submit">Send Team Invite</button>
+              <button className="btn btn-primary" type="submit" disabled={Boolean(actionKey)}>
+                {actionKey === `invite-${inviteForm.projectId}` ? 'Sending...' : 'Send Team Invite'}
+              </button>
             </div>
           </form>
         </div>
@@ -536,9 +555,11 @@ export default function EmployeeView({ role }) {
             />
           </div>
           <div className="form-actions form-span-2 split-actions">
-            <button className="btn btn-primary" type="submit">Save Skills and Duty Hours</button>
-            <button className="btn btn-secondary" type="button" onClick={toggleLeaveStatus}>
-              {profileForm.onLeave ? 'Mark Back On Duty' : 'Mark On Leave'}
+            <button className="btn btn-primary" type="submit" disabled={Boolean(actionKey)}>
+              {actionKey === `profile-${data?.employee?.employee_id}` ? 'Saving...' : 'Save Skills and Duty Hours'}
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={toggleLeaveStatus} disabled={Boolean(actionKey)}>
+              {actionKey === `profile-${data?.employee?.employee_id}` ? 'Updating...' : profileForm.onLeave ? 'Mark Back On Duty' : 'Mark On Leave'}
             </button>
           </div>
         </form>
@@ -580,11 +601,11 @@ export default function EmployeeView({ role }) {
               </div>
               {invite.status === 'pending' && (
                 <div className="project-card-actions">
-                  <button className="btn btn-primary" onClick={() => respondToInvite(invite.project_id, true)}>
-                    Accept Project
+                  <button className="btn btn-primary" onClick={() => respondToInvite(invite.project_id, true)} disabled={Boolean(actionKey)}>
+                    {actionKey === `accept-${invite.project_id}` ? 'Accepting...' : 'Accept Project'}
                   </button>
-                  <button className="btn btn-danger" onClick={() => respondToInvite(invite.project_id, false)}>
-                    Reject Project
+                  <button className="btn btn-danger" onClick={() => respondToInvite(invite.project_id, false)} disabled={Boolean(actionKey)}>
+                    {actionKey === `reject-${invite.project_id}` ? 'Rejecting...' : 'Reject Project'}
                   </button>
                 </div>
               )}
@@ -716,6 +737,7 @@ export default function EmployeeView({ role }) {
                       <input
                         type="checkbox"
                         checked={checkpoint.status === 'completed'}
+                        disabled={Boolean(actionKey)}
                         onChange={(event) => toggleCheckpoint(checkpoint.id, event.target.checked)}
                       />
                       <strong>{checkpoint.title}</strong>
@@ -766,7 +788,7 @@ export default function EmployeeView({ role }) {
                 />
               </div>
               <div className="form-actions form-span-2">
-                <button className="btn btn-secondary" type="submit">Ask AI Lead</button>
+                <button className="btn btn-secondary" type="submit" disabled={Boolean(actionKey)}>Ask AI Lead</button>
               </div>
             </form>
 

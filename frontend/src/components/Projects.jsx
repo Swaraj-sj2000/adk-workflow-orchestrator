@@ -9,6 +9,7 @@ export default function Projects({ role }) {
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRoleTitle, setInviteRoleTitle] = useState('');
+  const [actionKey, setActionKey] = useState('');
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -42,6 +43,8 @@ export default function Projects({ role }) {
   };
 
   const updateApproval = async (projectId, approved) => {
+    if (actionKey) return;
+    setActionKey(`${approved ? 'approve' : 'reject'}-${projectId}`);
     try {
       const res = await fetch(`${API}/projects/${projectId}/team-approval`, {
         method: 'POST',
@@ -61,12 +64,16 @@ export default function Projects({ role }) {
       fetchProjects();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
   const deleteProject = async (projectId) => {
     const confirmed = window.confirm('Delete this project and roll back assignments, workload, and team state?');
     if (!confirmed) return;
+    if (actionKey) return;
+    setActionKey(`delete-${projectId}`);
 
     try {
       const res = await fetch(`${API}/projects/${projectId}`, {
@@ -82,11 +89,15 @@ export default function Projects({ role }) {
       fetchProjects();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
   const inviteMember = async () => {
     if (!selectedProject || !inviteEmail.trim()) return;
+    if (actionKey) return;
+    setActionKey(`invite-${selectedProject.id}`);
 
     try {
       const res = await fetch(`${API}/invite`, {
@@ -110,6 +121,8 @@ export default function Projects({ role }) {
       fetchProjects();
     } catch (error) {
       setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -191,13 +204,13 @@ export default function Projects({ role }) {
                   Open Status
                 </button>
                 {role === 'admin' && project.approval_status === 'awaiting-admin-approval' && (
-                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)} data-tooltip="Approve the generated team plan">
-                    Approve
+                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)} disabled={Boolean(actionKey)} data-tooltip="Approve the generated team plan">
+                    {actionKey === `approve-${project.id}` ? 'Approving...' : 'Approve'}
                   </button>
                 )}
                 {role === 'admin' && (
-                  <button className="btn btn-danger" onClick={() => deleteProject(project.id)} data-tooltip="Delete the project with a full rollback">
-                    Delete
+                  <button className="btn btn-danger" onClick={() => deleteProject(project.id)} disabled={Boolean(actionKey)} data-tooltip="Delete the project with a full rollback">
+                    {actionKey === `delete-${project.id}` ? 'Deleting...' : 'Delete'}
                   </button>
                 )}
               </div>
@@ -257,6 +270,22 @@ export default function Projects({ role }) {
                   <strong>{selectedProject.next_decision}</strong>
                 </div>
               </div>
+
+              {role === 'admin' && selectedProject.approval_status === 'awaiting-admin-approval' && (
+                <>
+                  <h3>Draft Team Recommendations</h3>
+                  <div className="people-list">
+                    {(selectedProject.draft_team || []).map((member) => (
+                      <div key={member.employee_id} className="person-chip">
+                        <strong>{member.name}</strong>
+                        <span>{member.title}</span>
+                        <span>{member.workload_percent}% workload</span>
+                        <span>{member.shift_status || member.availability_status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div className="project-mini-grid">
                 <div className="info-pill">
@@ -325,8 +354,8 @@ export default function Projects({ role }) {
                       />
                     </div>
                     <div className="form-actions form-span-2">
-                      <button className="btn btn-primary" type="button" onClick={inviteMember} data-tooltip="Create a tenant-scoped team invite by email">
-                        Send Team Invite
+                      <button className="btn btn-primary" type="button" onClick={inviteMember} disabled={Boolean(actionKey)} data-tooltip="Create a tenant-scoped team invite by email">
+                        {actionKey === `invite-${selectedProject.id}` ? 'Sending...' : 'Send Team Invite'}
                       </button>
                     </div>
                   </div>
@@ -390,18 +419,18 @@ export default function Projects({ role }) {
 
               {role === 'admin' && selectedProject.approval_status === 'awaiting-admin-approval' && (
                 <div className="project-card-actions">
-                  <button className="btn btn-primary" onClick={() => updateApproval(selectedProject.id, true)}>
-                    Approve Team Plan
+                  <button className="btn btn-primary" onClick={() => updateApproval(selectedProject.id, true)} disabled={Boolean(actionKey)}>
+                    {actionKey === `approve-${selectedProject.id}` ? 'Approving...' : 'Approve Team Plan'}
                   </button>
-                  <button className="btn btn-danger" onClick={() => updateApproval(selectedProject.id, false)}>
-                    Reject Team Plan
+                  <button className="btn btn-danger" onClick={() => updateApproval(selectedProject.id, false)} disabled={Boolean(actionKey)}>
+                    {actionKey === `reject-${selectedProject.id}` ? 'Rejecting...' : 'Reject Team Plan'}
                   </button>
                 </div>
               )}
               {role === 'admin' && (
                 <div className="project-card-actions">
-                  <button className="btn btn-danger" onClick={() => deleteProject(selectedProject.id)} data-tooltip="Delete the project with a full rollback">
-                    Delete Project
+                  <button className="btn btn-danger" onClick={() => deleteProject(selectedProject.id)} disabled={Boolean(actionKey)} data-tooltip="Delete the project with a full rollback">
+                    {actionKey === `delete-${selectedProject.id}` ? 'Deleting...' : 'Delete Project'}
                   </button>
                 </div>
               )}
