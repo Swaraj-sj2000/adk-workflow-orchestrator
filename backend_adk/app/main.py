@@ -10,6 +10,7 @@ from app.core._tenant_middleware import TenantMiddleware
 from app.db._database import SessionLocal
 from app.db._schema import ensure_runtime_schema
 from contextlib import asynccontextmanager
+import os
 import time
 
 logger = get_logger(__name__)
@@ -119,10 +120,23 @@ async def log_requests(request: Request, call_next):
 
 
 # Enable CORS
+# In production set ALLOWED_ORIGINS to a comma-separated list of your
+# actual frontend domains, e.g. "https://app.example.com".
+# allow_credentials=True is incompatible with allow_origins=["*"] —
+# when the wildcard is active we disable credentials to avoid Starlette's
+# origin-echo behaviour that effectively bypasses the same-origin check.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins: list[str] = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins
+    else ["*"]
+)
+_allow_credentials = _allowed_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
