@@ -18,8 +18,11 @@ def route_create_meeting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a meeting for a project."""
-    project = db.query(Project).filter(Project.id == meeting.project_id).first()
+    """Create a meeting for a project (restricted to caller's tenant)."""
+    project = db.query(Project).filter(
+        Project.id == meeting.project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
@@ -50,7 +53,15 @@ def route_get_project_meetings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all meetings for a project."""
+    """Get all meetings for a project (restricted to caller's tenant)."""
+    # Verify the project belongs to the caller's tenant before returning meetings
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
     meetings = db.query(Meeting).filter(
         Meeting.project_id == project_id
     ).order_by(Meeting.created_at.desc()).all()
@@ -63,10 +74,19 @@ def route_get_meeting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get meeting details."""
+    """Get meeting details (restricted to caller's tenant)."""
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # Verify owning project belongs to caller's tenant
+    project = db.query(Project).filter(
+        Project.id == meeting.project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     return meeting
 
 
@@ -77,11 +97,18 @@ def route_update_meeting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update meeting details."""
+    """Update meeting details (restricted to caller's tenant)."""
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    
+
+    project = db.query(Project).filter(
+        Project.id == meeting.project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     if current_user.id != meeting.created_by and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to update meeting")
     
@@ -108,11 +135,18 @@ def route_add_meeting_decisions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Add decisions made in a meeting."""
+    """Add decisions made in a meeting (restricted to caller's tenant)."""
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    
+
+    project = db.query(Project).filter(
+        Project.id == meeting.project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     if current_user.id != meeting.created_by and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to add decisions")
     
@@ -136,11 +170,18 @@ def route_delete_meeting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a meeting."""
+    """Delete a meeting (restricted to caller's tenant)."""
     meeting = db.query(Meeting).filter(Meeting.id == meeting_id).first()
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    
+
+    project = db.query(Project).filter(
+        Project.id == meeting.project_id,
+        Project.tenant_id == current_user.tenant_id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     if current_user.id != meeting.created_by and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to delete meeting")
     

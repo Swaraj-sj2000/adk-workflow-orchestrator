@@ -230,11 +230,22 @@ class MultiAgentOrchestrator:
         self.db.refresh(workflow)
         return workflow
 
-    def get_workflow_run(self, workflow_run_id: int) -> Optional[WorkflowRun]:
-        return self.db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id).first()
+    def get_workflow_run(self, workflow_run_id: int, tenant_id: Optional[int] = None) -> Optional[WorkflowRun]:
+        from app.models._user import User as _User
+        query = self.db.query(WorkflowRun).filter(WorkflowRun.id == workflow_run_id)
+        if tenant_id is not None:
+            # WorkflowRun has no tenant_id column; scope through the requesting user's tenant
+            tenant_user_ids = self.db.query(_User.id).filter(_User.tenant_id == tenant_id).subquery()
+            query = query.filter(WorkflowRun.requested_by.in_(tenant_user_ids))
+        return query.first()
 
-    def list_workflow_runs(self, limit: int = 20):
-        return self.db.query(WorkflowRun).order_by(WorkflowRun.created_at.desc()).limit(limit).all()
+    def list_workflow_runs(self, limit: int = 20, tenant_id: Optional[int] = None):
+        from app.models._user import User as _User
+        query = self.db.query(WorkflowRun)
+        if tenant_id is not None:
+            tenant_user_ids = self.db.query(_User.id).filter(_User.tenant_id == tenant_id).subquery()
+            query = query.filter(WorkflowRun.requested_by.in_(tenant_user_ids))
+        return query.order_by(WorkflowRun.created_at.desc()).limit(limit).all()
 
     def run_project_execution_loop(
         self,

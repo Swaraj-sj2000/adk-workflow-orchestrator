@@ -38,7 +38,7 @@ def list_workflows(
     current_user: User = Depends(get_current_user),
 ):
     orchestrator = MultiAgentOrchestrator(db)
-    return orchestrator.list_workflow_runs(limit=limit)
+    return orchestrator.list_workflow_runs(limit=limit, tenant_id=current_user.tenant_id)
 
 
 @router.get("/workflows/{workflow_run_id}", response_model=WorkflowRunRead)
@@ -48,7 +48,7 @@ def get_workflow(
     current_user: User = Depends(get_current_user),
 ):
     orchestrator = MultiAgentOrchestrator(db)
-    workflow = orchestrator.get_workflow_run(workflow_run_id)
+    workflow = orchestrator.get_workflow_run(workflow_run_id, tenant_id=current_user.tenant_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow run not found")
     return workflow

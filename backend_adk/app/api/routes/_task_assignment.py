@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core._deps import get_db, get_current_user
 from app.models._employee_profile import EmployeeProfile
+from app.models._task import Task
 from app.models._task_assignment import TaskAssignment
 from app.models._user import User
 from app.schemas._task_assignment import TaskAssignmentRead
@@ -20,7 +21,14 @@ def list_task_assignments(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(TaskAssignment)
+    # Always scope to the caller's tenant via the Task table (which has tenant_id)
+    tenant_task_ids = (
+        db.query(Task.id)
+        .filter(Task.tenant_id == current_user.tenant_id)
+        .subquery()
+    )
+    query = db.query(TaskAssignment).filter(TaskAssignment.task_id.in_(tenant_task_ids))
+
     if task_id is not None:
         query = query.filter(TaskAssignment.task_id == task_id)
     if employee_id is not None:
