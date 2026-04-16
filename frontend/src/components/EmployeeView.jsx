@@ -20,6 +20,15 @@ const initialProfileForm = {
   onLeave: false,
 };
 
+const initialTaskChangeForm = {
+  action: 'add',
+  targetType: 'subtask',
+  targetSubtaskId: '',
+  proposedTitle: '',
+  proposedDescription: '',
+  note: '',
+};
+
 export default function EmployeeView({ role }) {
   const [data, setData] = useState(null);
   const [selectedTask, setSelectedTask] = useState(null);
@@ -28,6 +37,7 @@ export default function EmployeeView({ role }) {
   const [inviteNotes, setInviteNotes] = useState({});
   const [inviteForm, setInviteForm] = useState(initialInviteForm);
   const [profileForm, setProfileForm] = useState(initialProfileForm);
+  const [taskChangeForm, setTaskChangeForm] = useState(initialTaskChangeForm);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionKey, setActionKey] = useState('');
@@ -35,6 +45,10 @@ export default function EmployeeView({ role }) {
   useEffect(() => {
     fetchData();
   }, [role]);
+
+  useEffect(() => {
+    setTaskChangeForm(initialTaskChangeForm);
+  }, [selectedTask?.task_id]);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -126,6 +140,97 @@ export default function EmployeeView({ role }) {
     } catch (error) {
       console.error(error);
       setMessage('Could not submit concern.');
+    }
+  };
+
+  const toggleTaskStatus = async (taskId, completed, label = 'Task') => {
+    if (actionKey) return;
+    setActionKey(`task-status-${taskId}`);
+    try {
+      const res = await fetch(`${API}/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: completed ? 'done' : 'pending',
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.detail || `Could not update ${label.toLowerCase()}.`);
+      }
+      setMessage(`${label} updated.`);
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
+    }
+  };
+
+  const submitTaskChangeRequest = async (event) => {
+    event.preventDefault();
+    if (!selectedTask || actionKey) return;
+
+    const isAdd = taskChangeForm.action === 'add';
+    const isSubtask = taskChangeForm.targetType === 'subtask';
+    const payload = {
+      action: taskChangeForm.action,
+      target_type: taskChangeForm.targetType,
+      target_task_id: null,
+      parent_task_id: null,
+      proposed_title: isAdd ? taskChangeForm.proposedTitle.trim() : null,
+      proposed_description: isAdd ? taskChangeForm.proposedDescription.trim() || null : null,
+      note: taskChangeForm.note.trim(),
+    };
+
+    if (isAdd && !payload.proposed_title) {
+      setMessage('Add requests need a clear title so the agent can review them properly.');
+      return;
+    }
+
+    if (isAdd) {
+      if (isSubtask) {
+        payload.parent_task_id = selectedTask.task_id;
+      } else {
+        payload.target_task_id = selectedTask.task_id;
+      }
+    } else if (isSubtask) {
+      payload.target_task_id = Number(taskChangeForm.targetSubtaskId || 0) || null;
+    } else {
+      payload.target_task_id = selectedTask.task_id;
+    }
+
+    if (!isAdd && isSubtask && !payload.target_task_id) {
+      setMessage('Choose the subtask you want to remove before sending the request.');
+      return;
+    }
+
+    setActionKey(`task-change-${selectedTask.task_id}`);
+    try {
+      const res = await fetch(`${API}/projects/${selectedTask.project_id}/task-change-requests`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || 'Could not submit task change request.');
+      }
+      setTaskChangeForm(initialTaskChangeForm);
+      setMessage('Task list change request sent for agent review and admin approval.');
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -728,6 +833,49 @@ export default function EmployeeView({ role }) {
               <span>Concern Path</span>
               <strong>{selectedTask.concern_path}</strong>
             </div>
+            <h3>Task and Subtask Control</h3>
+            <div className="list">
+              <div className="list-item">
+                <div className="task-line">
+                  <label style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTask.status === 'done'}
+                      disabled={Boolean(actionKey)}
+                      onChange={(event) => toggleTaskStatus(selectedTask.task_id, event.target.checked, 'Task')}
+                    />
+                    <strong>Mark parent task complete</strong>
+                  </label>
+                  <span className={`status-badge status-${(selectedTask.status || 'pending').replace(/\s+/g, '-')}`}>
+                    {selectedTask.status}
+                  </span>
+                </div>
+                <p>Directly checking the parent task updates project progress. Subtask checks only move this task until all subtasks are finished.</p>
+              </div>
+              {(selectedTask.subtasks || []).length > 0 ? selectedTask.subtasks.map((subtask) => (
+                <div key={subtask.id} className="list-item">
+                  <div className="task-line">
+                    <label style={{ display: 'flex', gap: '10px', alignItems: 'center', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={subtask.status === 'done'}
+                        disabled={Boolean(actionKey)}
+                        onChange={(event) => toggleTaskStatus(subtask.id, event.target.checked, 'Subtask')}
+                      />
+                      <strong>{subtask.title}</strong>
+                    </label>
+                    <span className={`status-badge status-${(subtask.status || 'pending').replace(/\s+/g, '-')}`}>
+                      {subtask.status}
+                    </span>
+                  </div>
+                  <p>{subtask.completion_percentage || (subtask.status === 'done' ? 100 : 0)}% progress • {subtask.estimated_hours || 0}h estimate</p>
+                </div>
+              )) : (
+                <div className="list-item">
+                  <p>No subtasks have been approved for this task yet.</p>
+                </div>
+              )}
+            </div>
             <h3>Checkpoints</h3>
             <div className="list">
               {selectedTask.checkpoints.map((checkpoint) => (
@@ -749,6 +897,107 @@ export default function EmployeeView({ role }) {
                   <p>{checkpoint.notes}</p>
                 </div>
               ))}
+            </div>
+
+            <h3>Request Task List Change</h3>
+            <form className="project-create-form" onSubmit={submitTaskChangeRequest}>
+              <div className="form-group">
+                <label>Change Type</label>
+                <select
+                  value={taskChangeForm.action}
+                  onChange={(event) => setTaskChangeForm((current) => ({ ...current, action: event.target.value }))}
+                >
+                  <option value="add">Add</option>
+                  <option value="delete">Delete</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Target</label>
+                <select
+                  value={taskChangeForm.targetType}
+                  onChange={(event) => setTaskChangeForm((current) => ({ ...current, targetType: event.target.value, targetSubtaskId: '' }))}
+                >
+                  <option value="task">Parent task</option>
+                  <option value="subtask">Subtask</option>
+                </select>
+              </div>
+              {taskChangeForm.action === 'delete' && taskChangeForm.targetType === 'subtask' && (
+                <div className="form-group form-span-2">
+                  <label>Subtask To Remove</label>
+                  <select
+                    value={taskChangeForm.targetSubtaskId}
+                    onChange={(event) => setTaskChangeForm((current) => ({ ...current, targetSubtaskId: event.target.value }))}
+                    required
+                  >
+                    <option value="">Choose subtask</option>
+                    {(selectedTask.subtasks || []).map((subtask) => (
+                      <option key={subtask.id} value={subtask.id}>
+                        {subtask.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {taskChangeForm.action === 'add' && (
+                <>
+                  <div className="form-group form-span-2">
+                    <label>Proposed Title</label>
+                    <input
+                      value={taskChangeForm.proposedTitle}
+                      onChange={(event) => setTaskChangeForm((current) => ({ ...current, proposedTitle: event.target.value }))}
+                      placeholder={taskChangeForm.targetType === 'task' ? 'Add a sibling task for this workstream' : 'Add a new subtask under this task'}
+                      required
+                    />
+                  </div>
+                  <div className="form-group form-span-2">
+                    <label>Proposed Details</label>
+                    <textarea
+                      rows="3"
+                      value={taskChangeForm.proposedDescription}
+                      onChange={(event) => setTaskChangeForm((current) => ({ ...current, proposedDescription: event.target.value }))}
+                      placeholder="Explain the work, scope, or correction you want the agent to review."
+                    />
+                  </div>
+                </>
+              )}
+              <div className="form-group form-span-2">
+                <label>Why should this change happen?</label>
+                <textarea
+                  rows="3"
+                  value={taskChangeForm.note}
+                  onChange={(event) => setTaskChangeForm((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Explain the issue, risk, or improvement clearly. This is reviewed by the agent and then by admin."
+                  required
+                />
+              </div>
+              <div className="form-actions form-span-2">
+                <button className="btn btn-secondary" type="submit" disabled={Boolean(actionKey)}>
+                  {actionKey === `task-change-${selectedTask.task_id}` ? 'Submitting...' : 'Send For Review'}
+                </button>
+              </div>
+            </form>
+
+            <h3>Task Change Requests</h3>
+            <div className="list">
+              {(selectedTask.task_change_requests || []).length > 0 ? selectedTask.task_change_requests.map((request) => (
+                <div key={request.request_id} className="list-item">
+                  <div className="task-line">
+                    <strong>{request.action} {request.target_type}</strong>
+                    <span className={`status-badge status-${(request.status || 'pending').replace(/\s+/g, '-')}`}>
+                      {request.status}
+                    </span>
+                  </div>
+                  <p><strong>Reason:</strong> {request.note}</p>
+                  {request.proposed_title && <p><strong>Proposal:</strong> {request.proposed_title}</p>}
+                  {request.proposed_description && <p><strong>Details:</strong> {request.proposed_description}</p>}
+                  <p><strong>Agent Review:</strong> {request.agent_review || 'Review pending.'}</p>
+                  {request.admin_note && <p><strong>Admin Note:</strong> {request.admin_note}</p>}
+                </div>
+              )) : (
+                <div className="list-item">
+                  <p>No task change requests yet for this workstream.</p>
+                </div>
+              )}
             </div>
 
             <h3>Raise a Concern</h3>

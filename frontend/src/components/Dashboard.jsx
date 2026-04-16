@@ -277,6 +277,33 @@ export default function Dashboard({ role }) {
     }
   };
 
+  const handleTaskChangeReview = async (projectId, requestId, approved) => {
+    if (actionKey) return;
+    setActionKey(`task-change-review-${projectId}-${requestId}`);
+    try {
+      const res = await fetch(`${API}/projects/${projectId}/task-change-requests/${requestId}`, {
+        method: 'PATCH',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          approved,
+          note: approved ? 'Approved from admin review queue.' : 'Rejected from admin review queue.',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not review task change request');
+      setProjectStatus(data);
+      setMessage(approved ? 'Task list change approved.' : 'Task list change rejected.');
+      fetchDashboard();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
+    }
+  };
+
   if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
   const notifications = dashboard?.notifications || [];
@@ -849,6 +876,12 @@ export default function Dashboard({ role }) {
                       ? task.assignments.map((assignment) => assignment.employee_name || `Employee #${assignment.employee_id}`).join(', ')
                       : 'Not assigned yet'}
                   </p>
+                  {(task.subtasks || []).length > 0 && (
+                    <p>
+                      Subtasks:{' '}
+                      {task.subtasks.map((subtask) => `${subtask.description} (${subtask.status})`).join(' | ')}
+                    </p>
+                  )}
                   {(task.replacement_options || []).length > 0 && (
                     <div className="inline-actions">
                       <select
@@ -875,6 +908,52 @@ export default function Dashboard({ role }) {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <h3>Pending Task List Reviews</h3>
+            <div className="list">
+              {(projectStatus.task_change_requests || []).length > 0 ? projectStatus.task_change_requests.map((request) => (
+                <div key={request.request_id} className="list-item">
+                  <div className="task-line">
+                    <strong>{request.requested_by_name || 'Employee'} wants to {request.action} a {request.target_type}</strong>
+                    <span className={`status-badge status-${(request.status || 'pending').replace(/\s+/g, '-')}`}>
+                      {request.status}
+                    </span>
+                  </div>
+                  <p><strong>Task Context:</strong> {request.target_task_title || request.parent_task_title || 'Context unavailable'}</p>
+                  {request.proposed_title && <p><strong>Proposal:</strong> {request.proposed_title}</p>}
+                  {request.proposed_description && <p><strong>Details:</strong> {request.proposed_description}</p>}
+                  <p><strong>Employee Query:</strong> {request.note}</p>
+                  <p><strong>Agent Review:</strong> {request.agent_review || 'No review memo available yet.'}</p>
+                  {request.admin_note && <p><strong>Admin Note:</strong> {request.admin_note}</p>}
+                  {request.status === 'pending' && (
+                    <div className="inline-actions">
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        disabled={Boolean(actionKey)}
+                        onClick={() => handleTaskChangeReview(projectStatus.id, request.request_id, true)}
+                      >
+                        {actionKey === `task-change-review-${projectStatus.id}-${request.request_id}` ? 'Applying...' : 'Approve'}
+                      </button>
+                      <button
+                        className="btn btn-danger"
+                        type="button"
+                        disabled={Boolean(actionKey)}
+                        onClick={() => handleTaskChangeReview(projectStatus.id, request.request_id, false)}
+                      >
+                        {actionKey === `task-change-review-${projectStatus.id}-${request.request_id}` ? 'Applying...' : 'Reject'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )) : (
+                <div className="list-item">
+                  <p>No pending task list changes for this project right now.</p>
+                </div>
+              )}
             </div>
           </div>
 
