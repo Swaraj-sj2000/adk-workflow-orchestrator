@@ -75,6 +75,74 @@ DEFAULT_PROJECT_TEAM_ORDER = [
 ]
 
 
+def _dedupe_recommended_team(recommended_team: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for member in recommended_team or []:
+        employee_id = member.get("employee_id")
+        if not employee_id or employee_id in seen_ids:
+            continue
+        seen_ids.add(employee_id)
+        deduped.append(member)
+    return deduped
+
+
+def _available_role_members(
+    db: Session,
+    tenant_id: int,
+    role_title: Optional[str],
+    *,
+    exclude_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    if not role_title:
+        return []
+
+    excluded = set(exclude_ids or [])
+    employees = (
+        db.query(EmployeeProfile)
+        .options(joinedload(EmployeeProfile.user))
+        .filter(EmployeeProfile.tenant_id == tenant_id)
+        .all()
+    )
+
+    candidates: List[Dict[str, Any]] = []
+    for employee in employees:
+        if employee.id in excluded:
+            continue
+        if _title_from_employee(employee) != role_title:
+            continue
+        candidates.append(
+            {
+                "employee_id": employee.id,
+                "name": employee.user.full_name if employee.user else f"Employee {employee.id}",
+                "title": role_title,
+                "availability_status": _effective_availability_status(employee),
+                "shift_status": _shift_status(employee),
+                "workload_percent": _workload_percent(employee.current_load, employee.max_capacity),
+                "duty_window": _duty_window_label(employee),
+            }
+        )
+
+    return sorted(candidates, key=lambda item: (item["workload_percent"], item["name"]))
+
+
+def _serialize_draft_team(db: Session, project: Project, recommended_team: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    draft_team = _dedupe_recommended_team(recommended_team)
+    selected_ids = [member["employee_id"] for member in draft_team if member.get("employee_id")]
+    return [
+        {
+            **member,
+            "replacement_options": _available_role_members(
+                db,
+                project.tenant_id,
+                member.get("title"),
+                exclude_ids=selected_ids,
+            ),
+        }
+        for member in draft_team
+    ]
+
+
 def _utcnow() -> datetime:
     return datetime.utcnow()
 
@@ -467,7 +535,7 @@ def create_project(db: Session, payload: ProjectCreate, admin: User):
     client, client_report = _resolve_client(db, payload, admin.tenant_id)
     planning_packet = llm_service.parse_project_intake(payload.description or payload.name)
     role_clusters = _build_role_clusters(planning_packet)
-    recommended_team = _recommend_team(db, admin.tenant_id, role_clusters)
+    recommended_team = _dedupe_recommended_team(_recommend_team(db, admin.tenant_id, role_clusters))
     approval_deadline = _utcnow() + timedelta(minutes=DEFAULT_APPROVAL_WINDOW_MINUTES)
     project_deadline = _normalize_datetime(payload.deadline)
     guidance_context = {
@@ -621,7 +689,7 @@ def build_admin_dashboard(db: Session, admin: User):
     ensure_deadline_escalations(db)
     projects = (
         db.query(Project)
-        .options(joinedload(Project.client))
+        .options(joinedload(Project.client), joinedload(Project.tasks))
         .filter(Project.tenant_id == admin.tenant_id)
         .order_by(Project.created_at.desc())
         .all()
@@ -643,6 +711,32 @@ def build_admin_dashboard(db: Session, admin: User):
         sum(_workload_percent(employee.current_load, employee.max_capacity) for employee in employees) / team_size,
         1,
     ) if team_size else 0.0
+
+    watch_notifications = []
+    for project in projects:
+        blocked = len([task for task in project.tasks if task.parent_task_id is None and task.status == "blocked"])
+        delayed = len([task for task in project.tasks if task.parent_task_id is None and task.status == "delayed"])
+        approval_status = _project_meta(project).get("approval_status")
+        if blocked or delayed:
+            watch_notifications.append(
+                {
+                    "kind": "watch",
+                    "title": f"{project.name} needs attention",
+                    "message": f"Blocked tasks: {blocked}. Delayed tasks: {delayed}.",
+                    "actor": "system",
+                    "created_at": _utcnow().isoformat(),
+                }
+            )
+        elif approval_status in {"awaiting-admin-approval", "awaiting-team-join"}:
+            watch_notifications.append(
+                {
+                    "kind": "watch",
+                    "title": f"{project.name} awaiting action",
+                    "message": f"Current approval state: {approval_status}.",
+                    "actor": "system",
+                    "created_at": _utcnow().isoformat(),
+                }
+            )
 
     return {
         "admin": {
@@ -679,11 +773,11 @@ def build_admin_dashboard(db: Session, admin: User):
             }
             for decision in decisions
         ],
-        "notifications": [
+        "notifications": (watch_notifications + [
             notification
             for project in projects
             for notification in _recent_project_notifications(_project_meta(project), limit=4)
-        ][:8],
+        ])[:8],
         "clients": get_clients(db, admin),
     }
 
@@ -945,6 +1039,7 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
         "overall_status": report["overall_status"],
         "today_status": report["today_status"],
         "role_clusters": meta.get("role_clusters", []),
+        "draft_team": _serialize_draft_team(db, project, meta.get("recommended_team", [])),
         "team_invites": _visible_team_invites(meta, viewer),
         "replacement_suggestions": meta.get("replacement_suggestions", []),
         "emp_involved": involved_employees,
@@ -973,6 +1068,16 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
                     }
                     for assignment in task.assignments
                 ],
+                "replacement_options": (
+                    _available_role_members(
+                        db,
+                        project.tenant_id,
+                        meta.get("task_role_map", {}).get(str(task.id)),
+                        exclude_ids=[assignment.employee_id for assignment in task.assignments],
+                    )
+                    if viewer and viewer.role == "admin"
+                    else []
+                ),
             }
             for task in top_level_tasks
         ],
@@ -994,6 +1099,11 @@ def handle_team_approval(db: Session, project_id: int, approved: bool, note: Opt
         raise HTTPException(status_code=404, detail="Project not found")
 
     meta = _project_meta(project)
+    actor = db.query(User).filter(User.id == actor_id).first()
+    if approved and meta.get("approval_status") == "awaiting-team-join":
+        return build_project_status(db, project.id, viewer=actor)
+    if not approved and meta.get("approval_status") == "rejected":
+        return build_project_status(db, project.id, viewer=actor)
     meta["approval_response_note"] = note
     meta["approval_acted_at"] = _utcnow().isoformat()
     llm_service = LLMService()
@@ -1085,7 +1195,189 @@ def handle_project_invite_response(db: Session, project_id: int, accepted: bool,
         raise HTTPException(status_code=403, detail="Only employees can respond to project invites")
 
     invite = find_project_invite_for_actor(db, project_id, actor)
+    if invite.status != "pending":
+        team = db.query(Team).filter(Team.id == invite.team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Project team not found")
+        return build_project_status(db, team.project_id, viewer=actor)
     return handle_team_invite_action(db=db, actor=actor, invite_id=invite.id, token=None, accepted=accepted, note=note)
+
+
+def replace_draft_team_member(
+    db: Session,
+    *,
+    project_id: int,
+    current_employee_id: int,
+    replacement_employee_id: int,
+    note: Optional[str],
+    actor: User,
+):
+    if actor.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can edit the draft team")
+
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.tasks).joinedload(Task.assignments))
+        .filter(Project.id == project_id, Project.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    meta = _project_meta(project)
+    if meta.get("approval_status") != "awaiting-admin-approval":
+        raise HTTPException(status_code=409, detail="Draft team can only be changed before approval")
+
+    recommended_team = _dedupe_recommended_team(meta.get("recommended_team", []))
+    target_index = next((index for index, member in enumerate(recommended_team) if member.get("employee_id") == current_employee_id), None)
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="Current draft team member not found")
+
+    replacement = (
+        db.query(EmployeeProfile)
+        .options(joinedload(EmployeeProfile.user))
+        .filter(EmployeeProfile.id == replacement_employee_id, EmployeeProfile.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not replacement or not replacement.user:
+        raise HTTPException(status_code=404, detail="Replacement employee not found")
+
+    target_role = recommended_team[target_index].get("title")
+    replacement_role = _title_from_employee(replacement)
+    if replacement_role != target_role:
+        raise HTTPException(status_code=400, detail=f"Replacement must match the required role: {target_role}")
+    if any(member.get("employee_id") == replacement.id for member in recommended_team):
+        raise HTTPException(status_code=409, detail="Replacement employee is already part of the draft team")
+
+    recommended_team[target_index] = {
+        "employee_id": replacement.id,
+        "name": replacement.user.full_name,
+        "title": replacement_role,
+        "availability_status": _effective_availability_status(replacement),
+        "shift_status": _shift_status(replacement),
+        "workload_percent": _workload_percent(replacement.current_load, replacement.max_capacity),
+        "duty_window": _duty_window_label(replacement),
+    }
+
+    meta["recommended_team"] = recommended_team
+    meta["team_invites"] = _build_team_invites(recommended_team, meta.get("role_clusters", []))
+    meta["replacement_suggestions"] = _available_role_members(
+        db,
+        actor.tenant_id,
+        target_role,
+        exclude_ids=[member["employee_id"] for member in recommended_team],
+    )
+    _append_notification(
+        meta,
+        kind="staffing",
+        title="Draft team updated",
+        message=f"Admin replaced the {target_role} draft recommendation.",
+        actor=actor.full_name or actor.email,
+    )
+    _log_decision(
+        db,
+        "draft_team_replacement",
+        project.id,
+        0.88,
+        note or f"Replaced draft {target_role} member {current_employee_id} with {replacement.id}.",
+    )
+    project.custom_fields = meta
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return build_project_status(db, project.id, viewer=actor)
+
+
+def reassign_project_task(
+    db: Session,
+    *,
+    project_id: int,
+    task_id: int,
+    replacement_employee_id: int,
+    note: Optional[str],
+    actor: User,
+):
+    if actor.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can reassign project tasks")
+
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.tasks).joinedload(Task.assignments))
+        .filter(Project.id == project_id, Project.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    task = next((project_task for project_task in project.tasks if project_task.id == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    replacement = (
+        db.query(EmployeeProfile)
+        .options(joinedload(EmployeeProfile.user))
+        .filter(EmployeeProfile.id == replacement_employee_id, EmployeeProfile.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not replacement or not replacement.user:
+        raise HTTPException(status_code=404, detail="Replacement employee not found")
+
+    required_role = _project_meta(project).get("task_role_map", {}).get(str(task.id))
+    if required_role and _title_from_employee(replacement) != required_role:
+        raise HTTPException(status_code=400, detail=f"Replacement must match the required role: {required_role}")
+
+    existing_assignment = next((assignment for assignment in task.assignments if assignment.employee_id == replacement.id), None)
+    for assignment in task.assignments:
+        if assignment.employee_id == replacement.id:
+            continue
+        previous_employee = assignment.employee
+        if previous_employee:
+            previous_employee.current_load = max(0.0, round((previous_employee.current_load or 0) - (assignment.estimated_hours or 0), 1))
+            _sync_employee_capacity_state(previous_employee)
+        assignment.status = "reassigned"
+        assignment.notes = (assignment.notes or "") + f"\nReassigned by admin at {_utcnow().isoformat()}."
+        db.add(assignment)
+
+    if existing_assignment:
+        existing_assignment.status = "assigned"
+        existing_assignment.estimated_hours = task.estimated_time
+        existing_assignment.notes = note or existing_assignment.notes or "Reassigned by admin."
+        db.add(existing_assignment)
+    else:
+        db.add(
+            TaskAssignment(
+                task_id=task.id,
+                employee_id=replacement.id,
+                status="assigned",
+                estimated_hours=task.estimated_time,
+                assignment_confidence=1.0,
+                notes=note or "Reassigned by admin.",
+            )
+        )
+
+    replacement.current_load = round((replacement.current_load or 0) + (task.estimated_time or 0), 1)
+    _sync_employee_capacity_state(replacement)
+
+    meta = _project_meta(project)
+    _append_notification(
+        meta,
+        kind="reassignment",
+        title="Task reassigned",
+        message=f"Task '{task.description}' was reassigned to {replacement.user.full_name}.",
+        actor=actor.full_name or actor.email,
+    )
+    _log_decision(
+        db,
+        "task_reassignment",
+        project.id,
+        0.9,
+        note or f"Task {task.id} reassigned to employee {replacement.id}.",
+    )
+    project.custom_fields = meta
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return build_project_status(db, project.id, viewer=actor)
 
 
 def update_project_payment_status(
@@ -1699,7 +1991,7 @@ def _load_team_invite_summaries(db: Session, project: Project) -> List[Dict[str,
         .all()
     )
 
-    summaries = []
+    summaries_by_email: Dict[str, Dict[str, Any]] = {}
     for invite in invites:
         user = db.query(User).filter(User.id == invite.invited_user_id).first() if invite.invited_user_id else None
         employee = (
@@ -1711,23 +2003,21 @@ def _load_team_invite_summaries(db: Session, project: Project) -> List[Dict[str,
             else None
         )
         cluster = cluster_map.get(invite.role_title or "", {})
-        summaries.append(
-            {
-                "invite_id": invite.id,
-                "employee_id": employee.id if employee else None,
-                "email": invite.email,
-                "name": employee.user.full_name if employee and employee.user else invite.email,
-                "title": invite.role_title or cluster.get("role"),
-                "status": invite.status,
-                "note": invite.note,
-                "responded_at": invite.responded_at.isoformat() if invite.responded_at else None,
-                "token": invite.token,
-                "role_focus": cluster.get("task_titles", []),
-                "role_skills": cluster.get("skills", []),
-                "capacity_reasoning": cluster.get("capacity_reasoning"),
-            }
-        )
-    return summaries
+        summaries_by_email[normalize_email(invite.email)] = {
+            "invite_id": invite.id,
+            "employee_id": employee.id if employee else None,
+            "email": invite.email,
+            "name": employee.user.full_name if employee and employee.user else invite.email,
+            "title": invite.role_title or cluster.get("role"),
+            "status": invite.status,
+            "note": invite.note,
+            "responded_at": invite.responded_at.isoformat() if invite.responded_at else None,
+            "token": invite.token,
+            "role_focus": cluster.get("task_titles", []),
+            "role_skills": cluster.get("skills", []),
+            "capacity_reasoning": cluster.get("capacity_reasoning"),
+        }
+    return list(summaries_by_email.values())
 
 
 def _refresh_project_team_metadata(db: Session, project: Project) -> Dict[str, Any]:

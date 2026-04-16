@@ -4,7 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db._database import get_db
-from app.schemas._project import ProjectCreate, ProjectInviteResponse, ProjectPaymentUpdate, TeamApprovalAction
+from app.schemas._project import (
+    DraftTeamReplacementAction,
+    ProjectCreate,
+    ProjectInviteResponse,
+    ProjectPaymentUpdate,
+    ProjectTaskReassignmentAction,
+    TeamApprovalAction,
+)
 from app.services._project_service import (
     build_project_status,
     create_project,
@@ -13,6 +20,8 @@ from app.services._project_service import (
     get_projects,
     handle_team_approval,
     handle_project_invite_response,
+    reassign_project_task,
+    replace_draft_team_member,
     update_project_payment_status,
 )
 from app.core._deps import get_current_user
@@ -87,6 +96,23 @@ def act_on_team_approval(
     )
 
 
+@router.patch("/{project_id}/draft-team")
+def replace_draft_team(
+    project_id: int,
+    payload: DraftTeamReplacementAction,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return replace_draft_team_member(
+        db=db,
+        project_id=project_id,
+        current_employee_id=payload.current_employee_id,
+        replacement_employee_id=payload.replacement_employee_id,
+        note=payload.note,
+        actor=user,
+    )
+
+
 @router.post("/{project_id}/invite-response")
 def respond_to_project_invite(
     project_id: int,
@@ -123,6 +149,24 @@ def update_payment_status(
         db=db,
         project_id=project_id,
         payment_status=payload.payment_status,
+        note=payload.note,
+        actor=user,
+    )
+
+
+@router.patch("/{project_id}/tasks/{task_id}/reassign")
+def reassign_task(
+    project_id: int,
+    task_id: int,
+    payload: ProjectTaskReassignmentAction,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return reassign_project_task(
+        db=db,
+        project_id=project_id,
+        task_id=task_id,
+        replacement_employee_id=payload.replacement_employee_id,
         note=payload.note,
         actor=user,
     )

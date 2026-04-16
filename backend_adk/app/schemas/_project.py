@@ -61,12 +61,43 @@ class ProjectOut(BaseModel):
 
 class TeamApprovalAction(BaseModel):
     approved: bool
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_approval_note(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
 
 
 class ProjectInviteResponse(BaseModel):
     accepted: bool
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_invite_note(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
+
+
+class DraftTeamReplacementAction(BaseModel):
+    current_employee_id: int = Field(gt=0)
+    replacement_employee_id: int = Field(gt=0)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_replacement_note(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
+
+
+class ProjectTaskReassignmentAction(BaseModel):
+    replacement_employee_id: int = Field(gt=0)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_reassignment_note(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
 
 
 class ProjectPaymentUpdate(BaseModel):
