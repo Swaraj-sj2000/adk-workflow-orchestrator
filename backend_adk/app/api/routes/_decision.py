@@ -25,7 +25,8 @@ def route_get_decisions(
         entity_type=entity_type,
         entity_id=entity_id,
         decision_type=decision_type,
-        limit=limit
+        limit=limit,
+        tenant_id=current_user.tenant_id,
     )
     return decisions
 
@@ -47,7 +48,8 @@ def route_get_risky_decisions(
     service = DecisionService(db)
     decisions = service.get_low_confidence_decisions(
         threshold=confidence_threshold,
-        last_n_hours=hours
+        last_n_hours=hours,
+        tenant_id=current_user.tenant_id,
     )
     return decisions
 
@@ -67,7 +69,8 @@ def route_override_decision(
     decision = service.override_decision(
         decision_id=decision_id,
         admin_id=current_user.id,
-        override_reason=override_reason
+        override_reason=override_reason,
+        tenant_id=current_user.tenant_id,
     )
     
     if not decision:
@@ -87,8 +90,8 @@ def route_get_decision_statistics(
         raise HTTPException(status_code=403, detail="Only admins can view statistics")
     
     service = DecisionService(db)
-    stats = service.get_decision_statistics(last_n_days=days)
-    
+    stats = service.get_decision_statistics(last_n_days=days, tenant_id=current_user.tenant_id)
+
     return {
         "period_days": days,
         "statistics": stats

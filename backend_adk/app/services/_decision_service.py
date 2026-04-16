@@ -1,6 +1,10 @@
 # app/services/_decision_service.py
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 from app.models._decision_log import DecisionLog
+from app.models._employee_profile import EmployeeProfile
+from app.models._project import Project
+from app.models._task import Task
 from app.schemas._decision_log import DecisionLogRead
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
@@ -11,9 +15,37 @@ class DecisionService:
     Manages decision logs for system explainability.
     Every AI decision is logged with reason, confidence, and impact.
     """
-    
+
     def __init__(self, db: Session):
         self.db = db
+
+    # ------------------------------------------------------------------
+    # Internal helper: build a SQLAlchemy filter that restricts decisions
+    # to entities owned by `tenant_id`.  Works without a tenant_id column
+    # on decision_logs by joining through the owning entity tables.
+    # ------------------------------------------------------------------
+    def _tenant_filter(self, tenant_id: int):
+        """Return an OR-filter that restricts decisions to the given tenant."""
+        project_ids = (
+            self.db.query(Project.id)
+            .filter(Project.tenant_id == tenant_id)
+            .subquery()
+        )
+        task_ids = (
+            self.db.query(Task.id)
+            .filter(Task.tenant_id == tenant_id)
+            .subquery()
+        )
+        employee_ids = (
+            self.db.query(EmployeeProfile.id)
+            .filter(EmployeeProfile.tenant_id == tenant_id)
+            .subquery()
+        )
+        return or_(
+            and_(DecisionLog.entity_type == "project",  DecisionLog.entity_id.in_(project_ids)),
+            and_(DecisionLog.entity_type == "task",     DecisionLog.entity_id.in_(task_ids)),
+            and_(DecisionLog.entity_type == "employee", DecisionLog.entity_id.in_(employee_ids)),
+        )
     
     def log_decision(
         self,
@@ -45,48 +77,57 @@ class DecisionService:
         entity_type: Optional[str] = None,
         entity_id: Optional[int] = None,
         decision_type: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        tenant_id: Optional[int] = None,
     ) -> List[DecisionLog]:
-        """Get decision history with optional filters."""
+        """Get decision history with optional filters, scoped to tenant."""
         query = self.db.query(DecisionLog)
-        
+
+        # Always restrict to the caller's tenant when tenant_id is known
+        if tenant_id is not None:
+            query = query.filter(self._tenant_filter(tenant_id))
+
         if entity_type:
             query = query.filter(DecisionLog.entity_type == entity_type)
-        
+
         if entity_id:
             query = query.filter(DecisionLog.entity_id == entity_id)
-        
+
         if decision_type:
             query = query.filter(DecisionLog.decision_type == decision_type)
-        
+
         return query.order_by(DecisionLog.created_at.desc()).limit(limit).all()
     
     def get_low_confidence_decisions(
         self,
         threshold: float = 0.6,
-        last_n_hours: int = 24
+        last_n_hours: int = 24,
+        tenant_id: Optional[int] = None,
     ) -> List[DecisionLog]:
-        """
-        Find decisions with low confidence that might need review.
-        Admin can use this to focus on risky decisions.
-        """
+        """Find decisions with low confidence that might need review, scoped to tenant."""
         cutoff_time = datetime.utcnow() - timedelta(hours=last_n_hours)
-        
-        return self.db.query(DecisionLog).filter(
+
+        query = self.db.query(DecisionLog).filter(
             DecisionLog.confidence < threshold,
-            DecisionLog.created_at >= cutoff_time
-        ).order_by(DecisionLog.confidence.asc()).all()
+            DecisionLog.created_at >= cutoff_time,
+        )
+        if tenant_id is not None:
+            query = query.filter(self._tenant_filter(tenant_id))
+
+        return query.order_by(DecisionLog.confidence.asc()).all()
     
     def override_decision(
         self,
         decision_id: int,
         admin_id: int,
-        override_reason: Optional[str] = None
+        override_reason: Optional[str] = None,
+        tenant_id: Optional[int] = None,
     ) -> DecisionLog:
-        """Mark a decision as overridden by admin."""
-        decision = self.db.query(DecisionLog).filter(
-            DecisionLog.id == decision_id
-        ).first()
+        """Mark a decision as overridden by admin (scoped to tenant)."""
+        query = self.db.query(DecisionLog).filter(DecisionLog.id == decision_id)
+        if tenant_id is not None:
+            query = query.filter(self._tenant_filter(tenant_id))
+        decision = query.first()
         
         if decision:
             decision.override_by_admin = admin_id
@@ -99,14 +140,17 @@ class DecisionService:
     
     def get_decision_statistics(
         self,
-        last_n_days: int = 7
+        last_n_days: int = 7,
+        tenant_id: Optional[int] = None,
     ) -> Dict:
-        """Get analytics on system decisions."""
+        """Get analytics on system decisions, scoped to tenant."""
         cutoff_time = datetime.utcnow() - timedelta(days=last_n_days)
-        
-        decisions = self.db.query(DecisionLog).filter(
-            DecisionLog.created_at >= cutoff_time
-        ).all()
+
+        query = self.db.query(DecisionLog).filter(DecisionLog.created_at >= cutoff_time)
+        if tenant_id is not None:
+            query = query.filter(self._tenant_filter(tenant_id))
+
+        decisions = query.all()
         
         if not decisions:
             return self._empty_stats()
