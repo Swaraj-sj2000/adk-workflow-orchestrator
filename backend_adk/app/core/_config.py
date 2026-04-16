@@ -1,10 +1,33 @@
 # backend/app/core/_config.py
 
 import os
+import sys
+import logging
+
+_logger = logging.getLogger(__name__)
+
+_KNOWN_INSECURE_DEFAULTS = {"supersecretkey", "secret", "changeme", ""}
+
+_raw_secret = os.getenv("SECRET_KEY", "supersecretkey")
+
+if _raw_secret in _KNOWN_INSECURE_DEFAULTS:
+    _env = os.getenv("ENVIRONMENT", "development").lower()
+    if _env == "production":
+        # Hard-fail: insecure key must never sign production JWTs
+        sys.exit(
+            "[FATAL] SECRET_KEY is set to a known insecure default. "
+            "Set a strong SECRET_KEY env var before starting in production."
+        )
+    else:
+        _logger.critical(
+            "SECRET_KEY is using an insecure default value. "
+            "Set the SECRET_KEY environment variable before deploying to production."
+        )
+
 
 class Settings:
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
-    SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
+    SECRET_KEY = _raw_secret
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 60
     BASIC_RATE_LIMIT_REQUESTS = int(os.getenv("BASIC_RATE_LIMIT_REQUESTS", "120"))

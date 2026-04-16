@@ -29,10 +29,6 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 def login(user: UserLogin, db: Session = Depends(get_db)):
     result = login_user(db, user.email, user.password)
     if not result:
-        raise HTTPException(status_code=400, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     token, user_data = result
     return {"access_token": token, "user": user_data}
-
-@router.get("/test-jwt")
-def test_jwt(token: str = Depends(oauth2_scheme)):
-    return {"msg": "JWT works!", "token": token}
