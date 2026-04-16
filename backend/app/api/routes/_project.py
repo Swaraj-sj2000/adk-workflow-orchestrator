@@ -10,10 +10,13 @@ from app.schemas._project import (
     ProjectInviteResponse,
     ProjectPaymentUpdate,
     ProjectTaskReassignmentAction,
+    TaskChangeRequestCreate,
+    TaskChangeRequestReview,
     TeamApprovalAction,
 )
 from app.services._project_service import (
     build_project_status,
+    create_task_change_request,
     create_project,
     delete_project_atomic,
     get_clients,
@@ -21,6 +24,7 @@ from app.services._project_service import (
     handle_team_approval,
     handle_project_invite_response,
     reassign_project_task,
+    review_task_change_request,
     replace_draft_team_member,
     update_project_payment_status,
 )
@@ -124,6 +128,45 @@ def respond_to_project_invite(
         db=db,
         project_id=project_id,
         accepted=payload.accepted,
+        note=payload.note,
+        actor=user,
+    )
+
+
+@router.post("/{project_id}/task-change-requests")
+def submit_task_change_request(
+    project_id: int,
+    payload: TaskChangeRequestCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return create_task_change_request(
+        db=db,
+        project_id=project_id,
+        action=payload.action,
+        target_type=payload.target_type,
+        target_task_id=payload.target_task_id,
+        parent_task_id=payload.parent_task_id,
+        proposed_title=payload.proposed_title,
+        proposed_description=payload.proposed_description,
+        note=payload.note,
+        actor=user,
+    )
+
+
+@router.patch("/{project_id}/task-change-requests/{request_id}")
+def review_project_task_change_request(
+    project_id: int,
+    request_id: str,
+    payload: TaskChangeRequestReview,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return review_task_change_request(
+        db=db,
+        project_id=project_id,
+        request_id=request_id,
+        approved=payload.approved,
         note=payload.note,
         actor=user,
     )

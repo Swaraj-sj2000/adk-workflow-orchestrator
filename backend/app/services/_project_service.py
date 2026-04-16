@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func
@@ -994,10 +995,10 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
     tasks = project.tasks
     assignments = [assignment for task in tasks for assignment in task.assignments]
     involved_employees = _collect_involved_employees(db, assignments, project)
-    completed_tasks = len([task for task in tasks if task.status == "done"])
-    blocked_tasks = len([task for task in tasks if task.status == "blocked"])
-    in_progress_tasks = len([task for task in tasks if task.status in {"running", "in-progress"}])
     top_level_tasks = [task for task in tasks if task.parent_task_id is None]
+    completed_tasks = len([task for task in top_level_tasks if task.status == "done"])
+    blocked_tasks = len([task for task in top_level_tasks if task.status == "blocked"])
+    in_progress_tasks = len([task for task in top_level_tasks if task.status in {"running", "in-progress"}])
     meta = _refresh_project_team_metadata(db, project)
     visible_client_id = project.client_id if not viewer or viewer.role == "admin" else None
     public_status_label = _client_business_summary(project, top_level_tasks, meta)
@@ -1043,6 +1044,14 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
         "team_invites": _visible_team_invites(meta, viewer),
         "replacement_suggestions": meta.get("replacement_suggestions", []),
         "emp_involved": involved_employees,
+        "task_change_requests": [
+            _serialize_task_change_request(project, request)
+            for request in sorted(
+                _task_change_requests(meta),
+                key=lambda item: item.get("created_at") or "",
+                reverse=True,
+            )
+        ] if viewer and viewer.role == "admin" else [],
         "task_summary": {
             "total": len(top_level_tasks),
             "completed": completed_tasks,
@@ -1059,6 +1068,18 @@ def build_project_status(db: Session, project_id: int, viewer: Optional[User] = 
                 "estimated_time": task.estimated_time,
                 "required_role": meta.get("task_role_map", {}).get(str(task.id)),
                 "deadline": task.deadline.isoformat() if task.deadline else None,
+                "subtasks": [
+                    {
+                        "id": child.id,
+                        "description": child.description,
+                        "status": child.status,
+                        "estimated_time": child.estimated_time,
+                    }
+                    for child in sorted(
+                        [child for child in tasks if child.parent_task_id == task.id],
+                        key=lambda child: child.created_at,
+                    )
+                ],
                 "assignments": [
                     {
                         "employee_id": assignment.employee_id,
@@ -2211,6 +2232,342 @@ def _project_meta(project: Project):
     return dict(project.custom_fields or {})
 
 
+def _task_change_requests(meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    requests = meta.get("task_change_requests")
+    return requests if isinstance(requests, list) else []
+
+
+def _employee_can_access_task(db: Session, task: Optional[Task], actor: User) -> Tuple[bool, Optional[EmployeeProfile]]:
+    if not task:
+        return False, None
+    profile = (
+        db.query(EmployeeProfile)
+        .filter(EmployeeProfile.user_id == actor.id, EmployeeProfile.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not profile:
+        return False, None
+
+    direct_assignment = (
+        db.query(TaskAssignment)
+        .filter(TaskAssignment.task_id == task.id, TaskAssignment.employee_id == profile.id)
+        .first()
+    )
+    if direct_assignment:
+        return True, profile
+
+    if task.parent_task_id:
+        parent_assignment = (
+            db.query(TaskAssignment)
+            .filter(TaskAssignment.task_id == task.parent_task_id, TaskAssignment.employee_id == profile.id)
+            .first()
+        )
+        if parent_assignment:
+            return True, profile
+
+    return False, profile
+
+
+def _serialize_task_change_request(project: Project, request: Dict[str, Any]) -> Dict[str, Any]:
+    tasks_by_id = {task.id: task for task in project.tasks}
+    target_task = tasks_by_id.get(request.get("target_task_id"))
+    parent_task = tasks_by_id.get(request.get("parent_task_id"))
+    return {
+        "request_id": request.get("request_id"),
+        "status": request.get("status", "pending"),
+        "action": request.get("action"),
+        "target_type": request.get("target_type"),
+        "target_task_id": request.get("target_task_id"),
+        "target_task_title": target_task.description if target_task else request.get("target_task_title"),
+        "parent_task_id": request.get("parent_task_id"),
+        "parent_task_title": parent_task.description if parent_task else request.get("parent_task_title"),
+        "proposed_title": request.get("proposed_title"),
+        "proposed_description": request.get("proposed_description"),
+        "note": request.get("note"),
+        "role_title": request.get("role_title"),
+        "requested_by_user_id": request.get("requested_by_user_id"),
+        "requested_by_employee_id": request.get("requested_by_employee_id"),
+        "requested_by_name": request.get("requested_by_name"),
+        "agent_review": request.get("agent_review"),
+        "admin_note": request.get("admin_note"),
+        "created_at": request.get("created_at"),
+        "reviewed_at": request.get("reviewed_at"),
+        "reviewed_by_name": request.get("reviewed_by_name"),
+        "applied_task_id": request.get("applied_task_id"),
+    }
+
+
+def _delete_task_tree(db: Session, project: Project, task: Task, meta: Dict[str, Any]) -> None:
+    child_tasks = db.query(Task).filter(Task.parent_task_id == task.id).all()
+    for child in child_tasks:
+        _delete_task_tree(db, project, child, meta)
+
+    assignments = db.query(TaskAssignment).filter(TaskAssignment.task_id == task.id).all()
+    for assignment in assignments:
+        employee = db.query(EmployeeProfile).filter(EmployeeProfile.id == assignment.employee_id).first()
+        if employee:
+            employee.current_load = max(
+                0.0,
+                round((employee.current_load or 0.0) - float(assignment.estimated_hours or task.estimated_time or 0.0), 1),
+            )
+            _sync_employee_capacity_state(employee)
+            db.add(employee)
+        db.delete(assignment)
+
+    db.query(TaskDependency).filter(
+        (TaskDependency.task_id == task.id) | (TaskDependency.depends_on_task_id == task.id)
+    ).delete(synchronize_session=False)
+    db.query(Checkpoint).filter(Checkpoint.task_id == task.id).delete(synchronize_session=False)
+    db.query(TaskProgress).filter(TaskProgress.task_id == task.id).delete(synchronize_session=False)
+    db.query(Blocker).filter(Blocker.task_id == task.id).delete(synchronize_session=False)
+    db.query(PerformancePoint).filter(PerformancePoint.task_id == task.id).delete(synchronize_session=False)
+    db.query(Communication).filter(Communication.task_id == task.id).delete(synchronize_session=False)
+    db.query(EventQueue).filter(
+        (EventQueue.entity_type == "task") & (EventQueue.entity_id == task.id)
+    ).delete(synchronize_session=False)
+    db.query(DecisionLog).filter(
+        (DecisionLog.entity_type == "task") & (DecisionLog.entity_id == task.id)
+    ).delete(synchronize_session=False)
+
+    task_role_map = meta.get("task_role_map", {})
+    task_role_map.pop(str(task.id), None)
+    meta["task_role_map"] = task_role_map
+    db.delete(task)
+
+
+def create_task_change_request(
+    db: Session,
+    *,
+    project_id: int,
+    action: str,
+    target_type: str,
+    target_task_id: Optional[int],
+    parent_task_id: Optional[int],
+    proposed_title: Optional[str],
+    proposed_description: Optional[str],
+    note: str,
+    actor: User,
+):
+    if actor.role != "employee":
+        raise HTTPException(status_code=403, detail="Only employees can propose task list changes")
+
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.tasks).joinedload(Task.assignments))
+        .filter(Project.id == project_id, Project.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    tasks_by_id = {task.id: task for task in project.tasks}
+    related_task = tasks_by_id.get(target_task_id) if target_task_id else None
+    parent_task = tasks_by_id.get(parent_task_id) if parent_task_id else None
+
+    if action == "add" and target_type == "task" and not related_task:
+        raise HTTPException(status_code=400, detail="Choose one current task so the new task can inherit the correct project context")
+    if action == "add" and target_type == "subtask" and not parent_task:
+        raise HTTPException(status_code=400, detail="Choose the parent task for the new subtask")
+    if action == "delete" and not related_task:
+        raise HTTPException(status_code=400, detail="Choose the task or subtask you want to remove")
+    if target_type == "subtask" and action == "delete" and related_task and related_task.parent_task_id is None:
+        raise HTTPException(status_code=400, detail="Only subtasks can be removed through the subtask flow")
+    if target_type == "task" and action == "delete" and related_task and related_task.parent_task_id is not None:
+        raise HTTPException(status_code=400, detail="Choose the parent task instead of one of its subtasks")
+
+    access_task = parent_task or related_task
+    allowed, profile = _employee_can_access_task(db, access_task, actor)
+    if not allowed or not profile:
+        raise HTTPException(status_code=403, detail="You can only edit task lists that belong to your assigned work")
+
+    meta = _project_meta(project)
+    task_role_map = meta.get("task_role_map", {})
+    role_anchor = parent_task or related_task
+    role_title = (
+        task_role_map.get(str(parent_task_id or 0))
+        or task_role_map.get(str(target_task_id or 0))
+        or (task_role_map.get(str(role_anchor.parent_task_id)) if role_anchor and role_anchor.parent_task_id else None)
+        or _title_from_employee(profile)
+    )
+
+    context = {
+        "project_name": project.name,
+        "project_status": project.status,
+        "employee_name": actor.full_name or actor.email,
+        "employee_role": _title_from_employee(profile),
+        "change_action": action,
+        "target_type": target_type,
+        "target_task": related_task.description if related_task else None,
+        "parent_task": parent_task.description if parent_task else None,
+        "proposed_title": proposed_title,
+        "proposed_description": proposed_description,
+        "employee_note": note,
+        "current_project_progress": project.progress,
+    }
+    llm_service = LLMService()
+    agent_review = llm_service.generate_decision_support("task_change_request", "admin", context)
+
+    request = {
+        "request_id": uuid4().hex,
+        "status": "pending",
+        "action": action,
+        "target_type": target_type,
+        "target_task_id": target_task_id,
+        "target_task_title": related_task.description if related_task else None,
+        "parent_task_id": parent_task_id if action == "add" and target_type == "subtask" else (related_task.parent_task_id if related_task else None),
+        "parent_task_title": parent_task.description if parent_task else (tasks_by_id.get(related_task.parent_task_id).description if related_task and related_task.parent_task_id and tasks_by_id.get(related_task.parent_task_id) else None),
+        "proposed_title": proposed_title,
+        "proposed_description": proposed_description,
+        "note": note,
+        "role_title": role_title,
+        "requested_by_user_id": actor.id,
+        "requested_by_employee_id": profile.id,
+        "requested_by_name": actor.full_name or actor.email,
+        "created_at": _utcnow().isoformat(),
+        "agent_review": agent_review,
+    }
+    requests = _task_change_requests(meta)
+    requests.append(request)
+    meta["task_change_requests"] = requests
+    _append_notification(
+        meta,
+        kind="task-change",
+        title="Task list change requested",
+        message=f"{actor.full_name or actor.email} requested to {action} a {target_type}. Admin approval is now required.",
+        actor=actor.full_name or actor.email,
+    )
+    project.custom_fields = meta
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    return _serialize_task_change_request(project, request)
+
+
+def review_task_change_request(
+    db: Session,
+    *,
+    project_id: int,
+    request_id: str,
+    approved: bool,
+    note: Optional[str],
+    actor: User,
+):
+    if actor.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can review task list changes")
+
+    project = (
+        db.query(Project)
+        .options(joinedload(Project.tasks).joinedload(Task.assignments))
+        .filter(Project.id == project_id, Project.tenant_id == actor.tenant_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    meta = _project_meta(project)
+    requests = _task_change_requests(meta)
+    request = next((item for item in requests if item.get("request_id") == request_id), None)
+    if not request:
+        raise HTTPException(status_code=404, detail="Task change request not found")
+    if request.get("status") != "pending":
+        return build_project_status(db, project.id, viewer=actor)
+
+    tasks_by_id = {task.id: task for task in project.tasks}
+    anchor_task = tasks_by_id.get(request.get("target_task_id"))
+    parent_task = tasks_by_id.get(request.get("parent_task_id"))
+
+    if approved:
+        if request.get("action") == "add":
+            anchor = parent_task or anchor_task
+            role_title = request.get("role_title") or (meta.get("task_role_map", {}) or {}).get(str(anchor.id if anchor else 0))
+            estimated_time = float(anchor.estimated_time or 4.0) if anchor else 4.0
+            if request.get("target_type") == "subtask":
+                estimated_time = max(1.0, round(estimated_time / 2, 1))
+            description = request.get("proposed_title") or "Proposed task"
+            if request.get("proposed_description"):
+                description = f"{description}: {request['proposed_description']}"
+
+            created_task = Task(
+                project_id=project.id,
+                parent_task_id=parent_task.id if request.get("target_type") == "subtask" and parent_task else None,
+                description=description,
+                difficulty=anchor.difficulty if anchor else "medium",
+                urgency=anchor.urgency if anchor else "medium",
+                estimated_time=estimated_time,
+                required_skills=anchor.required_skills if anchor else {},
+                deadline=anchor.deadline if anchor else None,
+                tenant_id=project.tenant_id,
+            )
+            db.add(created_task)
+            db.flush()
+            _ensure_task_progress(db, created_task)
+
+            task_role_map = meta.get("task_role_map", {})
+            if role_title:
+                task_role_map[str(created_task.id)] = role_title
+                meta["task_role_map"] = task_role_map
+
+            if request.get("target_type") == "task" and request.get("requested_by_employee_id"):
+                assignment = TaskAssignment(
+                    task_id=created_task.id,
+                    employee_id=request["requested_by_employee_id"],
+                    estimated_hours=estimated_time,
+                    status="assigned",
+                )
+                db.add(assignment)
+                employee = db.query(EmployeeProfile).filter(EmployeeProfile.id == request["requested_by_employee_id"]).first()
+                if employee:
+                    employee.current_load = round((employee.current_load or 0.0) + estimated_time, 1)
+                    _sync_employee_capacity_state(employee)
+                    db.add(employee)
+                meta["emp_involved_ids"] = sorted(set(meta.get("emp_involved_ids", [])) | {request["requested_by_employee_id"]})
+
+            request["applied_task_id"] = created_task.id
+        else:
+            target_task = tasks_by_id.get(request.get("target_task_id"))
+            if not target_task:
+                raise HTTPException(status_code=404, detail="The requested task is no longer available")
+            _delete_task_tree(db, project, target_task, meta)
+
+        request["status"] = "approved"
+        status_message = "approved"
+        _append_notification(
+            meta,
+            kind="task-change",
+            title="Task list change approved",
+            message=f"{actor.full_name or actor.email} approved a {request.get('target_type')} {request.get('action')} request.",
+            actor=actor.full_name or actor.email,
+        )
+    else:
+        request["status"] = "rejected"
+        status_message = "rejected"
+        _append_notification(
+            meta,
+            kind="task-change",
+            title="Task list change rejected",
+            message=f"{actor.full_name or actor.email} rejected a {request.get('target_type')} {request.get('action')} request.",
+            actor=actor.full_name or actor.email,
+        )
+
+    request["admin_note"] = note
+    request["reviewed_at"] = _utcnow().isoformat()
+    request["reviewed_by_name"] = actor.full_name or actor.email
+    meta["task_change_requests"] = requests
+    project.custom_fields = meta
+    db.add(project)
+    _sync_project_progress(db, project.id)
+    db.commit()
+    db.refresh(project)
+    _log_decision(
+        db,
+        "task_change_request",
+        project.id,
+        0.78 if approved else 0.62,
+        f"Admin {status_message} task change request {request_id}. {note or 'No review note provided.'}",
+    )
+    return build_project_status(db, project.id, viewer=actor)
+
+
 def _workload_percent(current_load: float, max_capacity: float):
     if not max_capacity:
         return 0
@@ -2526,6 +2883,14 @@ def build_employee_workspace(db: Session, user: User):
         progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
         checkpoints = db.query(Checkpoint).filter(Checkpoint.task_id == task.id).order_by(Checkpoint.created_at.asc()).all()
         blockers = db.query(Blocker).filter(Blocker.task_id == task.id, Blocker.status != "resolved").order_by(Blocker.created_at.desc()).all()
+        child_tasks = sorted(
+            [child for child in project.tasks if child.parent_task_id == task.id],
+            key=lambda child: child.created_at,
+        )
+        child_progress_map = {
+            progress.task_id: progress
+            for progress in db.query(TaskProgress).filter(TaskProgress.task_id.in_([child.id for child in child_tasks]) if child_tasks else False).all()
+        }
         task_brief = assignment.notes or llm_service.generate_stage_brief(
             "execution",
             "employee",
@@ -2551,6 +2916,16 @@ def build_employee_workspace(db: Session, user: User):
                 "project_progress": project.progress,
                 "notes": task_brief,
                 "concern_path": "Raise a concern in this workspace first. The AI lead will respond before admin escalation is triggered.",
+                "subtasks": [
+                    {
+                        "id": child.id,
+                        "title": child.description,
+                        "status": child.status,
+                        "estimated_hours": child.estimated_time,
+                        "completion_percentage": child_progress_map.get(child.id).completion_percentage if child_progress_map.get(child.id) else (100 if child.status == "done" else 0),
+                    }
+                    for child in child_tasks
+                ],
                 "checkpoints": [
                     {
                         "id": checkpoint.id,
@@ -2571,6 +2946,20 @@ def build_employee_workspace(db: Session, user: User):
                         "next_action": blocker.next_action,
                     }
                     for blocker in blockers
+                ],
+                "task_change_requests": [
+                    _serialize_task_change_request(project, request)
+                    for request in sorted(
+                        _task_change_requests(meta),
+                        key=lambda item: item.get("created_at") or "",
+                        reverse=True,
+                    )
+                    if request.get("requested_by_user_id") == user.id
+                    and (
+                        request.get("target_task_id") == task.id
+                        or request.get("parent_task_id") == task.id
+                        or request.get("target_task_id") in {child.id for child in child_tasks}
+                    )
                 ],
             }
         )
@@ -2593,7 +2982,7 @@ def build_employee_workspace(db: Session, user: User):
                 my_projects.append(payload)
 
     overall_personal_progress = round(
-        sum(task["completion_percentage"] for task in my_tasks) / len(my_tasks),
+        (len([task for task in my_tasks if task["status"] == "done"]) / len(my_tasks)) * 100,
         1,
     ) if my_tasks else 0.0
 
@@ -2724,36 +3113,42 @@ def update_checkpoint_status(db: Session, checkpoint_id: int, completed: bool, u
     db.add(checkpoint)
 
     checkpoints = db.query(Checkpoint).filter(Checkpoint.task_id == task.id).all()
+    child_tasks = db.query(Task).filter(Task.parent_task_id == task.id).all()
     total = len(checkpoints) or 1
     done = len([item for item in checkpoints if item.id == checkpoint.id and completed] + [item for item in checkpoints if item.id != checkpoint.id and item.status == "completed"])
     completion_percentage = round((done / total) * 100, 1)
 
     progress = _ensure_task_progress(db, task)
-    progress.completion_percentage = completion_percentage
-    progress.status_notes = f"{done} of {total} checkpoints completed"
-    progress.estimated_hours_remaining = max((task.estimated_time or 0) * (1 - completion_percentage / 100), 0)
-    db.add(progress)
-
-    if completion_percentage >= 100:
-        task.status = "done"
-    elif completion_percentage > 0:
-        task.status = "running"
+    if child_tasks:
+        completion_percentage = progress.completion_percentage or 0.0
+        progress.status_notes = f"{done} of {total} internal checkpoints completed"
+        db.add(progress)
     else:
-        task.status = "pending"
-    db.add(task)
+        progress.completion_percentage = completion_percentage
+        progress.status_notes = f"{done} of {total} checkpoints completed"
+        progress.estimated_hours_remaining = max((task.estimated_time or 0) * (1 - completion_percentage / 100), 0)
+        db.add(progress)
 
-    if assignment:
         if completion_percentage >= 100:
-            assignment.status = "completed"
-            assignment.completed_at = assignment.completed_at or _utcnow()
-            assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
-            _award_task_completion_points(db, task, assignment)
+            task.status = "done"
         elif completion_percentage > 0:
-            assignment.status = "in-progress"
-            assignment.started_at = assignment.started_at or _utcnow()
+            task.status = "running"
         else:
-            assignment.status = "assigned"
-        db.add(assignment)
+            task.status = "pending"
+        db.add(task)
+
+        if assignment:
+            if completion_percentage >= 100:
+                assignment.status = "completed"
+                assignment.completed_at = assignment.completed_at or _utcnow()
+                assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
+                _award_task_completion_points(db, task, assignment)
+            elif completion_percentage > 0:
+                assignment.status = "in-progress"
+                assignment.started_at = assignment.started_at or _utcnow()
+            else:
+                assignment.status = "assigned"
+            db.add(assignment)
 
     _sync_project_progress(db, task.project_id)
     project = db.query(Project).filter(Project.id == task.project_id).first()
@@ -3008,25 +3403,25 @@ def _sync_project_progress(db: Session, project_id: int):
         db.add(project)
         return
 
-    checkpoints = (
-        db.query(Checkpoint)
-        .filter(Checkpoint.task_id.in_([task.id for task in tasks]) if tasks else False)
-        .all()
-    )
-    if checkpoints:
-        completed_checkpoints = len([checkpoint for checkpoint in checkpoints if checkpoint.status == "completed"])
-        project.progress = round((completed_checkpoints / len(checkpoints)) * 100)
-    else:
-        progress_values = []
-        for task in tasks:
-            progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
-            if progress:
-                progress_values.append(progress.completion_percentage)
-            elif task.status == "done":
-                progress_values.append(100.0)
+    for task in tasks:
+        child_tasks = db.query(Task).filter(Task.parent_task_id == task.id).all()
+        if child_tasks:
+            completed_children = len([child for child in child_tasks if child.status == "done"])
+            progress = _ensure_task_progress(db, task)
+            progress.completion_percentage = round((completed_children / len(child_tasks)) * 100, 1)
+            progress.estimated_hours_remaining = max((task.estimated_time or 0) * (1 - progress.completion_percentage / 100), 0)
+            progress.status_notes = f"{completed_children} of {len(child_tasks)} subtasks completed"
+            db.add(progress)
+            if completed_children == len(child_tasks):
+                task.status = "done"
+            elif completed_children > 0:
+                task.status = "running"
             else:
-                progress_values.append(0.0)
-        project.progress = round(sum(progress_values) / len(progress_values))
+                task.status = "pending"
+            db.add(task)
+
+    completed_tasks = len([task for task in tasks if task.status == "done"])
+    project.progress = round((completed_tasks / len(tasks)) * 100)
 
     if project.progress >= 100:
         _finalize_completed_project(db, project)

@@ -100,6 +100,31 @@ class ProjectTaskReassignmentAction(BaseModel):
         return value.strip() if value else value
 
 
+class TaskChangeRequestCreate(BaseModel):
+    action: Literal["add", "delete"]
+    target_type: Literal["task", "subtask"]
+    target_task_id: Optional[int] = Field(default=None, gt=0)
+    parent_task_id: Optional[int] = Field(default=None, gt=0)
+    proposed_title: Optional[str] = Field(default=None, min_length=3, max_length=200)
+    proposed_description: Optional[str] = Field(default=None, min_length=3, max_length=1000)
+    note: str = Field(min_length=8, max_length=1200)
+
+    @field_validator("proposed_title", "proposed_description", "note")
+    @classmethod
+    def normalize_change_request_text(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
+
+
+class TaskChangeRequestReview(BaseModel):
+    approved: bool
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_review_note(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value else value
+
+
 class ProjectPaymentUpdate(BaseModel):
     payment_status: str = Field(min_length=3, max_length=40)
     note: Optional[str] = Field(default=None, max_length=500)
