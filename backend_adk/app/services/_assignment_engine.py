@@ -1,4 +1,5 @@
 # app/services/_assignment_engine.py
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 from app.models._task import Task
 from app.models._employee_profile import EmployeeProfile
@@ -88,9 +89,16 @@ class AssignmentEngine:
         )
         self.db.add(assignment)
         
-        # Update employee workload
-        best_employee.current_load += task.estimated_time or 0
-        self.db.merge(best_employee)
+        # Update employee workload atomically to avoid read-modify-write race
+        # conditions when multiple concurrent requests assign tasks simultaneously.
+        load_delta = task.estimated_time or 0
+        self.db.execute(
+            update(EmployeeProfile)
+            .where(EmployeeProfile.id == best_employee.id)
+            .values(current_load=EmployeeProfile.current_load + load_delta)
+        )
+        # Keep in-memory object consistent for logging below
+        best_employee.current_load += load_delta
         
         logger.info(
             f"Task assignment created: task_id={task.id} -> employee_id={best_employee_id}, "
@@ -152,18 +160,17 @@ class AssignmentEngine:
         return suggestions
 
     def _get_available_employees(self, task: Task) -> List[EmployeeProfile]:
-        """Get employees available to take this task."""
-        employees = self.db.query(EmployeeProfile).filter(
-            EmployeeProfile.availability_status == "available"
-        ).all()
-        
-        # Filter by workload
-        available = [
-            emp for emp in employees
-            if emp.current_load < emp.max_capacity
-        ]
-        
-        return available
+        """Get employees available to take this task, scoped to the task's tenant."""
+        query = self.db.query(EmployeeProfile).filter(
+            EmployeeProfile.availability_status == "available",
+            EmployeeProfile.current_load < EmployeeProfile.max_capacity,
+        )
+        # Always restrict candidates to the same tenant as the task.
+        # This prevents cross-tenant employee assignment (C3).
+        if task.tenant_id is not None:
+            query = query.filter(EmployeeProfile.tenant_id == task.tenant_id)
+
+        return query.all()
 
     def _calculate_employee_score(self, employee: EmployeeProfile, task: Task) -> float:
         """

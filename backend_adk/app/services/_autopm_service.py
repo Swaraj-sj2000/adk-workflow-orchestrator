@@ -31,6 +31,7 @@ class AutoPMService:
         budget: float = 0.0,
         priority: str = "medium",
         deadline: Optional[datetime] = None,
+        tenant_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         parsed = self.llm_service.parse_project_intake(request_text)
 
@@ -38,6 +39,7 @@ class AutoPMService:
             name=parsed.get("project_title", "Autonomous Project"),
             description=parsed.get("project_summary", request_text),
             admin_id=admin_user_id,
+            tenant_id=tenant_id,          # was always NULL before (C4)
             budget=budget,
             priority=priority,
             deadline=deadline,
