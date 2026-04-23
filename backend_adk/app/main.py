@@ -30,6 +30,7 @@ from app.api.routes import _invite as _invite_routes
 from app.api.routes import _task_assignment as _task_assignment_routes
 from app.api.routes import _task_progress as _task_progress_routes
 from app.api.routes import _multi_agent as _multi_agent_routes
+from app.api.routes import _ceo as _ceo_routes
 from app.services._auth_service import bootstrap_tenant_data
 
 # Models — must be imported so Base.metadata knows about all tables
@@ -158,6 +159,7 @@ app.include_router(_invite_routes.router)
 app.include_router(_task_assignment_routes.router)
 app.include_router(_task_progress_routes.router)
 app.include_router(_multi_agent_routes.router)
+app.include_router(_ceo_routes.router, prefix="/ceo")
 
 
 @app.get("/")
