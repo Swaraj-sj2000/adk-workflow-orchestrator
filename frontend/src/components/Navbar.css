@@ -103,6 +103,48 @@
   transition: background 0.3s;
 }
 
+.avatar-menu {
+  position: relative;
+}
+
+.avatar-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.avatar-dropdown {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  min-width: 180px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(14, 22, 18, 0.12);
+  overflow: hidden;
+  z-index: 20;
+}
+
+.avatar-dropdown button {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.avatar-dropdown button:hover {
+  background: var(--surface-soft);
+}
+
 .logout-btn:hover {
   background: #b91c1c;
 }

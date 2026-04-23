@@ -1,39 +1,62 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import './Navbar.css';
 
-export default function Navbar({ user, onLogout, setPage, theme, palette, onChangePalette, onToggleTheme }) {
+export default function Navbar({
+  user,
+  onLogout,
+  setPage,
+  theme,
+  palette,
+  onChangePalette,
+  onToggleTheme,
+  onOpenSettings,
+}) {
   const role = user?.role;
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const navItems = useMemo(() => {
+    if (role === 'platform_owner') {
+      return [{ label: 'Owner Panel', page: 'owner' }];
+    }
+    if (role === 'ceo') {
+      return [
+        { label: 'CEO Dashboard', page: 'ceo' },
+        { label: 'Projects', page: 'projects' },
+      ];
+    }
+    if (role === 'admin') {
+      return [
+        { label: 'Admin Dashboard', page: 'dashboard' },
+        { label: 'Projects', page: 'projects' },
+        { label: 'Team Dashboard', page: 'employees' },
+        { label: 'Agentic Dashboard', page: 'decisions' },
+        { label: 'Multi-Agent', page: 'multi-agent' },
+      ];
+    }
+    if (role === 'employee') {
+      return [
+        { label: 'My Dashboard', page: 'dashboard' },
+        { label: 'My Projects', page: 'projects' },
+        { label: 'My Work', page: 'employees' },
+      ];
+    }
+    return [
+      { label: 'Client Dashboard', page: 'dashboard' },
+      { label: 'Project Status', page: 'projects' },
+    ];
+  }, [role]);
 
   return (
     <nav className="navbar">
       <div className="nav-left">
-        <h1 onClick={() => setPage('dashboard')} className="logo">
+        <h1 onClick={() => setPage(role === 'platform_owner' ? 'owner' : role === 'ceo' ? 'ceo' : 'dashboard')} className="logo">
           🧠 Orchestrator
         </h1>
       </div>
       <div className="nav-center">
-        {role === 'admin' && (
-          <>
-            <button onClick={() => setPage('dashboard')} className="nav-btn">Admin Dashboard</button>
-            <button onClick={() => setPage('projects')} className="nav-btn">Projects</button>
-            <button onClick={() => setPage('employees')} className="nav-btn">Team Dashboard</button>
-            <button onClick={() => setPage('decisions')} className="nav-btn">Agentic Dashboard</button>
-            <button onClick={() => setPage('multi-agent')} className="nav-btn">Multi-Agent</button>
-          </>
-        )}
-        {role === 'employee' && (
-          <>
-            <button onClick={() => setPage('dashboard')} className="nav-btn">My Dashboard</button>
-            <button onClick={() => setPage('projects')} className="nav-btn">My Projects</button>
-            <button onClick={() => setPage('employees')} className="nav-btn">My Work</button>
-          </>
-        )}
-        {role === 'client' && (
-          <>
-            <button onClick={() => setPage('dashboard')} className="nav-btn">Client Dashboard</button>
-            <button onClick={() => setPage('projects')} className="nav-btn">Project Status</button>
-          </>
-        )}
+        {navItems.map((item) => (
+          <button key={item.page} onClick={() => setPage(item.page)} className="nav-btn">{item.label}</button>
+        ))}
       </div>
       <div className="nav-right">
         <span className="user-info">
@@ -55,7 +78,18 @@ export default function Navbar({ user, onLogout, setPage, theme, palette, onChan
             <option value="sunset">Sunset</option>
           </select>
         </label>
-        <button onClick={onLogout} className="logout-btn">Logout</button>
+        <div className="avatar-menu">
+          <button className="avatar-btn" onClick={() => setMenuOpen((current) => !current)}>
+            {user?.full_name?.[0] || user?.email?.[0] || 'U'}
+          </button>
+          {menuOpen && (
+            <div className="avatar-dropdown">
+              <button onClick={() => { onOpenSettings('profile'); setMenuOpen(false); }}>Settings</button>
+              <button onClick={() => { onOpenSettings('support'); setMenuOpen(false); }}>Support</button>
+              <button onClick={() => { onLogout(); setMenuOpen(false); }}>Logout</button>
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );

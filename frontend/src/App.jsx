@@ -8,6 +8,9 @@ import EmployeeView from './components/EmployeeView';
 import TaskDetail from './components/TaskDetail';
 import Decisions from './components/Decisions';
 import MultiAgentWorkbench from './components/MultiAgentWorkbench';
+import CEODashboard from './components/CEODashboard';
+import OwnerPanel from './components/OwnerPanel';
+import Settings from './components/Settings';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -15,6 +18,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [theme, setTheme] = useState('light');
   const [palette, setPalette] = useState('sage');
+  const [userTimezone, setUserTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const [settingsTab, setSettingsTab] = useState('profile');
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -30,6 +35,39 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!currentUser) return;
+
+    const token = localStorage.getItem('token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    fetch(`${API_BASE_URL}/settings/me`, { headers })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.preferences) return;
+        if (data.preferences.theme === 'light' || data.preferences.theme === 'dark') {
+          setTheme(data.preferences.theme);
+        }
+        if (data.preferences.timezone) {
+          setUserTimezone(data.preferences.timezone);
+        }
+        if (currentUser.role === 'platform_owner') {
+          setCurrentPage('owner');
+        } else if (currentUser.role === 'ceo') {
+          setCurrentPage('ceo');
+        } else if (data.preferences.default_landing_page) {
+          setCurrentPage(data.preferences.default_landing_page);
+        }
+      })
+      .catch(() => {
+        if (currentUser.role === 'platform_owner') {
+          setCurrentPage('owner');
+        } else if (currentUser.role === 'ceo') {
+          setCurrentPage('ceo');
+        }
+      });
+  }, [currentUser]);
+
+  useEffect(() => {
     if (currentUser) {
       localStorage.setItem('theme', theme);
       localStorage.setItem('palette', palette);
@@ -40,6 +78,11 @@ export default function App() {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     setCurrentUser(null);
+  };
+
+  const handleSettingsOpen = (tab = 'profile') => {
+    setSettingsTab(tab);
+    setCurrentPage('settings');
   };
 
   const toggleTheme = () => {
@@ -60,14 +103,31 @@ export default function App() {
         palette={palette}
         onChangePalette={setPalette}
         onToggleTheme={toggleTheme}
+        onOpenSettings={handleSettingsOpen}
       />
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
+        {currentPage === 'ceo' && currentUser.role === 'ceo' && (
+          <CEODashboard currentUser={currentUser} API_BASE_URL={API_BASE_URL} onNavigate={setCurrentPage} />
+        )}
+        {currentPage === 'owner' && currentUser.role === 'platform_owner' && (
+          <OwnerPanel currentUser={currentUser} API_BASE_URL={API_BASE_URL} />
+        )}
         {currentPage === 'projects' && <Projects role={currentUser.role} />}
         {currentPage === 'employees' && <EmployeeView role={currentUser.role} />}
-        {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} />}
+        {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} userTimezone={userTimezone} />}
         {currentPage === 'decisions' && <Decisions />}
         {currentPage === 'multi-agent' && currentUser.role === 'admin' && <MultiAgentWorkbench />}
+        {currentPage === 'settings' && (
+          <Settings
+            currentUser={currentUser}
+            API_BASE_URL={API_BASE_URL}
+            initialTab={settingsTab}
+            onThemeChange={setTheme}
+            onTimezoneChange={setUserTimezone}
+            onLogout={handleLogout}
+          />
+        )}
       </div>
     </div>
   );
@@ -202,7 +262,9 @@ function LoginPage({ setCurrentUser }) {
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
+              <option value="ceo">CEO</option>
               <option value="client">Client</option>
+              <option value="platform_owner">Platform Owner</option>
             </select>
             <button type="submit" disabled={loading}>
               {loading ? 'Registering...' : 'Register'}

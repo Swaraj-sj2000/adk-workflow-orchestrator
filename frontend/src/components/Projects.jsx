@@ -23,7 +23,8 @@ export default function Projects({ role }) {
     try {
       const res = await fetch(`${API}/projects/`, { headers });
       if (res.ok) {
-        setProjects(await res.json());
+        const data = await res.json();
+        setProjects(Array.isArray(data) ? data : data.items || []);
       }
     } catch (error) {
       console.error(error);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { API_BASE_URL as API } from '../config';
+import { API_BASE_URL as API, formatDateInUserTimezone } from '../config';
 
-export default function TaskDetail({ taskId }) {
+export default function TaskDetail({ taskId, userTimezone }) {
   const [task, setTask] = useState(null);
   const [assignments, setAssignments] = useState([]);
   const [progress, setProgress] = useState(null);
@@ -20,7 +20,10 @@ export default function TaskDetail({ taskId }) {
       if (tRes.ok) setTask(await tRes.json());
 
       const aRes = await fetch(`${API}/task-assignments?task_id=${taskId}`, { headers });
-      if (aRes.ok) setAssignments(await aRes.json());
+      if (aRes.ok) {
+        const assignmentData = await aRes.json();
+        setAssignments(Array.isArray(assignmentData) ? assignmentData : assignmentData.items || []);
+      }
 
       const pRes = await fetch(`${API}/task-progress?task_id=${taskId}`, { headers });
       if (pRes.ok) setProgress(await pRes.json());
@@ -133,7 +136,7 @@ export default function TaskDetail({ taskId }) {
         {task.deadline && (
           <div style={{ marginTop: '20px' }}>
             <h3>Deadline</h3>
-            <p>{new Date(task.deadline).toLocaleDateString()}</p>
+            <p>{formatDateInUserTimezone(task.deadline, userTimezone)}</p>
           </div>
         )}
 
