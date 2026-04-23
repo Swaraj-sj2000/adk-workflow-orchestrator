@@ -32,6 +32,8 @@ class Task(Base):
     # Deadlines
     created_at = Column(DateTime, default=datetime.utcnow)
     deadline = Column(DateTime, nullable=True)
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)
     
     # Subtasks relationship
     subtasks = relationship("Task", remote_side=[id], backref="parent_task")

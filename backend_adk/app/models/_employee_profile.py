@@ -1,5 +1,5 @@
 # app/models/_employee_profile.py
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, JSON
+from sqlalchemy import Column, DateTime, Integer, String, ForeignKey, Float, JSON
 from sqlalchemy.orm import relationship
 from app.db._database import Base
 
@@ -17,6 +17,8 @@ class EmployeeProfile(Base):
     availability_status = Column(String, default="available")  # available / on-leave / busy
     duty_start_hour = Column(Float, nullable=True, default=9.0)
     duty_end_hour = Column(Float, nullable=True, default=18.0)
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)
 
     # Relationships
     user = relationship("User", backref="employee_profile")

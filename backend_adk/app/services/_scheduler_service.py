@@ -7,10 +7,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.core._logging import get_logger
+from app.models._agent_run import AgentRun
 from app.models._project import Project
 from app.models._scheduled_agent_job import ScheduledAgentJob
 from app.models._tenant import Tenant
 from app.models._user import User
+from app.models._workflow_run import WorkflowRun
 from app.services._ceo_service import CEOService
 from app.services._email_service import EmailService
 from app.services._multi_agent_orchestrator import MultiAgentOrchestrator
@@ -148,6 +150,9 @@ class SchedulerService:
             elif job.job_type == "payment_check":
                 StripeService.check_and_enforce_grace_periods(db)
 
+            elif job.job_type == "archive_old_runs":
+                cls._archive_old_workflow_runs(db)
+
             job.last_run_at = cls._now_utc()
             job.last_status = "success"
             job.last_error = None
@@ -162,10 +167,26 @@ class SchedulerService:
             db.commit()
 
     @classmethod
+    def _archive_old_workflow_runs(cls, db: Session, retention_days: int = 90) -> None:
+        cutoff = cls._now_utc() - timedelta(days=retention_days)
+        old_runs = (
+            db.query(WorkflowRun)
+            .filter(WorkflowRun.created_at < cutoff, WorkflowRun.status.in_(["completed", "failed"]))
+            .all()
+        )
+        run_ids = [r.id for r in old_runs]
+        if run_ids:
+            db.query(AgentRun).filter(AgentRun.workflow_run_id.in_(run_ids)).delete(synchronize_session=False)
+            db.query(WorkflowRun).filter(WorkflowRun.id.in_(run_ids)).delete(synchronize_session=False)
+            db.commit()
+            logger.info("Archived %d old workflow runs (cutoff=%s)", len(run_ids), cutoff.date())
+
+    @classmethod
     def seed_default_jobs_for_tenant(cls, db: Session, tenant_id: int) -> None:
         default_jobs = [
             {"job_type": "weekly_digest", "cron_expr": "0 9 * * 1"},
             {"job_type": "payment_check", "cron_expr": "0 0 * * *"},
+            {"job_type": "archive_old_runs", "cron_expr": "0 3 * * 0"},
         ]
         for job_spec in default_jobs:
             existing = (

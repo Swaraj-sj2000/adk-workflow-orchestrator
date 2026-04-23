@@ -12,7 +12,14 @@ from app.models._employee_profile import EmployeeProfile
 from app.models._team_invite import TeamInvite
 from app.models._tenant import Tenant
 from app.models._user import User
-from app.core._security import hash_password, verify_password, create_access_token
+from app.core._security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    generate_refresh_token,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+)
+from app.models._refresh_token import RefreshToken
 from app.services._email_service import EmailService
 from app.services._invite_service import link_pending_invites_for_user, normalize_email
 
@@ -201,9 +208,13 @@ def register_user(
 
     link_pending_invites_for_user(db, user)
 
+    verify_token = str(uuid4())
+    user.email_verified = False
+    user.email_verify_token = verify_token
+
     db.commit()
     db.refresh(user)
-    EmailService.send_welcome_email(user.email, user.full_name or user.email, user.role)
+    EmailService.send_verification_email(user.email, user.full_name or user.email, verify_token)
     return {
         "id": user.id,
         "email": user.email,
@@ -212,7 +223,20 @@ def register_user(
         "tenant_id": user.tenant_id,
         "tenant_slug": tenant.slug,
         "tenant_name": tenant.name,
+        "email_verified": False,
     }
+
+
+def _create_refresh_token_record(db: Session, user_id: int) -> str:
+    raw_token = generate_refresh_token()
+    record = RefreshToken(
+        user_id=user_id,
+        token=raw_token,
+        expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+    db.add(record)
+    db.flush()
+    return raw_token
 
 
 def login_user(db: Session, email: str, password: str):
@@ -222,8 +246,17 @@ def login_user(db: Session, email: str, password: str):
     if not user or not verify_password(password, user.password):
         return None
 
+    if getattr(user, "email_verified", None) is False:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Please verify your email address before logging in")
+
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
-    token = create_access_token({"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email})
+    access_token = create_access_token(
+        {"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email}
+    )
+    refresh_token = _create_refresh_token_record(db, user.id)
+    db.commit()
+
     user_data = {
         "id": user.id,
         "email": user.email,
@@ -232,8 +265,36 @@ def login_user(db: Session, email: str, password: str):
         "tenant_id": user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
+        "totp_enabled": getattr(user, "totp_enabled", False),
     }
-    return token, user_data
+    return access_token, refresh_token, user_data
+
+
+def refresh_access_token(db: Session, raw_refresh_token: str):
+    record = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token == raw_refresh_token,
+            RefreshToken.revoked.is_(False),
+        )
+        .first()
+    )
+    if not record or record.expires_at < datetime.utcnow():
+        return None
+
+    user = db.query(User).filter(User.id == record.user_id).first()
+    if not user:
+        return None
+
+    record.revoked = True
+    db.add(record)
+
+    new_access = create_access_token(
+        {"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email}
+    )
+    new_refresh = _create_refresh_token_record(db, user.id)
+    db.commit()
+    return new_access, new_refresh
 
 
 def request_password_reset(db: Session, email: str) -> None:
@@ -260,6 +321,17 @@ def reset_password(db: Session, token: str, new_password: str) -> None:
     user.password = hash_password(new_password)
     user.password_reset_token = None
     user.password_reset_expires = None
+    db.add(user)
+    db.commit()
+
+
+def verify_email_token(db: Session, token: str) -> None:
+    user = db.query(User).filter(User.email_verify_token == token).first()
+    if not user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+    user.email_verified = True
+    user.email_verify_token = None
     db.add(user)
     db.commit()
 

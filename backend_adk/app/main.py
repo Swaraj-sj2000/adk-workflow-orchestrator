@@ -37,6 +37,7 @@ from app.api.routes import _ceo as _ceo_routes
 from app.api.routes import _owner as _owner_routes
 from app.api.routes import _settings as _settings_routes
 from app.api.routes import _billing as _billing_routes
+from app.api.routes import _integrations as _integrations_routes
 from app.services._auth_service import bootstrap_tenant_data
 from app.services._scheduler_service import SchedulerService
 
@@ -54,7 +55,8 @@ from app.models import (
     _tenant, _team, _team_invite,
     _platform_audit_log,
     _user_preferences, _tenant_settings, _support_ticket,
-    _scheduled_agent_job, _email_delivery_log
+    _scheduled_agent_job, _email_delivery_log,
+    _refresh_token,
 )
 
 
@@ -179,6 +181,7 @@ app.include_router(_ceo_routes.router, prefix="/ceo")
 app.include_router(_owner_routes.router, prefix="/owner")
 app.include_router(_settings_routes.router, prefix="/settings")
 app.include_router(_billing_routes.router, prefix="/billing")
+app.include_router(_integrations_routes.router)
 
 
 @app.get("/")

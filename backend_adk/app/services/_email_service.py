@@ -162,6 +162,21 @@ class EmailService:
         )
 
     @classmethod
+    def send_verification_email(cls, to_email: str, full_name: str, verify_token: str) -> bool:
+        html_body = (
+            f"<p>Hi {escape(full_name or to_email)},</p>"
+            "<p>Please verify your email address to activate your account.</p>"
+            f"<p><a href=\"{cls._app_link(f'verify-email?token={verify_token}')}\">Verify my email</a></p>"
+            "<p>If you did not register, ignore this email.</p>"
+        )
+        return cls.send_email(
+            to_email=to_email,
+            subject="Verify your email address",
+            html_body=html_body,
+            template_name="email_verification",
+        )
+
+    @classmethod
     def send_welcome_email(cls, to_email: str, full_name: str, role: str) -> bool:
         html_body = (
             f"<p>Welcome {escape(full_name or to_email)}.</p>"

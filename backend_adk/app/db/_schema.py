@@ -6,20 +6,36 @@ ADDITIVE_COLUMNS = {
         "tenant_id": "INTEGER",
         "password_reset_token": "VARCHAR",
         "password_reset_expires": "DATETIME",
+        # Email verification — DEFAULT 1 so existing rows are treated as already verified
+        "email_verified": "INTEGER DEFAULT 1",
+        "email_verify_token": "VARCHAR",
+        # 2FA
+        "totp_secret": "VARCHAR",
+        "totp_enabled": "INTEGER DEFAULT 0",
+        # Soft delete
+        "deleted_at": "DATETIME",
     },
     "projects": {
         "tenant_id": "INTEGER",
+        "deleted_at": "DATETIME",
     },
     "tasks": {
         "tenant_id": "INTEGER",
+        "deleted_at": "DATETIME",
     },
     "employee_profiles": {
         "tenant_id": "INTEGER",
         "duty_start_hour": "FLOAT",
         "duty_end_hour": "FLOAT",
+        "deleted_at": "DATETIME",
     },
     "client_profiles": {
         "tenant_id": "INTEGER",
+    },
+    "user_preferences": {
+        "google_calendar_connected": "INTEGER DEFAULT 0",
+        "google_calendar_token": "TEXT",
+        "google_calendar_email": "VARCHAR",
     },
 }
 

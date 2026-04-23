@@ -44,6 +44,10 @@ requests>=2.31.0
 sendgrid>=6.11.0
 stripe>=11.0.0
 pytz>=2024.1
+redis>=5.0.0
+pyotp>=2.9.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.120.0
 
 # ====================================
 # Async Support

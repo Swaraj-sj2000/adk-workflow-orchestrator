@@ -44,6 +44,11 @@ class Settings:
     STRIPE_ENTERPRISE_PRICE_ID = os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "")
     STRIPE_CONNECT_CLIENT_ID = os.getenv("STRIPE_CONNECT_CLIENT_ID", "")
     GRACE_PERIOD_DAYS = int(os.getenv("GRACE_PERIOD_DAYS", "7"))
+    REDIS_URL = os.getenv("REDIS_URL", "")
+    # Google OAuth (Calendar / Gmail integrations)
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5173/integrations/google/callback")
     
     # Logging Configuration
     LOG_DIR = os.getenv("LOG_DIR", "./logs")

@@ -1,6 +1,6 @@
 # backend/app/models/_user.py
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from app.db._database import Base
 
 class User(Base):
@@ -14,3 +14,11 @@ class User(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     password_reset_token = Column(String, nullable=True)
     password_reset_expires = Column(DateTime, nullable=True)
+    # Email verification
+    email_verified = Column(Boolean, nullable=True)
+    email_verify_token = Column(String, nullable=True)
+    # 2FA / TOTP
+    totp_secret = Column(String, nullable=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False)
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)

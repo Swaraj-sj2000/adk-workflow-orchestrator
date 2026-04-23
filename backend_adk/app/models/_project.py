@@ -34,6 +34,9 @@ class Project(Base):
     priority = Column(String, default="medium")  # low / medium / high / critical
     custom_fields = Column(JSON, nullable=True)  # custom fields (renamed from metadata)
     
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)
+
     # Relationships
     tasks = relationship("Task", back_populates="project")
     meetings = relationship("Meeting", backref="project")

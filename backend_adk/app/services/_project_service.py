@@ -625,7 +625,12 @@ def create_project(db: Session, payload: ProjectCreate, admin: User):
 
 def get_projects(db: Session, viewer: Optional[User] = None):
     ensure_deadline_escalations(db)
-    query = db.query(Project).options(joinedload(Project.client)).order_by(Project.created_at.desc())
+    query = (
+        db.query(Project)
+        .options(joinedload(Project.client))
+        .filter(Project.deleted_at.is_(None))
+        .order_by(Project.created_at.desc())
+    )
     if viewer and viewer.tenant_id is not None:
         query = query.filter(Project.tenant_id == viewer.tenant_id)
 
@@ -2167,7 +2172,7 @@ def _title_from_employee(employee: EmployeeProfile):
 
 def _serialize_project_summary(db: Session, project: Project, viewer: Optional[User] = None):
     meta = _refresh_project_team_metadata(db, project)
-    top_level_tasks = db.query(Task).filter(Task.project_id == project.id, Task.parent_task_id.is_(None)).all()
+    top_level_tasks = db.query(Task).filter(Task.project_id == project.id, Task.parent_task_id.is_(None), Task.deleted_at.is_(None)).all()
     task_count = len(top_level_tasks)
     completed_count = len([task for task in top_level_tasks if task.status == "done"])
     visible_client_id = project.client_id if not viewer or viewer.role == "admin" else None
@@ -3204,6 +3209,7 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
     logger.info("Deleting project %s for tenant %s by admin %s", project.id, actor.tenant_id, actor.id)
 
     try:
+        # Free employee workloads before soft-deleting
         employee_loads: Dict[int, float] = {}
         assignments = (
             db.query(TaskAssignment)
@@ -3225,42 +3231,14 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
             _sync_employee_capacity_state(employee)
             db.add(employee)
 
-        team_ids = [team.id for team in db.query(Team).filter(Team.project_id == project.id).all()]
-
+        # Soft-delete tasks and project (preserves audit trail)
+        now = datetime.utcnow()
         if task_ids:
-            db.query(TaskDependency).filter(
-                (TaskDependency.task_id.in_(task_ids)) | (TaskDependency.depends_on_task_id.in_(task_ids))
-            ).delete(synchronize_session=False)
-            db.query(Checkpoint).filter(Checkpoint.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(TaskProgress).filter(TaskProgress.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(Blocker).filter(Blocker.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(PerformancePoint).filter(PerformancePoint.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(Communication).filter(Communication.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(EventQueue).filter(
-                (EventQueue.entity_type == "task") & (EventQueue.entity_id.in_(task_ids))
-            ).delete(synchronize_session=False)
-            db.query(TaskAssignment).filter(TaskAssignment.task_id.in_(task_ids)).delete(synchronize_session=False)
-
-        if team_ids:
-            db.query(TeamInvite).filter(TeamInvite.team_id.in_(team_ids)).delete(synchronize_session=False)
-            db.query(TeamMember).filter(TeamMember.team_id.in_(team_ids)).delete(synchronize_session=False)
-            db.query(Team).filter(Team.id.in_(team_ids)).delete(synchronize_session=False)
-
-        db.query(PerformancePoint).filter(PerformancePoint.project_id == project.id).delete(synchronize_session=False)
-        db.query(Communication).filter(Communication.project_id == project.id).delete(synchronize_session=False)
-        db.query(Meeting).filter(Meeting.project_id == project.id).delete(synchronize_session=False)
-        db.query(WorkflowRun).filter(WorkflowRun.project_id == project.id).delete(synchronize_session=False)
-        db.query(EventQueue).filter(
-            (EventQueue.entity_type == "project") & (EventQueue.entity_id == project.id)
-        ).delete(synchronize_session=False)
-        db.query(DecisionLog).filter(
-            ((DecisionLog.entity_type == "project") & (DecisionLog.entity_id == project.id))
-            | ((DecisionLog.entity_type == "task") & (DecisionLog.entity_id.in_(task_ids) if task_ids else False))
-        ).delete(synchronize_session=False)
-
-        if task_ids:
-            db.query(Task).filter(Task.id.in_(task_ids)).delete(synchronize_session=False)
-        db.query(Project).filter(Project.id == project.id, Project.tenant_id == actor.tenant_id).delete(synchronize_session=False)
+            db.query(Task).filter(Task.id.in_(task_ids)).update(
+                {"deleted_at": now}, synchronize_session=False
+            )
+        project.deleted_at = now
+        db.add(project)
         db.commit()
     except Exception:
         db.rollback()
@@ -3398,14 +3376,14 @@ def _sync_project_progress(db: Session, project_id: int):
     if not project:
         return
 
-    tasks = db.query(Task).filter(Task.project_id == project_id, Task.parent_task_id.is_(None)).all()
+    tasks = db.query(Task).filter(Task.project_id == project_id, Task.parent_task_id.is_(None), Task.deleted_at.is_(None)).all()
     if not tasks:
         project.progress = 0
         db.add(project)
         return
 
     for task in tasks:
-        child_tasks = db.query(Task).filter(Task.parent_task_id == task.id).all()
+        child_tasks = db.query(Task).filter(Task.parent_task_id == task.id, Task.deleted_at.is_(None)).all()
         if child_tasks:
             completed_children = len([child for child in child_tasks if child.status == "done"])
             progress = _ensure_task_progress(db, task)

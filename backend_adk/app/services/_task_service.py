@@ -178,7 +178,7 @@ def update_status(db: Session, task_id: int, status: TaskStatus, actor: User) ->
 
 
 def get_tasks(db: Session, actor: User, project_id: Optional[int] = None, agent_id: Optional[int] = None) -> List[Task]:
-    query = db.query(Task).filter(Task.tenant_id == actor.tenant_id)
+    query = db.query(Task).filter(Task.tenant_id == actor.tenant_id, Task.deleted_at.is_(None))
     if project_id:
         query = query.filter(Task.project_id == project_id)
     if agent_id:

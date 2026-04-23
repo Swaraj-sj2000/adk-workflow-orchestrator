@@ -33,10 +33,28 @@ def route_get_tasks(
 
 @router.get("/{task_id}", response_model=TaskRead)
 def route_get_task(task_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id, Task.tenant_id == current_user.tenant_id).first()
+    task = db.query(Task).filter(
+        Task.id == task_id, Task.tenant_id == current_user.tenant_id, Task.deleted_at.is_(None)
+    ).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.delete("/{task_id}")
+def route_delete_task(task_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can delete tasks")
+    task = db.query(Task).filter(
+        Task.id == task_id, Task.tenant_id == current_user.tenant_id, Task.deleted_at.is_(None)
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    from datetime import datetime
+    task.deleted_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    return {"success": True, "task_id": task_id}
 
 @router.patch("/{task_id}/status", response_model=TaskRead)
 def route_update_status(task_id: int, status_update: TaskUpdateStatus, db: Session = Depends(get_db), current_user=Depends(get_current_user)):

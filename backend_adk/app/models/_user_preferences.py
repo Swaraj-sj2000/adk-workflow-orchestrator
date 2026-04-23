@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
 
 from app.db._database import Base
 
@@ -18,5 +18,9 @@ class UserPreferences(Base):
     default_landing_page = Column(String, nullable=False, default="dashboard")
     email_notifications = Column(Boolean, nullable=False, default=True)
     weekly_digest = Column(Boolean, nullable=False, default=True)
+    # Google integrations
+    google_calendar_connected = Column(Boolean, nullable=False, default=False)
+    google_calendar_token = Column(JSON, nullable=True)  # encrypted OAuth token blob
+    google_calendar_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
