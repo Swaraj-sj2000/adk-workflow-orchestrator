@@ -9,7 +9,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str = Field(min_length=2, max_length=120)
-    role: Literal["admin", "employee", "client"]
+    role: Literal["platform_owner", "ceo", "admin", "employee", "client"]
     tenant_name: Optional[str] = Field(default=None, max_length=120)
     tenant_slug: Optional[str] = Field(default=None, max_length=120)
 

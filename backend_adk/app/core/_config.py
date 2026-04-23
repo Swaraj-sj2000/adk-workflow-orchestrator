@@ -32,6 +32,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES = 60
     BASIC_RATE_LIMIT_REQUESTS = int(os.getenv("BASIC_RATE_LIMIT_REQUESTS", "120"))
     BASIC_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("BASIC_RATE_LIMIT_WINDOW_SECONDS", "60"))
+    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+    EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@orchestrator.ai")
+    EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "AI Workforce Orchestrator")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
     
     # Logging Configuration
     LOG_DIR = os.getenv("LOG_DIR", "./logs")
