@@ -15,9 +15,21 @@ def route_create_task(task: TaskCreate, db: Session = Depends(get_db), current_u
         raise HTTPException(status_code=403, detail="Only admins can create tasks")
     return create_task(db, task, current_user)
 
-@router.get("/", response_model=list[TaskRead])
-def route_get_tasks(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return get_tasks(db, current_user)
+@router.get("/")
+def route_get_tasks(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    tasks = get_tasks(db, current_user)
+    items = tasks[skip : skip + limit]
+    return {
+        "items": items,
+        "total": len(tasks),
+        "skip": skip,
+        "limit": limit,
+    }
 
 @router.get("/{task_id}", response_model=TaskRead)
 def route_get_task(task_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):

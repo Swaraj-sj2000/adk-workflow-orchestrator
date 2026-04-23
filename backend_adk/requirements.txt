@@ -43,6 +43,7 @@ httpx>=0.26.0
 requests>=2.31.0
 sendgrid>=6.11.0
 stripe>=11.0.0
+pytz>=2024.1
 
 # ====================================
 # Async Support

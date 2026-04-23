@@ -56,10 +56,19 @@ def create(
 
 @router.get("/")
 def read_all(
+    skip: int = 0,
+    limit: int = 50,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    return get_projects(db, viewer=user)
+    projects = get_projects(db, viewer=user)
+    items = projects[skip : skip + limit]
+    return {
+        "items": items,
+        "total": len(projects),
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/clients")

@@ -47,9 +47,11 @@ def route_create_meeting(
     return new_meeting
 
 
-@router.get("/project/{project_id}", response_model=List[MeetingRead])
+@router.get("/project/{project_id}")
 def route_get_project_meetings(
     project_id: int,
+    skip: int = 0,
+    limit: int = 50,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -65,7 +67,12 @@ def route_get_project_meetings(
     meetings = db.query(Meeting).filter(
         Meeting.project_id == project_id
     ).order_by(Meeting.created_at.desc()).all()
-    return meetings
+    return {
+        "items": meetings[skip : skip + limit],
+        "total": len(meetings),
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/{meeting_id}", response_model=MeetingRead)

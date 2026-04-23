@@ -11,6 +11,7 @@ from app.db._database import Base, engine
 from app.core._logging import get_logger
 from app.core._config import settings
 from app.core._rate_limit import RateLimitMiddleware
+from app.core._security_headers import SecurityHeadersMiddleware
 from app.core._tenant_middleware import TenantMiddleware
 from app.db._database import SessionLocal
 from app.db._schema import ensure_runtime_schema
@@ -102,6 +103,7 @@ app.add_middleware(
     requests_per_window=settings.BASIC_RATE_LIMIT_REQUESTS,
     window_seconds=settings.BASIC_RATE_LIMIT_WINDOW_SECONDS,
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Request logging middleware

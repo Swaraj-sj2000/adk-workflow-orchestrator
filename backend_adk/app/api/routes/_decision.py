@@ -3,18 +3,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core._deps import get_db, get_current_user
 from app.models._user import User
-from app.services._decision_service import DecisionService
 from app.schemas._decision_log import DecisionLogRead
+from app.services._decision_service import DecisionService
 from typing import List
 
 router = APIRouter(prefix="/decisions", tags=["Decisions"])
 
 
-@router.get("/", response_model=List[DecisionLogRead])
+@router.get("/")
 def route_get_decisions(
     entity_type: str = None,
     entity_id: int = None,
     decision_type: str = None,
+    skip: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -25,10 +26,22 @@ def route_get_decisions(
         entity_type=entity_type,
         entity_id=entity_id,
         decision_type=decision_type,
+        skip=skip,
         limit=limit,
         tenant_id=current_user.tenant_id,
     )
-    return decisions
+    total = service.count_decision_history(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        decision_type=decision_type,
+        tenant_id=current_user.tenant_id,
+    )
+    return {
+        "items": decisions,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.get("/risky", response_model=List[DecisionLogRead])

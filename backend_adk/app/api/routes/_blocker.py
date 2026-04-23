@@ -115,9 +115,11 @@ def route_create_blocker(
     return new_blocker
 
 
-@router.get("/task/{task_id}", response_model=List[BlockerRead])
+@router.get("/task/{task_id}")
 def route_get_task_blockers(
     task_id: int,
+    skip: int = 0,
+    limit: int = 50,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -139,7 +141,12 @@ def route_get_task_blockers(
         Blocker.task_id == task_id,
         Blocker.status != "resolved"
     ).all()
-    return blockers
+    return {
+        "items": blockers[skip : skip + limit],
+        "total": len(blockers),
+        "skip": skip,
+        "limit": limit,
+    }
 
 
 @router.patch("/{blocker_id}", response_model=BlockerRead)

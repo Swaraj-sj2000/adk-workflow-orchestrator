@@ -5,10 +5,11 @@ from app.models._task import Task
 from app.models._employee_profile import EmployeeProfile
 from app.models._task_assignment import TaskAssignment
 from app.models._decision_log import DecisionLog
+from app.models._user_preferences import UserPreferences
 from app.schemas._task_assignment import TaskAssignmentCreate
 from app.core._logging import get_logger
 from typing import List, Dict, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 logger = get_logger(__name__)
@@ -188,6 +189,19 @@ class AssignmentEngine:
         
         # 4. Reliability score (from metrics)
         reliability_score = employee.metrics.reliability_score if employee.metrics else 0.5
+
+        timezone_penalty = 0.0
+        if task.deadline and task.deadline <= datetime.utcnow() + timedelta(hours=24):
+            preferences = self.db.query(UserPreferences).filter(UserPreferences.user_id == employee.user_id).first()
+            employee_timezone = preferences.timezone if preferences and preferences.timezone else "UTC"
+            try:
+                import pytz
+
+                employee_hour = datetime.now(pytz.timezone(employee_timezone)).hour
+                if employee_hour >= 22 or employee_hour < 7:
+                    timezone_penalty = 0.15
+            except Exception:
+                timezone_penalty = 0.0
         
         # Weighted sum
         total_score = (
@@ -195,7 +209,7 @@ class AssignmentEngine:
             self.WEIGHT_LOW_WORKLOAD * workload_score +
             self.WEIGHT_EFFICIENCY * efficiency_score +
             self.WEIGHT_RELIABILITY * reliability_score
-        )
+        ) - timezone_penalty
         
         return total_score
 

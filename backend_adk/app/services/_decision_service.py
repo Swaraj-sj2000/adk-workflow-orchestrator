@@ -77,6 +77,7 @@ class DecisionService:
         entity_type: Optional[str] = None,
         entity_id: Optional[int] = None,
         decision_type: Optional[str] = None,
+        skip: int = 0,
         limit: int = 50,
         tenant_id: Optional[int] = None,
     ) -> List[DecisionLog]:
@@ -96,7 +97,30 @@ class DecisionService:
         if decision_type:
             query = query.filter(DecisionLog.decision_type == decision_type)
 
-        return query.order_by(DecisionLog.created_at.desc()).limit(limit).all()
+        return query.order_by(DecisionLog.created_at.desc()).offset(skip).limit(limit).all()
+
+    def count_decision_history(
+        self,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        decision_type: Optional[str] = None,
+        tenant_id: Optional[int] = None,
+    ) -> int:
+        query = self.db.query(DecisionLog)
+
+        if tenant_id is not None:
+            query = query.filter(self._tenant_filter(tenant_id))
+
+        if entity_type:
+            query = query.filter(DecisionLog.entity_type == entity_type)
+
+        if entity_id:
+            query = query.filter(DecisionLog.entity_id == entity_id)
+
+        if decision_type:
+            query = query.filter(DecisionLog.decision_type == decision_type)
+
+        return query.count()
     
     def get_low_confidence_decisions(
         self,
