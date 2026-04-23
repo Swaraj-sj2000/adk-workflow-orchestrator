@@ -36,6 +36,7 @@ class Settings:
     EMAIL_FROM = os.getenv("EMAIL_FROM", "no-reply@orchestrator.ai")
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "AI Workforce Orchestrator")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    PLATFORM_OWNER_EMAIL = os.getenv("PLATFORM_OWNER_EMAIL", "")
     
     # Logging Configuration
     LOG_DIR = os.getenv("LOG_DIR", "./logs")
