@@ -43,7 +43,9 @@ from app.models import (
     _checkpoint, _communication,
     _performance_point, _audit_log,
     _workflow_run, _agent_run,
-    _tenant, _team, _team_invite
+    _tenant, _team, _team_invite,
+    _user_preferences, _tenant_settings, _support_ticket,
+    _scheduled_agent_job, _email_delivery_log
 )
 
 

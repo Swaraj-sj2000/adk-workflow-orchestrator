@@ -4,6 +4,8 @@ from sqlalchemy import inspect, text
 ADDITIVE_COLUMNS = {
     "users": {
         "tenant_id": "INTEGER",
+        "password_reset_token": "VARCHAR",
+        "password_reset_expires": "DATETIME",
     },
     "projects": {
         "tenant_id": "INTEGER",
