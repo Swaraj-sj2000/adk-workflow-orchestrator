@@ -33,6 +33,7 @@ from app.api.routes import _multi_agent as _multi_agent_routes
 from app.api.routes import _ceo as _ceo_routes
 from app.api.routes import _owner as _owner_routes
 from app.api.routes import _settings as _settings_routes
+from app.api.routes import _billing as _billing_routes
 from app.services._auth_service import bootstrap_tenant_data
 
 # Models — must be imported so Base.metadata knows about all tables
@@ -165,6 +166,7 @@ app.include_router(_multi_agent_routes.router)
 app.include_router(_ceo_routes.router, prefix="/ceo")
 app.include_router(_owner_routes.router, prefix="/owner")
 app.include_router(_settings_routes.router, prefix="/settings")
+app.include_router(_billing_routes.router, prefix="/billing")
 
 
 @app.get("/")

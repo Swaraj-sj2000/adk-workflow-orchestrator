@@ -37,6 +37,13 @@ class Settings:
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "AI Workforce Orchestrator")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
     PLATFORM_OWNER_EMAIL = os.getenv("PLATFORM_OWNER_EMAIL", "")
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_STARTER_PRICE_ID = os.getenv("STRIPE_STARTER_PRICE_ID", "")
+    STRIPE_GROWTH_PRICE_ID = os.getenv("STRIPE_GROWTH_PRICE_ID", "")
+    STRIPE_ENTERPRISE_PRICE_ID = os.getenv("STRIPE_ENTERPRISE_PRICE_ID", "")
+    STRIPE_CONNECT_CLIENT_ID = os.getenv("STRIPE_CONNECT_CLIENT_ID", "")
+    GRACE_PERIOD_DAYS = int(os.getenv("GRACE_PERIOD_DAYS", "7"))
     
     # Logging Configuration
     LOG_DIR = os.getenv("LOG_DIR", "./logs")

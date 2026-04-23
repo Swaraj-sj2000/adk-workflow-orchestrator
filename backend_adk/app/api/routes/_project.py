@@ -78,6 +78,15 @@ def read_project_status(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    if user.role == "client":
+        project = db.query(Project).filter(Project.id == project_id, Project.tenant_id == user.tenant_id).first()
+        if project:
+            project_meta = dict(project.custom_fields or {})
+            if project.payment_status == "disputed" or project_meta.get("payment_hold_active"):
+                raise HTTPException(
+                    status_code=402,
+                    detail="Project access restricted pending payment. Contact your project manager.",
+                )
     return build_project_status(db, project_id, viewer=user)
 
 
