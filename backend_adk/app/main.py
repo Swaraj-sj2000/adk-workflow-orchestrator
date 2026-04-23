@@ -31,6 +31,7 @@ from app.api.routes import _task_assignment as _task_assignment_routes
 from app.api.routes import _task_progress as _task_progress_routes
 from app.api.routes import _multi_agent as _multi_agent_routes
 from app.api.routes import _ceo as _ceo_routes
+from app.api.routes import _owner as _owner_routes
 from app.services._auth_service import bootstrap_tenant_data
 
 # Models — must be imported so Base.metadata knows about all tables
@@ -45,6 +46,7 @@ from app.models import (
     _performance_point, _audit_log,
     _workflow_run, _agent_run,
     _tenant, _team, _team_invite,
+    _platform_audit_log,
     _user_preferences, _tenant_settings, _support_ticket,
     _scheduled_agent_job, _email_delivery_log
 )
@@ -160,6 +162,7 @@ app.include_router(_task_assignment_routes.router)
 app.include_router(_task_progress_routes.router)
 app.include_router(_multi_agent_routes.router)
 app.include_router(_ceo_routes.router, prefix="/ceo")
+app.include_router(_owner_routes.router, prefix="/owner")
 
 
 @app.get("/")
