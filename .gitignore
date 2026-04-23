@@ -55,3 +55,7 @@ checkpoints/
 Thumbs.db
 .cursor
 CREATED_SCRIPTS_BUNDLE.txt
+
+# Agent context / documentation artifacts
+CONTEXT_GRAPH.md
+COMPLETE_GUIDE.md
