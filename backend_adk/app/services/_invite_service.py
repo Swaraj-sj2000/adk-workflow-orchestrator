@@ -10,6 +10,7 @@ from app.models._project import Project
 from app.models._team import Team, TeamMember
 from app.models._team_invite import TeamInvite
 from app.models._user import User
+from app.services._email_service import EmailService
 
 
 def normalize_email(email: str) -> str:
@@ -73,6 +74,17 @@ def create_team_invite(
     )
     db.add(invite)
     db.flush()
+
+    inviter = db.query(User).filter(User.id == invited_by_user_id).first()
+    project = db.query(Project).filter(Project.id == team.project_id, Project.tenant_id == tenant_id).first()
+    EmailService.send_invite_email(
+        to_email=normalized_email,
+        inviter_name=inviter.full_name if inviter and inviter.full_name else (inviter.email if inviter else "A teammate"),
+        project_name=project.name if project else team.name,
+        role_title=role_title or "Contributor",
+        invite_token=invite.token,
+        tenant_id=tenant_id,
+    )
     return invite, existing_user
 
 

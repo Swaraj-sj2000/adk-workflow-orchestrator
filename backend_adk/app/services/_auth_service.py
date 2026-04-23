@@ -1,5 +1,8 @@
 # backend/app/services/_auth_service.py
 import re
+from datetime import datetime, timedelta
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
@@ -10,8 +13,8 @@ from app.models._team_invite import TeamInvite
 from app.models._tenant import Tenant
 from app.models._user import User
 from app.core._security import hash_password, verify_password, create_access_token
+from app.services._email_service import EmailService
 from app.services._invite_service import link_pending_invites_for_user, normalize_email
-
 
 def _slugify(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
@@ -200,6 +203,7 @@ def register_user(
 
     db.commit()
     db.refresh(user)
+    EmailService.send_welcome_email(user.email, user.full_name or user.email, user.role)
     return {
         "id": user.id,
         "email": user.email,
@@ -230,3 +234,42 @@ def login_user(db: Session, email: str, password: str):
         "tenant_name": tenant.name if tenant else None,
     }
     return token, user_data
+
+
+def request_password_reset(db: Session, email: str) -> None:
+    normalized_email = normalize_email(email)
+    user = db.query(User).filter(User.email == normalized_email).first()
+    if not user:
+        return
+
+    user.password_reset_token = str(uuid4())
+    user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+    db.add(user)
+    db.commit()
+    EmailService.send_password_reset_email(user.email, user.password_reset_token)
+
+
+def reset_password(db: Session, token: str, new_password: str) -> None:
+    user = db.query(User).filter(User.password_reset_token == token).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    if not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.password = hash_password(new_password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    db.add(user)
+    db.commit()
+
+
+def change_password(db: Session, user: User, current_password: str, new_password: str) -> None:
+    if not verify_password(current_password, user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    user.password = hash_password(new_password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    db.add(user)
+    db.commit()
