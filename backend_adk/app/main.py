@@ -1,5 +1,10 @@
 # backend/app/main.py
 
+import asyncio
+import os
+import time
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.db._database import Base, engine
@@ -9,9 +14,6 @@ from app.core._rate_limit import RateLimitMiddleware
 from app.core._tenant_middleware import TenantMiddleware
 from app.db._database import SessionLocal
 from app.db._schema import ensure_runtime_schema
-from contextlib import asynccontextmanager
-import os
-import time
 
 logger = get_logger(__name__)
 
@@ -35,6 +37,7 @@ from app.api.routes import _owner as _owner_routes
 from app.api.routes import _settings as _settings_routes
 from app.api.routes import _billing as _billing_routes
 from app.services._auth_service import bootstrap_tenant_data
+from app.services._scheduler_service import SchedulerService
 
 # Models — must be imported so Base.metadata knows about all tables
 from app.models import (
@@ -57,6 +60,7 @@ from app.models import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    scheduler_task = None
     # Startup
     logger.info("=== AI Workforce Orchestrator Starting ===")
     try:
@@ -65,9 +69,11 @@ async def lifespan(app: FastAPI):
         db = SessionLocal()
         try:
             bootstrap_tenant_data(db)
+            SchedulerService.seed_default_jobs_for_existing_tenants(db)
             db.commit()
         finally:
             db.close()
+        scheduler_task = asyncio.create_task(SchedulerService.run_scheduler_loop(SessionLocal))
         logger.info("Database tables created/verified successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}", exc_info=True)
@@ -78,6 +84,10 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    if scheduler_task:
+        scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler_task
     logger.info("=== AI Workforce Orchestrator Shutting Down ===")
 
 

@@ -84,6 +84,7 @@ class MultiAgentOrchestrator:
             "priority": priority,
             "deadline": deadline,
             "persist_project": persist_project,
+            "workflow_run_id": workflow.id,
         }
 
         intake_result = IntakeAgent().run(shared_context)
@@ -270,6 +271,7 @@ class MultiAgentOrchestrator:
         shared_context: Dict[str, Any] = {
             "project_id": project_id,
             "persist_followup_messages": persist_followup_messages,
+            "workflow_run_id": workflow.id,
         }
 
         observer_result = ProjectObserverAgent(self.db).run(shared_context)
@@ -583,6 +585,7 @@ class MultiAgentOrchestrator:
 
     def _materialize_communications(self, project_id: int, communications_payload: Dict[str, Any]) -> None:
         admin_summary = communications_payload.get("admin_summary")
+        delivery_results = communications_payload.get("delivery_results") or {}
         if admin_summary:
             self.db.add(
                 Communication(
@@ -593,7 +596,7 @@ class MultiAgentOrchestrator:
                     body=admin_summary["body"],
                     project_id=project_id,
                     task_id=None,
-                    status="drafted",
+                    status="sent" if delivery_results.get("admin_summary") else "drafted",
                 )
             )
 
@@ -608,11 +611,12 @@ class MultiAgentOrchestrator:
                     body=client_update["body"],
                     project_id=project_id,
                     task_id=None,
-                    status="drafted",
+                    status="sent" if delivery_results.get("client_update_draft") else "drafted",
                 )
             )
 
         for message in communications_payload.get("assignment_messages", []):
+            task_status = (delivery_results.get("assignment_messages") or {}).get(str(message.get("task_sequence")))
             self.db.add(
                 Communication(
                     type=message["channel"],
@@ -622,7 +626,7 @@ class MultiAgentOrchestrator:
                     body=message["body"],
                     project_id=project_id,
                     task_id=None,
-                    status="drafted",
+                    status="sent" if task_status else "drafted",
                 )
             )
         self.db.flush()
