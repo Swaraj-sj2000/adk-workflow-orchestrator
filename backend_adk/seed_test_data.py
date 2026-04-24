@@ -40,6 +40,7 @@ Option B — Cloud Run Job (no local proxy needed):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FLAGS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  --local   Local dev mode: SQLite, no GCP env vars, drop+recreate DB
   --check   Pre-flight only: verify DB + Vertex AI connectivity, no writes
   --reset   DESTRUCTIVE wipe + rebuild (fresh Cloud SQL deployment only)
 """
@@ -51,46 +52,54 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-# ── Required env vars ─────────────────────────────────────────────────────────
-_REQUIRED = {
-    "DATABASE_URL":             "Cloud SQL PostgreSQL connection string (see header for format)",
-    "GOOGLE_CLOUD_PROJECT":     "GCP project ID (e.g. havoc-ai-prod)",
-    "GOOGLE_CLOUD_LOCATION":    "GCP region (e.g. europe-west1)",
-    "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true' for production",
-}
-_DEFAULTS = {
-    "GEMINI_MODEL": "gemini-2.5-flash",
-}
+# ── Parse --local early (before env-var guard runs) ──────────────────────────
+_LOCAL_MODE = "--local" in sys.argv
 
-_missing = [k for k in _REQUIRED if not os.getenv(k)]
-if _missing:
-    print("\nERROR: Missing required environment variables:\n")
-    for k in _missing:
-        print(f"  {k}  —  {_REQUIRED[k]}")
-    print("\nSee the file header for connection instructions.")
-    print("For local SQLite testing use backend/seed_test_data.py instead.\n")
-    sys.exit(1)
+if _LOCAL_MODE:
+    # Local dev: SQLite, no GCP checks needed
+    os.environ.setdefault("DATABASE_URL", "sqlite:///./app.db")
+    os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
+    DATABASE_URL = os.environ["DATABASE_URL"]
+    GCP_PROJECT  = "local-dev"
+    GCP_REGION   = "local"
+    GEMINI_MODEL = os.environ["GEMINI_MODEL"]
+else:
+    # Production mode: require PostgreSQL + GCP vars
+    _REQUIRED = {
+        "DATABASE_URL":             "Cloud SQL PostgreSQL connection string (see header for format)",
+        "GOOGLE_CLOUD_PROJECT":     "GCP project ID (e.g. havoc-ai-prod)",
+        "GOOGLE_CLOUD_LOCATION":    "GCP region (e.g. europe-west1)",
+        "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true' for production",
+    }
+    _missing = [k for k in _REQUIRED if not os.getenv(k)]
+    if _missing:
+        print("\nERROR: Missing required environment variables:\n")
+        for k in _missing:
+            print(f"  {k}  —  {_REQUIRED[k]}")
+        print("\nFor local testing run:  python seed_test_data.py --local")
+        print("See the file header for production connection instructions.\n")
+        sys.exit(1)
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-GCP_PROJECT  = os.environ["GOOGLE_CLOUD_PROJECT"]
-GCP_REGION   = os.environ["GOOGLE_CLOUD_LOCATION"]
+    DATABASE_URL = os.environ["DATABASE_URL"]
+    GCP_PROJECT  = os.environ["GOOGLE_CLOUD_PROJECT"]
+    GCP_REGION   = os.environ["GOOGLE_CLOUD_LOCATION"]
 
-if DATABASE_URL.startswith("sqlite"):
-    print("ERROR: DATABASE_URL points to SQLite. This script targets Cloud SQL PostgreSQL.")
-    print("For local testing use backend/seed_test_data.py instead.")
-    sys.exit(1)
+    if DATABASE_URL.startswith("sqlite"):
+        print("ERROR: DATABASE_URL points to SQLite in production mode.")
+        print("For local testing run:  python seed_test_data.py --local")
+        sys.exit(1)
 
-for k, v in _DEFAULTS.items():
-    os.environ.setdefault(k, v)
-
-GEMINI_MODEL = os.environ["GEMINI_MODEL"]
+    os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL = os.environ["GEMINI_MODEL"]
 
 # ── Args ──────────────────────────────────────────────────────────────────────
-parser = argparse.ArgumentParser(description="Seed Cloud SQL database for backend_adk")
-parser.add_argument("--check", action="store_true",
-                    help="Pre-flight checks only — no database writes")
-parser.add_argument("--reset", action="store_true",
-                    help="DROP and recreate all tables first. DESTRUCTIVE.")
+parser = argparse.ArgumentParser(description="Seed backend_adk database")
+parser.add_argument("--local",  action="store_true",
+                    help="Local dev mode: SQLite, skip GCP checks, drop+recreate")
+parser.add_argument("--check",  action="store_true",
+                    help="Pre-flight checks only — no database writes (production only)")
+parser.add_argument("--reset",  action="store_true",
+                    help="DROP and recreate all tables. DESTRUCTIVE — production use only.")
 args = parser.parse_args()
 
 # ── sys.path ──────────────────────────────────────────────────────────────────
@@ -165,14 +174,18 @@ def _preflight():
 
 
 if args.check:
+    if _LOCAL_MODE:
+        print("--check is for production mode only. In --local mode, just run the seed directly.")
+        sys.exit(0)
     passed = _preflight()
     sys.exit(0 if passed else 1)
 
-# Run pre-flight before any imports that touch the DB
-passed = _preflight()
-if not passed:
-    print("Aborting seed — pre-flight failed. Use --check for details.\n")
-    sys.exit(1)
+# Production: run pre-flight before any heavy imports
+if not _LOCAL_MODE:
+    passed = _preflight()
+    if not passed:
+        print("Aborting seed — pre-flight failed. Use --check for details.\n")
+        sys.exit(1)
 
 # ── Heavy imports (after pre-flight) ─────────────────────────────────────────
 import pyotp
@@ -702,7 +715,13 @@ def seed_support_ticket(db, tenant, admin):
 def main():
     global _created, _skipped
 
-    if args.reset:
+    if _LOCAL_MODE:
+        # Local: always wipe + rebuild (safe — it's just a local SQLite file)
+        print(f"\nLocal mode — resetting SQLite: {DATABASE_URL}")
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        ensure_runtime_schema(engine)
+    elif args.reset:
         db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
         confirm = input(
             f"\n⚠  --reset will DELETE ALL DATA in {db_host}\n"
@@ -760,13 +779,15 @@ def main():
     # ── Summary ───────────────────────────────────────────────────────────────
     totp = pyotp.TOTP(CEO_TOTP_SECRET)
     db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+    mode_label = "Local Dev (SQLite)" if _LOCAL_MODE else "Production (Cloud SQL)"
 
     print("\n" + "=" * 68)
-    print("  Production Seed Complete — AI Workforce Orchestrator")
+    print(f"  Seed Complete [{mode_label}] — AI Workforce Orchestrator")
     print("=" * 68)
-    print(f"\n  GCP Project  : {GCP_PROJECT}")
+    print(f"\n  Mode         : {mode_label}")
+    print(f"  GCP Project  : {GCP_PROJECT}")
     print(f"  Region       : {GCP_REGION}")
-    print(f"  AI Model     : {GEMINI_MODEL} via Vertex AI")
+    print(f"  AI Model     : {GEMINI_MODEL}{' (Vertex AI — LIVE)' if not _LOCAL_MODE else ' (fallback in local mode)'}")
     print(f"  Database     : {db_host}")
     print(f"  Records      : {_created} created   {_skipped} skipped (already existed)")
 
@@ -796,10 +817,16 @@ def main():
     for a in AGENT_DEFINITIONS:
         print(f"  {a['name']:35s}  role={a['role']}")
 
-    print("\n[ Live endpoints ]")
-    print("  https://backend-adk-974381609416.europe-west1.run.app/docs")
-    print("  https://frontend-974381609416.europe-west1.run.app")
-    print("  https://backend-adk-974381609416.europe-west1.run.app/healthz")
+    if _LOCAL_MODE:
+        print("\n[ Local endpoints ]")
+        print("  uvicorn app.main:app --reload --port 8001")
+        print("  http://localhost:8001/docs")
+        print("  http://localhost:5173  (frontend)")
+    else:
+        print("\n[ Cloud Run endpoints ]")
+        print("  https://backend-adk-974381609416.europe-west1.run.app/docs")
+        print("  https://frontend-974381609416.europe-west1.run.app")
+        print("  https://backend-adk-974381609416.europe-west1.run.app/healthz")
     print()
 
 
