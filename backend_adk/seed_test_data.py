@@ -1,18 +1,47 @@
 #!/usr/bin/env python3
 """
-Production seed for AI Workforce Orchestrator (backend_adk — Cloud Run / PostgreSQL).
+Production seed for AI Workforce Orchestrator — backend_adk (Cloud Run + Cloud SQL + Vertex AI).
 
-TARGET: Online PostgreSQL database via DATABASE_URL environment variable.
-SAFETY: Non-destructive by default — skips records that already exist.
+TARGET  : Google Cloud SQL PostgreSQL (europe-west1, project havoc-ai-prod)
+AI STACK: Gemini 2.5 Flash via Vertex AI + Google ADK
+SAFETY  : Non-destructive by default. Skips rows that already exist.
 
-Usage:
-    # Default: safe upsert, skips existing rows
-    DATABASE_URL='postgresql://user:pass@host/db' python seed_test_data.py
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW TO CONNECT TO CLOUD SQL FROM YOUR LAPTOP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Option A — Cloud SQL Auth Proxy (recommended):
 
-    # Fresh deployment only: wipe and rebuild (DESTRUCTIVE — prompts for confirmation)
-    DATABASE_URL='postgresql://...' python seed_test_data.py --reset
+    # Terminal 1: start proxy
+    cloud-sql-proxy havoc-ai-prod:europe-west1:orchestrator-sql --port 5432
 
-Do NOT run with --reset on a live database with real user data.
+    # Terminal 2: run seed via localhost
+    export DATABASE_URL="postgresql+psycopg2://orchestrator_user:PASSWORD@localhost:5432/orchestrator"
+    export GOOGLE_CLOUD_PROJECT="havoc-ai-prod"
+    export GOOGLE_CLOUD_LOCATION="europe-west1"
+    export GOOGLE_GENAI_USE_VERTEXAI="true"
+    export GEMINI_MODEL="gemini-2.5-flash"
+    python seed_test_data.py
+
+Option B — Cloud Run Job (no local proxy needed):
+
+    gcloud run jobs create seed-job \
+      --image REGION-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest \
+      --region europe-west1 \
+      --service-account ai-workflow-orchestrator@havoc-ai-prod.iam.gserviceaccount.com \
+      --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
+      --set-env-vars DATABASE_URL="postgresql+psycopg2://orchestrator_user:PASS@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql" \
+      --set-env-vars GOOGLE_CLOUD_PROJECT=havoc-ai-prod \
+      --set-env-vars GOOGLE_CLOUD_LOCATION=europe-west1 \
+      --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
+      --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
+      --command python,seed_test_data.py
+    gcloud run jobs execute seed-job --region europe-west1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FLAGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  --check   Pre-flight only: verify DB + Vertex AI connectivity, no writes
+  --reset   DESTRUCTIVE wipe + rebuild (fresh Cloud SQL deployment only)
 """
 
 from __future__ import annotations
@@ -22,33 +51,130 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-# ── Validate DATABASE_URL before importing anything from app ──────────────────
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-if not DATABASE_URL:
-    print("ERROR: DATABASE_URL environment variable is not set.")
-    print()
-    print("Set it to your Cloud SQL PostgreSQL connection string, e.g.:")
-    print("  export DATABASE_URL='postgresql://user:pass@/dbname?host=/cloudsql/project:region:instance'")
-    print()
-    print("For local testing, use backend/seed_test_data.py instead.")
+# ── Required env vars ─────────────────────────────────────────────────────────
+_REQUIRED = {
+    "DATABASE_URL":             "Cloud SQL PostgreSQL connection string (see header for format)",
+    "GOOGLE_CLOUD_PROJECT":     "GCP project ID (e.g. havoc-ai-prod)",
+    "GOOGLE_CLOUD_LOCATION":    "GCP region (e.g. europe-west1)",
+    "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true' for production",
+}
+_DEFAULTS = {
+    "GEMINI_MODEL": "gemini-2.5-flash",
+}
+
+_missing = [k for k in _REQUIRED if not os.getenv(k)]
+if _missing:
+    print("\nERROR: Missing required environment variables:\n")
+    for k in _missing:
+        print(f"  {k}  —  {_REQUIRED[k]}")
+    print("\nSee the file header for connection instructions.")
+    print("For local SQLite testing use backend/seed_test_data.py instead.\n")
     sys.exit(1)
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+GCP_PROJECT  = os.environ["GOOGLE_CLOUD_PROJECT"]
+GCP_REGION   = os.environ["GOOGLE_CLOUD_LOCATION"]
 
 if DATABASE_URL.startswith("sqlite"):
-    print("ERROR: DATABASE_URL points to SQLite. This script targets the production PostgreSQL DB.")
-    print("For local SQLite testing, use backend/seed_test_data.py instead.")
+    print("ERROR: DATABASE_URL points to SQLite. This script targets Cloud SQL PostgreSQL.")
+    print("For local testing use backend/seed_test_data.py instead.")
     sys.exit(1)
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+for k, v in _DEFAULTS.items():
+    os.environ.setdefault(k, v)
 
-# ── Parse args before heavy imports ──────────────────────────────────────────
-parser = argparse.ArgumentParser(description="Seed the production database")
-parser.add_argument(
-    "--reset",
-    action="store_true",
-    help="DROP and recreate all tables before seeding. DESTRUCTIVE — prompts for confirmation.",
-)
+GEMINI_MODEL = os.environ["GEMINI_MODEL"]
+
+# ── Args ──────────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="Seed Cloud SQL database for backend_adk")
+parser.add_argument("--check", action="store_true",
+                    help="Pre-flight checks only — no database writes")
+parser.add_argument("--reset", action="store_true",
+                    help="DROP and recreate all tables first. DESTRUCTIVE.")
 args = parser.parse_args()
 
+# ── sys.path ──────────────────────────────────────────────────────────────────
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── Pre-flight checks ─────────────────────────────────────────────────────────
+def _preflight():
+    ok = True
+    host_display = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+
+    print("\n── Pre-flight checks ─────────────────────────────────────────")
+
+    # 1. Database connectivity
+    print(f"\n[1] Cloud SQL PostgreSQL  ({host_display})")
+    try:
+        import psycopg2
+        # Build a raw psycopg2 DSN from SQLAlchemy URL
+        raw = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
+        conn = psycopg2.connect(raw, connect_timeout=10)
+        conn.close()
+        print("    ✓ Connected successfully")
+    except Exception as e:
+        print(f"    ✗ FAILED: {e}")
+        print("      → Is Cloud SQL Auth Proxy running? (see file header)")
+        ok = False
+
+    # 2. google-genai / Vertex AI import
+    print(f"\n[2] Vertex AI SDK  (google-genai)")
+    try:
+        from google import genai
+        print("    ✓ google-genai importable")
+    except ImportError as e:
+        print(f"    ✗ FAILED: {e}")
+        print("      → pip install google-genai>=0.2.0")
+        ok = False
+
+    # 3. Vertex AI client init + model ping
+    print(f"\n[3] Gemini via Vertex AI  (project={GCP_PROJECT}, region={GCP_REGION})")
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_REGION)
+        # Minimal call — list first model to verify credentials + quota
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents="Say 'ok' in one word.",
+            config=types.GenerateContentConfig(max_output_tokens=5),
+        )
+        reply = (getattr(response, "text", "") or "").strip()
+        print(f"    ✓ {GEMINI_MODEL} responded: '{reply}'")
+    except Exception as e:
+        print(f"    ✗ FAILED: {e}")
+        print("      → Check IAM: service account needs roles/aiplatform.user")
+        print("      → Run: gcloud auth application-default login")
+        ok = False
+
+    # 4. ADK availability
+    print(f"\n[4] Google ADK")
+    try:
+        import google.adk  # noqa
+        print("    ✓ google-adk importable")
+    except ImportError:
+        print("    ⚠  google-adk not importable in this env (OK if running seed outside container)")
+
+    print("\n── Pre-flight result ─────────────────────────────────────────")
+    if ok:
+        print("    ALL CHECKS PASSED ✓\n")
+    else:
+        print("    ONE OR MORE CHECKS FAILED ✗")
+        print("    Fix the errors above before seeding.\n")
+    return ok
+
+
+if args.check:
+    passed = _preflight()
+    sys.exit(0 if passed else 1)
+
+# Run pre-flight before any imports that touch the DB
+passed = _preflight()
+if not passed:
+    print("Aborting seed — pre-flight failed. Use --check for details.\n")
+    sys.exit(1)
+
+# ── Heavy imports (after pre-flight) ─────────────────────────────────────────
 import pyotp
 
 from app.core._security import generate_refresh_token, hash_password
@@ -63,6 +189,7 @@ from app.models import (
     _task_dependency, _task_progress, _team, _team_invite, _tenant,
     _tenant_settings, _user, _user_preferences, _workflow_run,
 )
+from app.models._agent import Agent
 from app.models._agent_run import AgentRun
 from app.models._client_profile import ClientProfile
 from app.models._decision_log import DecisionLog
@@ -81,7 +208,7 @@ from app.models._user import User
 from app.models._user_preferences import UserPreferences
 from app.models._workflow_run import WorkflowRun
 
-# ── Seed credentials ──────────────────────────────────────────────────────────
+# ── Credentials ───────────────────────────────────────────────────────────────
 
 PLATFORM_OWNER = {
     "email": "swaraj@orchestrator.ai",
@@ -110,20 +237,20 @@ ADMIN = {
 
 EMPLOYEES_A = [
     {"email": "amira.khan@orchestrateco.ai", "password": "team123456",
-     "full_name": "Amira Khan", "title": "Solution Architect",
-     "department": "Solutioning", "skills": {"architecture": 0.95, "delivery": 0.82, "backend": 0.72}},
+     "full_name": "Amira Khan", "department": "Solutioning",
+     "skills": {"architecture": 0.95, "delivery": 0.82, "backend": 0.72}},
     {"email": "arjun.rao@orchestrateco.ai", "password": "team123456",
-     "full_name": "Arjun Rao", "title": "AI Engineer",
-     "department": "AI Delivery", "skills": {"llm": 0.95, "python": 0.88, "prompting": 0.82}},
+     "full_name": "Arjun Rao", "department": "AI Delivery",
+     "skills": {"llm": 0.95, "python": 0.88, "prompting": 0.82}},
     {"email": "neha.gupta@orchestrateco.ai", "password": "team123456",
-     "full_name": "Neha Gupta", "title": "Backend Engineer",
-     "department": "Engineering", "skills": {"backend": 0.93, "python": 0.90, "api": 0.86}},
+     "full_name": "Neha Gupta", "department": "Engineering",
+     "skills": {"backend": 0.93, "python": 0.90, "api": 0.86}},
     {"email": "yash.patel@orchestrateco.ai", "password": "team123456",
-     "full_name": "Yash Patel", "title": "Frontend Engineer",
-     "department": "Engineering", "skills": {"frontend": 0.91, "react": 0.89, "design-systems": 0.74}},
+     "full_name": "Yash Patel", "department": "Engineering",
+     "skills": {"frontend": 0.91, "react": 0.89, "design-systems": 0.74}},
     {"email": "sofia.dsouza@orchestrateco.ai", "password": "team123456",
-     "full_name": "Sofia D'Souza", "title": "QA Automation Engineer",
-     "department": "Quality", "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.87}},
+     "full_name": "Sofia D'Souza", "department": "Quality",
+     "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.87}},
 ]
 
 CLIENT_A = {
@@ -141,11 +268,11 @@ ADMIN_B = {
 
 EMPLOYEES_B = [
     {"email": "maya.r@globaltech.io", "password": "team123456",
-     "full_name": "Maya Ramesh", "title": "Data Scientist",
-     "department": "Data", "skills": {"data": 0.93, "python": 0.88, "analytics": 0.84}},
+     "full_name": "Maya Ramesh", "department": "Data",
+     "skills": {"data": 0.93, "python": 0.88, "analytics": 0.84}},
     {"email": "tom.brooks@globaltech.io", "password": "team123456",
-     "full_name": "Tom Brooks", "title": "DevOps Engineer",
-     "department": "Platform", "skills": {"devops": 0.91, "cloud": 0.87, "security": 0.79}},
+     "full_name": "Tom Brooks", "department": "Platform",
+     "skills": {"devops": 0.91, "cloud": 0.87, "security": 0.79}},
 ]
 
 CLIENT_B = {
@@ -153,30 +280,44 @@ CLIENT_B = {
     "full_name": "Lisa Park", "role": "client", "company_name": "TechVentures",
 }
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# 12 agents that form the two agentic workflows
+# model_name matches what the deploy script sets as GEMINI_MODEL
+AGENT_DEFINITIONS = [
+    # Intake workflow (7 agents)
+    {"name": "IntakeAgent",                "role": "intake",        "capability": f"Parse project intake via {GEMINI_MODEL}"},
+    {"name": "PlanningAgent",              "role": "planning",      "capability": f"Generate execution plan via {GEMINI_MODEL}"},
+    {"name": "StaffingAgent",              "role": "staffing",      "capability": f"Score + assign team members via {GEMINI_MODEL}"},
+    {"name": "RiskAgent",                  "role": "risk",          "capability": f"Evaluate timeline/budget risk via {GEMINI_MODEL}"},
+    {"name": "ExecutionCoordinatorAgent",  "role": "coordination",  "capability": f"Finalise execution plan via {GEMINI_MODEL}"},
+    {"name": "CommunicationAgent",         "role": "communication", "capability": f"Draft client/admin emails via {GEMINI_MODEL}"},
+    {"name": "EscalationAgent",            "role": "escalation",    "capability": f"Escalate to humans when confidence < 0.6"},
+    # Live execution loop (5 agents)
+    {"name": "ProjectObserverAgent",       "role": "observation",   "capability": f"Monitor project health via {GEMINI_MODEL}"},
+    {"name": "DeliveryReviewAgent",        "role": "review",        "capability": f"Review deliverables via {GEMINI_MODEL}"},
+    {"name": "RebalanceAgent",             "role": "rebalance",     "capability": f"Rebalance assignments via {GEMINI_MODEL}"},
+    {"name": "LoopCommunicationAgent",     "role": "loop_comms",    "capability": f"Update stakeholder comms via {GEMINI_MODEL}"},
+    {"name": "LoopEscalationAgent",        "role": "loop_escalation","capability": "Escalate loop blockers to admin"},
+]
 
+# ── Stats counters ────────────────────────────────────────────────────────────
 _created = 0
 _skipped = 0
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _upsert_user(db, email, password, full_name, role, tenant_id,
                  totp_secret=None, totp_enabled=False):
-    """Insert user if email doesn't exist, else return existing. Never overwrites passwords."""
     global _created, _skipped
     existing = db.query(User).filter(User.email == email).first()
     if existing:
         _skipped += 1
         return existing, False
     u = User(
-        email=email,
-        password=hash_password(password),
-        full_name=full_name,
-        role=role,
-        tenant_id=tenant_id,
-        email_verified=True,
-        email_verify_token=None,
-        totp_secret=totp_secret,
-        totp_enabled=totp_enabled,
+        email=email, password=hash_password(password),
+        full_name=full_name, role=role, tenant_id=tenant_id,
+        email_verified=True, email_verify_token=None,
+        totp_secret=totp_secret, totp_enabled=totp_enabled,
     )
     db.add(u)
     db.flush()
@@ -198,40 +339,29 @@ def _upsert_tenant(db, name, slug):
 
 
 def _ensure_prefs(db, user_id, **kwargs):
-    existing = db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
-    if existing:
-        return existing
-    p = UserPreferences(user_id=user_id, **kwargs)
-    db.add(p)
+    if db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first():
+        return
+    db.add(UserPreferences(user_id=user_id, **kwargs))
     db.flush()
-    return p
 
 
 def _ensure_employee(db, user, skills, department):
     existing = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
     if existing:
         return existing
-    profile = EmployeeProfile(
-        tenant_id=user.tenant_id,
-        user_id=user.id,
-        skills=skills,
-        max_capacity=8.0,
-        current_load=0.0,
-        department=department,
-        availability_status="available",
+    p = EmployeeProfile(
+        tenant_id=user.tenant_id, user_id=user.id,
+        skills=skills, max_capacity=8.0, current_load=0.0,
+        department=department, availability_status="available",
     )
-    db.add(profile)
+    db.add(p)
     db.flush()
     db.add(EmployeeMetrics(
-        employee_id=profile.id,
-        efficiency_score=0.87,
-        reliability_score=0.92,
-        avg_completion_time=0.0,
-        total_tasks_completed=12,
-        total_tasks_failed=0,
-        total_tasks_delayed=1,
+        employee_id=p.id, efficiency_score=0.87, reliability_score=0.92,
+        avg_completion_time=0.0, total_tasks_completed=12,
+        total_tasks_failed=0, total_tasks_delayed=1,
     ))
-    return profile
+    return p
 
 
 def _ensure_client_profile(db, user, company_name):
@@ -239,10 +369,8 @@ def _ensure_client_profile(db, user, company_name):
     if existing:
         return existing
     cp = ClientProfile(
-        tenant_id=user.tenant_id,
-        user_id=user.id,
-        company_name=company_name,
-        contact_person=user.full_name,
+        tenant_id=user.tenant_id, user_id=user.id,
+        company_name=company_name, contact_person=user.full_name,
     )
     db.add(cp)
     db.flush()
@@ -250,26 +378,19 @@ def _ensure_client_profile(db, user, company_name):
 
 
 def _ensure_tenant_settings(db, tenant_id, **kwargs):
-    existing = db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant_id).first()
-    if existing:
-        return existing
-    ts = TenantSettings(tenant_id=tenant_id, **kwargs)
-    db.add(ts)
+    if db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant_id).first():
+        return
+    db.add(TenantSettings(tenant_id=tenant_id, **kwargs))
     db.flush()
-    return ts
 
 
 def _make_task(db, tenant_id, project_id, description, status, required_skills,
-               estimated_time=4.0, priority="medium", difficulty="medium"):
+               estimated_time=4.0, urgency="medium", difficulty="medium"):
     t = Task(
-        tenant_id=tenant_id,
-        project_id=project_id,
-        description=description,
-        status=status,
-        required_skills=required_skills,
-        estimated_time=estimated_time,
-        urgency=priority,
-        difficulty=difficulty,
+        tenant_id=tenant_id, project_id=project_id,
+        description=description, status=status,
+        required_skills=required_skills, estimated_time=estimated_time,
+        urgency=urgency, difficulty=difficulty,
         deadline=datetime.utcnow() + timedelta(days=14),
     )
     db.add(t)
@@ -279,18 +400,25 @@ def _make_task(db, tenant_id, project_id, description, status, required_skills,
 
 # ── Seed sections ─────────────────────────────────────────────────────────────
 
+def seed_agents(db):
+    """Seed the 12 agent definitions (Gemini 2.5 Flash via Vertex AI)."""
+    for defn in AGENT_DEFINITIONS:
+        existing = db.query(Agent).filter(Agent.name == defn["name"]).first()
+        if not existing:
+            db.add(Agent(name=defn["name"], role=defn["role"], capability=defn["capability"]))
+    db.flush()
+
+
 def seed_platform_owner(db):
     platform_tenant, _ = _upsert_tenant(db, "Platform", "platform")
-    owner, created = _upsert_user(
-        db, **PLATFORM_OWNER, tenant_id=platform_tenant.id
-    )
+    owner, created = _upsert_user(db, **PLATFORM_OWNER, tenant_id=platform_tenant.id)
     if created:
         _ensure_prefs(db, owner.id, timezone="Asia/Kolkata", theme="dark")
     return owner, platform_tenant
 
 
 def seed_tenant_a(db):
-    tenant, t_created = _upsert_tenant(db, TENANT_A_NAME, TENANT_A_SLUG)
+    tenant, _ = _upsert_tenant(db, TENANT_A_NAME, TENANT_A_SLUG)
 
     _ensure_tenant_settings(db, tenant.id,
         plan_tier="pro", suspended=False,
@@ -340,15 +468,14 @@ def seed_tenant_a(db):
         )
         if created:
             _ensure_prefs(db, u.id, timezone="Asia/Kolkata")
-        p = _ensure_employee(db, u, m["skills"], m["department"])
-        emp_profiles.append(p)
+        emp_profiles.append(_ensure_employee(db, u, m["skills"], m["department"]))
 
     client_u, _ = _upsert_user(
         db, email=CLIENT_A["email"], password=CLIENT_A["password"],
         full_name=CLIENT_A["full_name"], role=CLIENT_A["role"], tenant_id=tenant.id,
     )
-    client_cp = _ensure_client_profile(db, client_u, CLIENT_A["company_name"])
     _ensure_prefs(db, client_u.id, timezone="America/New_York")
+    client_cp = _ensure_client_profile(db, client_u, CLIENT_A["company_name"])
 
     return tenant, ceo, admin, admin_rt, emp_profiles, client_cp
 
@@ -365,7 +492,6 @@ def seed_tenant_b(db):
     admin, admin_created = _upsert_user(db, **ADMIN_B, tenant_id=tenant.id)
     if admin_created:
         _ensure_prefs(db, admin.id, timezone="Europe/London")
-
     for m in EMPLOYEES_B:
         u, created = _upsert_user(
             db, email=m["email"], password=m["password"],
@@ -374,7 +500,6 @@ def seed_tenant_b(db):
         if created:
             _ensure_prefs(db, u.id, timezone="Europe/London")
         _ensure_employee(db, u, m["skills"], m["department"])
-
     client_u, _ = _upsert_user(
         db, email=CLIENT_B["email"], password=CLIENT_B["password"],
         full_name=CLIENT_B["full_name"], role=CLIENT_B["role"], tenant_id=tenant.id,
@@ -386,7 +511,6 @@ def seed_tenant_b(db):
 def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
     now = datetime.utcnow()
 
-    # Skip if project already exists for this tenant
     existing = db.query(Project).filter(
         Project.tenant_id == tenant.id,
         Project.name == "AI-Powered Analytics Platform",
@@ -397,12 +521,16 @@ def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
 
     p1 = Project(
         tenant_id=tenant.id, name="AI-Powered Analytics Platform",
-        description="Build an end-to-end AI analytics platform with real-time dashboards.",
+        description="End-to-end AI analytics platform with real-time dashboards on GCP.",
         admin_id=admin.id, client_id=client_cp.id,
         status="in-progress", progress=58, budget=120000.0, spent=42000.0,
         payment_status="partial", priority="high",
         start_date=now - timedelta(days=30), deadline=now + timedelta(days=60),
-        custom_fields={"health_score": 72, "risk_flags": ["timeline risk"]},
+        custom_fields={
+            "health_score": 72,
+            "risk_flags": ["timeline risk"],
+            "ai_stack": f"Gemini {GEMINI_MODEL} via Vertex AI ({GCP_PROJECT}/{GCP_REGION})",
+        },
     )
     db.add(p1)
     db.flush()
@@ -410,7 +538,7 @@ def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
     tasks_p1 = [
         _make_task(db, tenant.id, p1.id, "Design data ingestion pipeline",
                    "completed", {"architecture": 0.7, "backend": 0.6}, 8.0, "high"),
-        _make_task(db, tenant.id, p1.id, "Implement LLM summarisation service",
+        _make_task(db, tenant.id, p1.id, "Implement LLM summarisation service (Gemini 2.5)",
                    "in_progress", {"llm": 0.8, "python": 0.7}, 12.0, "high"),
         _make_task(db, tenant.id, p1.id, "Build REST API for dashboard queries",
                    "in_progress", {"backend": 0.8, "api": 0.7}, 8.0, "medium"),
@@ -420,10 +548,11 @@ def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
                    "pending", {"qa": 0.8, "testing": 0.7}, 10.0, "medium"),
     ]
 
-    deleted_task = _make_task(db, tenant.id, p1.id, "Old requirement — replaced",
-                               "cancelled", {"llm": 0.5}, 4.0)
-    deleted_task.deleted_at = now - timedelta(days=5)
-    db.add(deleted_task)
+    # Soft-deleted task — tests filter correctness
+    dt = _make_task(db, tenant.id, p1.id, "Old requirement — superseded by Gemini approach",
+                    "cancelled", {"llm": 0.5}, 4.0)
+    dt.deleted_at = now - timedelta(days=5)
+    db.add(dt)
 
     for task, emp_idx in zip(tasks_p1, range(len(emp_profiles))):
         db.add(TaskAssignment(
@@ -437,7 +566,7 @@ def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
 
     p2 = Project(
         tenant_id=tenant.id, name="E-Commerce Redesign",
-        description="Modernise the client e-commerce platform with AI recommendations.",
+        description="Modernise e-commerce with AI-powered product recommendations via Vertex AI.",
         admin_id=admin.id, client_id=client_cp.id,
         status="planning", progress=0, budget=75000.0, spent=0.0,
         priority="medium", deadline=now + timedelta(days=90),
@@ -446,108 +575,105 @@ def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
     db.flush()
     _make_task(db, tenant.id, p2.id, "Stakeholder requirements workshop",
                "pending", {"communication": 0.7, "architecture": 0.5}, 4.0)
-    _make_task(db, tenant.id, p2.id, "Define AI recommendation model spec",
+    _make_task(db, tenant.id, p2.id, "Define Gemini recommendation model spec",
                "pending", {"llm": 0.7, "architecture": 0.6}, 6.0)
 
-    soft_deleted_project = Project(
+    soft_p = Project(
         tenant_id=tenant.id, name="Legacy CRM Integration (Cancelled)",
-        description="Cancelled by client.", admin_id=admin.id,
-        status="cancelled", progress=10, budget=30000.0, spent=3000.0,
-        deleted_at=now - timedelta(days=10),
+        description="Cancelled — client moved budget to AI-first initiative.",
+        admin_id=admin.id, status="cancelled", progress=10,
+        budget=30000.0, spent=3000.0, deleted_at=now - timedelta(days=10),
     )
-    db.add(soft_deleted_project)
+    db.add(soft_p)
     db.flush()
 
     return p1, p2
 
 
 def seed_workflow_and_agents(db, admin, project):
-    existing = db.query(WorkflowRun).filter(
+    if db.query(WorkflowRun).filter(
         WorkflowRun.project_id == project.id,
         WorkflowRun.workflow_type == "intake",
-    ).first()
-    if existing:
+    ).first():
         return
 
     now = datetime.utcnow()
     run = WorkflowRun(
         workflow_type="intake", status="completed",
         requested_by=admin.id, project_id=project.id,
-        input_payload={"project_name": project.name, "budget": project.budget},
-        shared_context={"tenant_id": project.tenant_id},
-        final_output={"plan_approved": True, "risk_level": "medium"},
+        input_payload={"project_name": project.name, "budget": project.budget,
+                       "model": GEMINI_MODEL, "gcp_project": GCP_PROJECT},
+        shared_context={"tenant_id": project.tenant_id, "vertex_ai": True},
+        final_output={"plan_approved": True, "risk_level": "medium",
+                      "model_used": GEMINI_MODEL},
         created_at=now - timedelta(days=28),
         completed_at=now - timedelta(days=28) + timedelta(minutes=4),
     )
     db.add(run)
     db.flush()
 
-    for name, stage, reasoning in [
-        ("IntakeAgent", "intake", "Parse and validate project intake"),
-        ("PlanningAgent", "planning", "Generate execution plan with milestones"),
-        ("StaffingAgent", "staffing", "Score and assign team members"),
-        ("RiskAgent", "risk_assessment", "Evaluate timeline and budget risk"),
-        ("ExecutionCoordinatorAgent", "coordination", "Finalise execution plan"),
-        ("CommunicationAgent", "communication", "Draft project brief emails"),
-        ("EscalationAgent", "escalation", "No escalation required"),
+    for name, stage, confidence, reasoning in [
+        ("IntakeAgent",               "intake",        0.94, f"Parsed intake via {GEMINI_MODEL} — all fields extracted"),
+        ("PlanningAgent",             "planning",      0.89, f"Generated 6-milestone plan via {GEMINI_MODEL}"),
+        ("StaffingAgent",             "staffing",      0.91, f"Scored 5 candidates via assignment engine"),
+        ("RiskAgent",                 "risk_assessment",0.82, f"Identified timeline risk via {GEMINI_MODEL}"),
+        ("ExecutionCoordinatorAgent", "coordination",  0.88, "Finalised execution plan — no conflicts"),
+        ("CommunicationAgent",        "communication", 0.95, "Drafted admin + client briefs"),
+        ("EscalationAgent",           "escalation",    0.99, "No escalation required — confidence above threshold"),
     ]:
         db.add(AgentRun(
             workflow_run_id=run.id, agent_name=name, role=stage, stage=stage,
-            status="completed", confidence=0.87,
-            reasoning=reasoning, input_payload={}, output_payload={"status": "ok"},
+            status="completed", confidence=confidence,
+            reasoning=reasoning, input_payload={},
+            output_payload={"status": "ok", "model": GEMINI_MODEL},
             started_at=run.created_at,
-            completed_at=run.created_at + timedelta(seconds=30),
+            completed_at=run.created_at + timedelta(seconds=35),
         ))
 
     db.add(DecisionLog(
         decision_type="assignment", entity_type="task", entity_id=project.id,
-        input_data={"project_id": project.id, "agent": "StaffingAgent"},
-        decision_taken="Assigned Arjun Rao to LLM task (score: 0.91)",
+        input_data={"agent": "StaffingAgent", "model": GEMINI_MODEL,
+                    "scoring_formula": "0.35×skill + 0.25×(1-load) + 0.20×efficiency + 0.20×reliability − 0.15×tz_penalty"},
+        decision_taken="Assigned Arjun Rao to LLM service task (score: 0.91)",
         confidence=0.91,
-        reasoning="Highest score across skill match, workload, efficiency, timezone",
+        reasoning="skill_match=0.95 (llm), workload=0.88, efficiency=0.87, reliability=0.92, tz_penalty=0.0",
     ))
     db.flush()
 
 
 def seed_scheduler_jobs(db, tenant):
-    existing = db.query(ScheduledAgentJob).filter(
+    if db.query(ScheduledAgentJob).filter(
         ScheduledAgentJob.tenant_id == tenant.id
-    ).first()
-    if existing:
+    ).first():
         return
-
     now = datetime.utcnow()
-    for job_type, cron, tz, last_offset, next_offset in [
-        ("nightly_observer", "0 2 * * *", "UTC", timedelta(hours=22), timedelta(hours=2)),
-        ("weekly_digest", "0 9 * * 1", "Asia/Kolkata", timedelta(days=7), timedelta(days=1)),
-        ("payment_check", "0 10 * * *", "UTC", timedelta(hours=14), timedelta(hours=10)),
-        ("archive_old_runs", "0 3 * * 0", "UTC", timedelta(days=7), timedelta(days=1)),
+    for job_type, cron, tz, last_delta, next_delta in [
+        ("nightly_observer", "0 2 * * *",  "UTC",          timedelta(hours=22), timedelta(hours=2)),
+        ("weekly_digest",    "0 9 * * 1",  "Asia/Kolkata", timedelta(days=7),   timedelta(days=1)),
+        ("payment_check",    "0 10 * * *", "UTC",          timedelta(hours=14), timedelta(hours=10)),
+        ("archive_old_runs", "0 3 * * 0",  "UTC",          timedelta(days=7),   timedelta(days=1)),
     ]:
         db.add(ScheduledAgentJob(
             tenant_id=tenant.id, job_type=job_type, cron_expr=cron,
             timezone=tz, enabled=True,
-            last_run_at=now - last_offset,
-            next_run_at=now + next_offset,
+            last_run_at=now - last_delta,
+            next_run_at=now + next_delta,
             last_status="success",
         ))
     db.flush()
 
 
 def seed_email_logs(db, tenant):
-    existing = db.query(EmailDeliveryLog).filter(
-        EmailDeliveryLog.tenant_id == tenant.id
-    ).first()
-    if existing:
+    if db.query(EmailDeliveryLog).filter(EmailDeliveryLog.tenant_id == tenant.id).first():
         return
-
     now = datetime.utcnow()
     for to_email, subject, template, status in [
-        (CEO["email"], "Welcome to AI Workforce Orchestrator", "welcome", "success"),
-        (ADMIN["email"], "Verify your email address", "email_verification", "success"),
-        (CLIENT_A["email"], "Your project brief is ready", "project_brief", "success"),
-        (CEO["email"], "Weekly digest — week of Apr 14", "weekly_digest", "success"),
-        (ADMIN["email"], "Task assignment: Build REST API", "task_assignment", "success"),
-        (ADMIN["email"], "Escalation alert: Blocked task", "escalation_alert", "failed"),
+        (CEO["email"],   "Welcome to AI Workforce Orchestrator", "welcome",            "success"),
+        (ADMIN["email"], "Verify your email address",            "email_verification", "success"),
+        (CLIENT_A["email"], "Your project brief is ready",       "project_brief",      "success"),
+        (CEO["email"],   "Weekly digest — week of Apr 14",       "weekly_digest",      "success"),
+        (ADMIN["email"], "Task assignment: Build REST API",       "task_assignment",    "success"),
+        (ADMIN["email"], "Escalation alert: Blocked task",        "escalation_alert",  "failed"),
     ]:
         db.add(EmailDeliveryLog(
             tenant_id=tenant.id, to_email=to_email,
@@ -559,11 +685,8 @@ def seed_email_logs(db, tenant):
     db.flush()
 
 
-def seed_support_ticket(db, tenant, admin, owner):
-    existing = db.query(SupportTicket).filter(
-        SupportTicket.tenant_id == tenant.id
-    ).first()
-    if existing:
+def seed_support_ticket(db, tenant, admin):
+    if db.query(SupportTicket).filter(SupportTicket.tenant_id == tenant.id).first():
         return
     db.add(SupportTicket(
         tenant_id=tenant.id, user_id=admin.id,
@@ -580,9 +703,9 @@ def main():
     global _created, _skipped
 
     if args.reset:
-        print(f"\nTarget database: {DATABASE_URL[:DATABASE_URL.index('@') + 1]}***")
+        db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
         confirm = input(
-            "\nWARNING: --reset will DELETE ALL DATA in this database.\n"
+            f"\n⚠  --reset will DELETE ALL DATA in {db_host}\n"
             "Type 'yes-delete-everything' to confirm: "
         )
         if confirm.strip() != "yes-delete-everything":
@@ -599,15 +722,34 @@ def main():
 
     db = SessionLocal()
     try:
+        print("Seeding agents (12 × Gemini 2.5 Flash via Vertex AI)...")
+        seed_agents(db)
+
+        print("Seeding platform owner...")
         owner, _ = seed_platform_owner(db)
+
+        print("Seeding Tenant A: OrchestrateCo (Pro plan)...")
         tenant_a, ceo, admin, admin_rt, emp_profiles, client_cp = seed_tenant_a(db)
+
+        print("Seeding Tenant B: GlobalTech (grace-period test)...")
         tenant_b, admin_b = seed_tenant_b(db)
+
+        print("Seeding projects + tasks + assignments...")
         p1, p2 = seed_projects_and_tasks(db, tenant_a, admin, emp_profiles, client_cp)
+
         if p1:
+            print(f"Seeding WorkflowRun + 7 AgentRun records ({GEMINI_MODEL})...")
             seed_workflow_and_agents(db, admin, p1)
+
+        print("Seeding scheduler jobs (4 types)...")
         seed_scheduler_jobs(db, tenant_a)
+
+        print("Seeding email delivery logs...")
         seed_email_logs(db, tenant_a)
-        seed_support_ticket(db, tenant_a, admin, owner)
+
+        print("Seeding support ticket...")
+        seed_support_ticket(db, tenant_a, admin)
+
         db.commit()
     except Exception:
         db.rollback()
@@ -617,11 +759,16 @@ def main():
 
     # ── Summary ───────────────────────────────────────────────────────────────
     totp = pyotp.TOTP(CEO_TOTP_SECRET)
-    print("\n" + "=" * 64)
-    print("  Production Seed Complete")
-    print(f"  DB: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
-    print(f"  Created: {_created} records   Skipped (already exist): {_skipped}")
-    print("=" * 64)
+    db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+
+    print("\n" + "=" * 68)
+    print("  Production Seed Complete — AI Workforce Orchestrator")
+    print("=" * 68)
+    print(f"\n  GCP Project  : {GCP_PROJECT}")
+    print(f"  Region       : {GCP_REGION}")
+    print(f"  AI Model     : {GEMINI_MODEL} via Vertex AI")
+    print(f"  Database     : {db_host}")
+    print(f"  Records      : {_created} created   {_skipped} skipped (already existed)")
 
     print("\n[ Platform Owner ]")
     print(f"  {PLATFORM_OWNER['email']}  /  {PLATFORM_OWNER['password']}")
@@ -629,30 +776,30 @@ def main():
     print("\n[ Tenant A: OrchestrateCo — Pro plan ]")
     print(f"  CEO (2FA)  : {CEO['email']}  /  {CEO['password']}")
     print(f"  TOTP secret: {CEO_TOTP_SECRET}")
-    print(f"  Live code  : {totp.now()}  (valid ~30 s — regenerate fresh code on next login)")
+    print(f"  Live code  : {totp.now()}  (valid ~30 s — re-run for a fresh code)")
     print(f"  2FA login  : Step 1 → POST /auth/login")
-    print(f"               Step 2 → POST /auth/2fa/verify-login  {{mfa_session_token, totp_code}}")
+    print(f"               Step 2 → POST /auth/2fa/verify-login {{mfa_session_token, totp_code}}")
     print(f"  Admin      : {ADMIN['email']}  /  {ADMIN['password']}")
     if admin_rt:
-        print(f"  Admin RT   : {admin_rt[:24]}... (30-day refresh token)")
+        print(f"  Admin RT   : {admin_rt[:24]}...  (30-day refresh token)")
     for m in EMPLOYEES_A:
-        print(f"  Employee   : {m['email']}  /  {m['password']}")
-    print(f"  Client     : {CLIENT_A['email']}  /  {CLIENT_A['password']}")
+        print(f"  Employee   : {m['email']}  /  team123456")
+    print(f"  Client     : {CLIENT_A['email']}  /  client123456")
 
-    print("\n[ Tenant B: GlobalTech — Starter / grace period ]")
+    print("\n[ Tenant B: GlobalTech — Starter / grace period (3 days) ]")
     print(f"  Admin      : {ADMIN_B['email']}  /  {ADMIN_B['password']}")
     for m in EMPLOYEES_B:
-        print(f"  Employee   : {m['email']}  /  {m['password']}")
-    print(f"  Client     : {CLIENT_B['email']}  /  {CLIENT_B['password']}")
+        print(f"  Employee   : {m['email']}  /  team123456")
+    print(f"  Client     : {CLIENT_B['email']}  /  client123456")
 
-    print("\n[ Projects — Tenant A ]")
-    print("  1. AI-Powered Analytics Platform  in-progress  58%  (5 tasks + 5 assignments)")
-    print("  2. E-Commerce Redesign            planning      0%  (2 tasks)")
-    print("  3. Legacy CRM Integration         SOFT DELETED      (hidden from API)")
+    print("\n[ Agents seeded (12 × Vertex AI / Gemini 2.5 Flash) ]")
+    for a in AGENT_DEFINITIONS:
+        print(f"  {a['name']:35s}  role={a['role']}")
 
-    print("\n[ Online endpoints ]")
+    print("\n[ Live endpoints ]")
     print("  https://backend-adk-974381609416.europe-west1.run.app/docs")
     print("  https://frontend-974381609416.europe-west1.run.app")
+    print("  https://backend-adk-974381609416.europe-west1.run.app/healthz")
     print()
 
 
