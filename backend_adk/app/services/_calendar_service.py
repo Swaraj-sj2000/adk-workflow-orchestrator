@@ -12,6 +12,8 @@ Set env vars:
 """
 from __future__ import annotations
 
+import secrets
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -22,6 +24,10 @@ from app.models._user import User
 from app.models._user_preferences import UserPreferences
 
 logger = get_logger(__name__)
+
+# In-process CSRF nonce store: nonce -> (user_id, expires_at)
+# Entries expire after 10 minutes. Good enough for single-instance; Redis can replace this.
+_oauth_nonces: dict[str, tuple[int, float]] = {}
 
 _SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
@@ -61,23 +67,36 @@ def _get_or_create_prefs(db: Session, user_id: int) -> UserPreferences:
     return prefs
 
 
+def _purge_expired_nonces() -> None:
+    now = time.monotonic()
+    expired = [k for k, (_, exp) in _oauth_nonces.items() if exp < now]
+    for k in expired:
+        del _oauth_nonces[k]
+
+
 def get_auth_url(user_id: int) -> str:
+    _purge_expired_nonces()
+    nonce = secrets.token_urlsafe(32)
+    _oauth_nonces[nonce] = (user_id, time.monotonic() + 600)  # 10-min TTL
     flow = _flow()
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
-        state=str(user_id),
+        state=nonce,
     )
     return auth_url
 
 
 def handle_callback(db: Session, code: str, state: str) -> dict:
     """Exchange the OAuth code for tokens, persist them, return status dict."""
-    try:
-        user_id = int(state)
-    except (TypeError, ValueError):
-        raise ValueError("Invalid OAuth state parameter")
+    _purge_expired_nonces()
+    entry = _oauth_nonces.pop(state, None)
+    if not entry:
+        raise ValueError("Invalid or expired OAuth state — possible CSRF attempt")
+    user_id, expires_at = entry
+    if time.monotonic() > expires_at:
+        raise ValueError("OAuth state expired")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

@@ -16,6 +16,8 @@ from app.core._security import (
     hash_password,
     verify_password,
     create_access_token,
+    create_mfa_session_token,
+    verify_mfa_session_token,
     generate_refresh_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
@@ -174,6 +176,9 @@ def register_user(
     tenant_name: str | None = None,
     tenant_slug: str | None = None,
 ):
+    if role == "platform_owner":
+        raise HTTPException(status_code=403, detail="This role cannot be self-registered")
+
     email = normalize_email(email)
     existing = db.query(User).filter(User.email == email).first()
     if existing:
@@ -250,6 +255,11 @@ def login_user(db: Session, email: str, password: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Please verify your email address before logging in")
 
+    # 2FA gate — issue a short-lived challenge token instead of a full session
+    if getattr(user, "totp_enabled", False):
+        mfa_token = create_mfa_session_token(user.id)
+        return {"requires_2fa": True, "mfa_session_token": mfa_token}
+
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
     access_token = create_access_token(
         {"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email}
@@ -265,9 +275,46 @@ def login_user(db: Session, email: str, password: str):
         "tenant_id": user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
-        "totp_enabled": getattr(user, "totp_enabled", False),
+        "totp_enabled": True,
     }
     return access_token, refresh_token, user_data
+
+
+def complete_mfa_login(db: Session, mfa_session_token: str, totp_code: str):
+    """Second step of 2FA login: verify TOTP, issue real tokens."""
+    user_id = verify_mfa_session_token(mfa_session_token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid or expired 2FA session")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired 2FA session")
+
+    secret = getattr(user, "totp_secret", None)
+    if not secret:
+        raise HTTPException(status_code=400, detail="2FA is not configured for this account")
+
+    from app.core._security import verify_totp
+    if not verify_totp(secret, totp_code):
+        raise HTTPException(status_code=401, detail="Invalid TOTP code")
+
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
+    access_token = create_access_token(
+        {"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email}
+    )
+    refresh_token = _create_refresh_token_record(db, user.id)
+    db.commit()
+
+    return access_token, refresh_token, {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "tenant_id": user.tenant_id,
+        "tenant_slug": tenant.slug if tenant else None,
+        "tenant_name": tenant.name if tenant else None,
+        "totp_enabled": True,
+    }
 
 
 def refresh_access_token(db: Session, raw_refresh_token: str):

@@ -21,6 +21,7 @@ from app.schemas._user import (
 )
 from app.services._auth_service import (
     change_password,
+    complete_mfa_login,
     login_user,
     refresh_access_token,
     register_user,
@@ -45,6 +46,11 @@ class TOTPVerifyRequest(BaseModel):
     totp_code: str
 
 
+class MFALoginRequest(BaseModel):
+    mfa_session_token: str
+    totp_code: str
+
+
 @router.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
     return register_user(
@@ -63,7 +69,23 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
     result = login_user(db, user.email, user.password)
     if not result:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # 2FA challenge — return pending state, no real token yet
+    if isinstance(result, dict) and result.get("requires_2fa"):
+        return result
     access_token, refresh_token, user_data = result
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": user_data,
+    }
+
+
+@router.post("/2fa/verify-login")
+def verify_mfa_login(payload: MFALoginRequest, db: Session = Depends(get_db)):
+    """Second step of login when 2FA is enabled. Exchange MFA session token + TOTP code for real tokens."""
+    access_token, refresh_token, user_data = complete_mfa_login(
+        db, payload.mfa_session_token, payload.totp_code
+    )
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,

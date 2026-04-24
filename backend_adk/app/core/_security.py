@@ -47,3 +47,25 @@ def get_totp_provisioning_uri(secret: str, email: str) -> str:
     return pyotp.TOTP(secret).provisioning_uri(
         name=email, issuer_name="AI Workforce Orchestrator"
     )
+
+
+def create_mfa_session_token(user_id: int) -> str:
+    """Short-lived token (5 min) issued when 2FA is required. Not a full access token."""
+    payload = {
+        "mfa_pending": True,
+        "user_id": user_id,
+        "exp": datetime.utcnow() + timedelta(minutes=5),
+        "iat": datetime.utcnow(),
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_mfa_session_token(token: str) -> int | None:
+    """Returns user_id if the token is a valid mfa_pending token, else None."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if not payload.get("mfa_pending"):
+            return None
+        return payload.get("user_id")
+    except Exception:
+        return None
