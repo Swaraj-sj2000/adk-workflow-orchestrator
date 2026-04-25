@@ -566,6 +566,28 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                   </label>
                 )}
                 <button className="btn btn-primary" onClick={savePreferences}>Save Preferences</button>
+
+                {/* Onboarding re-trigger */}
+                <div style={{ marginTop: 8, paddingTop: 16, borderTop: '1px solid var(--border-soft)' }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Platform Onboarding</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
+                    Replay the step-by-step onboarding guide for your role at any time.
+                  </p>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      const token = localStorage.getItem('token');
+                      await fetch(`${API_BASE_URL}/settings/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ onboarding_complete: false }),
+                      });
+                      flash('Onboarding will show on your next page load.');
+                    }}
+                  >
+                    🎓 Replay Onboarding Wizard
+                  </button>
+                </div>
               </div>
             )}
 

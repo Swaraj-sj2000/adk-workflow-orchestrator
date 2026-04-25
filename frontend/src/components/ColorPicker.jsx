@@ -106,8 +106,9 @@ export default function ColorPicker({ onAccentChange, onClose, currentAccent }) 
 
   const emit = useCallback((h, s, v) => {
     const sv = Math.max(v, MIN_V);
+    const { s: sHsl, l } = hsvToHsl(h, s, sv);
     const { accent: a, accentStrong: as_ } = hsvToAccent(h, s, sv);
-    onAccentChange({ h, s, v: sv, accent: a, accentStrong: as_ });
+    onAccentChange({ h, s, v: sv, sHsl, l, accent: a, accentStrong: as_ });
   }, [onAccentChange]);
 
   // 2D square drag

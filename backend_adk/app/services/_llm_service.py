@@ -29,17 +29,22 @@ try:
         def __init__(
             self,
             model: str,
-            project: str,
+            project: str | None,
             location: str,
             temperature: float,
             max_output_tokens: int,
             timeout: int,
+            api_key: str | None = None,
         ):
             self._model = model
             self._temperature = temperature
             self._max_output_tokens = max_output_tokens
             self._timeout = timeout
-            self._client = genai.Client(vertexai=True, project=project, location=location)
+            if api_key:
+                # API-key mode (AI Studio / local dev) — no project required
+                self._client = genai.Client(api_key=api_key)
+            else:
+                self._client = genai.Client(vertexai=True, project=project, location=location)
 
         def invoke(self, messages: List[Any]) -> _VertexResponse:
             system_parts: List[str] = []
@@ -85,24 +90,29 @@ class LLMService:
     def __init__(self):
         self.model_id = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        self.api_key = os.getenv("GOOGLE_API_KEY", "")
         self.location = os.getenv("GOOGLE_CLOUD_LOCATION", os.getenv("VERTEXAI_LOCATION", "us-central1"))
         self.timeout = int(os.getenv("ADK_TIMEOUT", "60"))
         self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
         self.max_new_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "900"))
         self.use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true"
-        self.enabled = bool(self.project_id and self.use_vertex and VERTEX_AVAILABLE)
+
+        # Enable if: Vertex AI project configured  OR  bare API key provided (local/AI Studio mode)
+        vertex_ok = bool(self.project_id and self.use_vertex and VERTEX_AVAILABLE)
+        apikey_ok  = bool(self.api_key and VERTEX_AVAILABLE)
+        self.enabled = vertex_ok or apikey_ok
         self.chat_model = None
         self.init_error = None
 
+        mode = "Vertex AI" if vertex_ok else ("API key" if apikey_ok else "disabled")
         logger.info(
-            f"Initializing LLM service: model={self.model_id}, "
+            f"Initializing LLM service: model={self.model_id}, mode={mode}, "
             f"temperature={self.temperature}, max_tokens={self.max_new_tokens}, "
             f"timeout={self.timeout}s, enabled={self.enabled}"
         )
 
         if self.enabled:
             try:
-                logger.debug(f"Connecting to Vertex AI model: {self.model_id}")
                 self.chat_model = _VertexChatModel(
                     model=self.model_id,
                     project=self.project_id,
@@ -110,15 +120,19 @@ class LLMService:
                     temperature=self.temperature,
                     max_output_tokens=self.max_new_tokens,
                     timeout=self.timeout,
+                    api_key=self.api_key if apikey_ok and not vertex_ok else None,
                 )
-                logger.info(f"LLM service initialized successfully with model: {self.model_id}")
+                logger.info(f"LLM service initialized: model={self.model_id}, mode={mode}")
             except Exception as exc:
                 self.chat_model = None
                 self.enabled = False
                 self.init_error = str(exc)
                 logger.error(f"Failed to initialize LLM service: {exc}", exc_info=True)
         else:
-            logger.warning("LLM service disabled - using fallback mode (Vertex config unavailable)")
+            logger.warning(
+                "LLM service disabled. Set GOOGLE_CLOUD_PROJECT (Vertex AI) or "
+                "GOOGLE_API_KEY (AI Studio) to enable."
+            )
 
     def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
         logger.info(f"Parsing project intake request (length={len(request_text)} chars)")

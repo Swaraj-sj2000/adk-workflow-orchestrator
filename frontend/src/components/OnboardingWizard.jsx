@@ -55,9 +55,8 @@ export default function OnboardingWizard({ currentUser, onComplete }) {
     <div style={overlay}>
       <div style={modal}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 40, lineHeight: 1 }}>{step.icon}</div>
-          <button onClick={handleSkip} style={skipBtn} title="Skip onboarding">✕</button>
         </div>
 
         {/* Content */}
@@ -106,6 +105,16 @@ export default function OnboardingWizard({ currentUser, onComplete }) {
           </span>
           <button onClick={handleNext} style={{ ...btnBase, background: 'var(--accent)', color: '#fff' }}>
             {isLast ? 'Get Started →' : 'Next →'}
+          </button>
+        </div>
+
+        {/* Skip link */}
+        <div style={{ textAlign: 'center', marginTop: 14 }}>
+          <button
+            onClick={handleSkip}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'underline', opacity: 0.7 }}
+          >
+            Skip for now — I'll explore on my own
           </button>
         </div>
       </div>

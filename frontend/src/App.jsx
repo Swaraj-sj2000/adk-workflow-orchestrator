@@ -14,6 +14,38 @@ import Settings from './components/Settings';
 import OnboardingWizard from './components/OnboardingWizard';
 import PlatformAssistant from './components/PlatformAssistant';
 
+function computeThemeVars(accent, isDark) {
+  const { h, sHsl, l } = accent;
+  const H = Math.round(h);
+  if (isDark) {
+    // In dark mode lighten the accent significantly (match existing dark palette behaviour)
+    const darkL = Math.min(0.78, l + 0.28);
+    const darkS = Math.min(1, sHsl * 0.85);
+    return {
+      '--accent':          `hsl(${H}, ${Math.round(darkS * 100)}%, ${Math.round(darkL * 100)}%)`,
+      '--accent-strong':   `hsl(${H}, ${Math.round(darkS * 100)}%, ${Math.round(Math.max(darkL - 0.13, 0.3) * 100)}%)`,
+      '--app-bg':          `hsl(${H}, 22%, 7%)`,
+      '--surface-card':    `hsl(${H}, 18%, 11%)`,
+      '--surface-soft':    `hsl(${H}, 16%, 14%)`,
+      '--surface-pill':    `hsl(${H}, 14%, 17%)`,
+      '--border-soft':     `hsl(${H}, 14%, 23%)`,
+      '--text-primary':    `hsl(${H}, 18%, 92%)`,
+      '--text-secondary':  `hsl(${H}, 10%, 63%)`,
+    };
+  }
+  return {
+    '--accent':          `hsl(${H}, ${Math.round(sHsl * 100)}%, ${Math.round(l * 100)}%)`,
+    '--accent-strong':   `hsl(${H}, ${Math.round(sHsl * 100)}%, ${Math.round(Math.max(l - 0.12, 0.25) * 100)}%)`,
+    '--app-bg':          `hsl(${H}, 20%, 95%)`,
+    '--surface-card':    `hsl(${H}, 10%, 99%)`,
+    '--surface-soft':    `hsl(${H}, 16%, 97%)`,
+    '--surface-pill':    `hsl(${H}, 26%, 91%)`,
+    '--border-soft':     `hsl(${H}, 20%, 85%)`,
+    '--text-primary':    `hsl(${H}, 30%, 14%)`,
+    '--text-secondary':  `hsl(${H}, 15%, 43%)`,
+  };
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -101,10 +133,7 @@ export default function App() {
     return <LoginPage setCurrentUser={setCurrentUser} />;
   }
 
-  const accentStyle = customAccent ? {
-    '--accent': customAccent.accent,
-    '--accent-strong': customAccent.accentStrong,
-  } : {};
+  const accentStyle = customAccent ? computeThemeVars(customAccent, theme === 'dark') : {};
 
   return (
     <div className={`app theme-${theme}`} style={accentStyle}>
