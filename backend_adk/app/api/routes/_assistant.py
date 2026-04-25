@@ -98,6 +98,35 @@ ROLE_TIPS: dict[str, list[str]] = {
 
 # ── Keyword fallback ──────────────────────────────────────────────────────────
 
+# Role-specific keyword answers checked first (before generic ones)
+ROLE_KEYWORD_ANSWERS: dict[str, list[tuple[list[str], str]]] = {
+    "platform_owner": [
+        (["subscription", "active", "expire", "expir", "billing status", "account status",
+          "check account", "check company", "is active", "still active", "grace", "trial period",
+          "when does", "how long", "days left", "time left", "renewal"],
+         "Go to the Owner Panel (top nav). Each company card shows its billing status badge — "
+         "Active (green), Expiring Soon (amber, ≤7 days), Grace Period (orange, auto-suspend countdown), "
+         "Expired (red), or Suspended. The card also shows the plan name, exact expiry date, and how many "
+         "days remain. A ⚠ banner appears when a company is in its grace window and will auto-suspend soon."),
+        (["mrr", "revenue", "how much", "total revenue", "platform revenue"],
+         "The Owner Panel top bar shows an MRR estimate calculated from all active paid subscriptions across every tenant. "
+         "Trial companies contribute ₹0; Starter ₹1,000/mo; Pro ₹833/mo (₹5,000/6mo); Enterprise ₹1,250/mo (₹15,000/yr)."),
+        (["all companies", "list companies", "how many companies", "all tenants", "list tenants", "see all"],
+         "The Owner Panel lists every registered company with their plan, user count, project count, billing status, "
+         "and subscription dates. Use the search bar at the top to filter by name."),
+    ],
+    "ceo": [
+        (["subscription", "billing", "plan", "payment", "upgrade"],
+         "Your company's subscription is managed by your admin. View your current plan and billing status in Settings → Billing. "
+         "To upgrade, contact your platform owner or go to Settings → Billing → Upgrade Plan."),
+    ],
+    "admin": [
+        (["subscription", "billing", "plan", "payment", "upgrade"],
+         "Manage your company's subscription in Settings → Billing. You can see your current plan, expiry date, "
+         "and upgrade to Starter, Pro, or Enterprise from there."),
+    ],
+}
+
 KEYWORD_ANSWERS: list[tuple[list[str], str]] = [
     (["suspend", "lock", "deactivate", "block company"],
      "To suspend a company: go to Owner Panel → find the company → click ⏸ Suspend. Enter the reason. The company's users are locked out immediately and the admin receives an email."),
@@ -134,8 +163,13 @@ KEYWORD_ANSWERS: list[tuple[list[str], str]] = [
 ]
 
 
-def _keyword_match(message: str) -> str | None:
+def _keyword_match(message: str, role: str = "") -> str | None:
     lower = message.lower()
+    # Check role-specific answers first (more precise)
+    for keywords, answer in ROLE_KEYWORD_ANSWERS.get(role, []):
+        if any(kw in lower for kw in keywords):
+            return answer
+    # Fall back to generic answers
     for keywords, answer in KEYWORD_ANSWERS:
         if any(kw in lower for kw in keywords):
             return answer
@@ -191,8 +225,8 @@ def assistant_chat(
     if llm_reply:
         return AssistantResponse(reply=llm_reply, source="llm")
 
-    # 2. Keyword match
-    kw_reply = _keyword_match(message)
+    # 2. Keyword match (role-aware)
+    kw_reply = _keyword_match(message, role)
     if kw_reply:
         return AssistantResponse(reply=kw_reply, source="keyword")
 
