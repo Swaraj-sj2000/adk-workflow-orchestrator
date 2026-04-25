@@ -10,8 +10,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from app.core._deps import get_current_user
+from app.core._deps import get_current_user, get_db
 from app.models._user import User
 
 router = APIRouter(tags=["Assistant"])
@@ -178,7 +179,7 @@ def _keyword_match(message: str, role: str = "") -> str | None:
 
 # ── LLM call ─────────────────────────────────────────────────────────────────
 
-def _llm_answer(message: str, role: str, user_name: str) -> str | None:
+def _llm_answer(message: str, role: str, user_name: str, live_context: str) -> str | None:
     try:
         from app.services._llm_service import LLMService
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -188,11 +189,19 @@ def _llm_answer(message: str, role: str, user_name: str) -> str | None:
             return None
 
         system = (
-            f"You are the intelligent assistant for AI Workforce Orchestrator, a B2B SaaS platform. "
-            f"The user's name is {user_name} and their role is '{role}'. "
-            f"Answer only questions about the platform features, navigation, and workflows. "
-            f"Be concise (2-4 sentences max). If asked something unrelated to the platform, politely redirect. "
-            f"\n\nPLATFORM KNOWLEDGE:\n{PLATFORM_OVERVIEW}"
+            f"You are the intelligent assistant embedded inside AI Workforce Orchestrator, "
+            f"a B2B SaaS platform for AI-powered workforce management.\n\n"
+            f"User: {user_name} | Role: {role}\n\n"
+            f"Your job is to help this user understand the platform, navigate it, interpret their own data, "
+            f"and take the right actions. You have access to their live account data below — use it to give "
+            f"specific, accurate answers about their actual projects, tasks, team, and billing status.\n\n"
+            f"Rules:\n"
+            f"- Only discuss things relevant to this platform or the user's account data\n"
+            f"- Never reveal data from other tenants or users outside this user's access scope\n"
+            f"- Be concise and direct (3-5 sentences). Use bullet points for lists\n"
+            f"- If asked something unrelated to the platform, politely redirect\n\n"
+            f"PLATFORM KNOWLEDGE (features, navigation, roles):\n{PLATFORM_OVERVIEW}\n\n"
+            f"LIVE ACCOUNT DATA (scoped to this user's access):\n{live_context}"
         )
         messages = [SystemMessage(content=system), HumanMessage(content=message)]
         return llm._invoke_text(messages)
@@ -215,17 +224,23 @@ class AssistantResponse(BaseModel):
 def assistant_chat(
     payload: AssistantRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
+    from app.services._assistant_context import build_context
+
     message  = payload.message.strip()
     role     = current_user.role
     name     = current_user.full_name or current_user.email.split("@")[0]
 
-    # 1. Try LLM
-    llm_reply = _llm_answer(message, role, name)
+    # 1. Build live context scoped to this user's role + tenant
+    live_context = build_context(db, current_user)
+
+    # 2. Try LLM with live context
+    llm_reply = _llm_answer(message, role, name, live_context)
     if llm_reply:
         return AssistantResponse(reply=llm_reply, source="llm")
 
-    # 2. Keyword match (role-aware)
+    # 3. Keyword match (role-aware) — fallback when LLM unavailable
     kw_reply = _keyword_match(message, role)
     if kw_reply:
         return AssistantResponse(reply=kw_reply, source="keyword")
