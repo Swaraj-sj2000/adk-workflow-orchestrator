@@ -10,6 +10,13 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     password = Column(String)
     full_name = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    secondary_email = Column(String, nullable=True)
+    position = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)   # base64 data-URL or external URL
     role = Column(String)  # platform_owner / ceo / admin / employee / client
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     password_reset_token = Column(String, nullable=True)

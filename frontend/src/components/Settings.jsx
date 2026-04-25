@@ -1,261 +1,553 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const majorTimezones = [
-  'UTC', 'Asia/Kolkata', 'Europe/London', 'Europe/Berlin', 'Europe/Paris',
-  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-  'America/Toronto', 'America/Sao_Paulo', 'Africa/Johannesburg', 'Asia/Dubai',
-  'Asia/Singapore', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Bangkok', 'Asia/Jakarta',
-  'Australia/Sydney', 'Pacific/Auckland',
+const TIMEZONES = [
+  'UTC','Asia/Kolkata','Asia/Dubai','Asia/Singapore','Asia/Tokyo','Asia/Seoul',
+  'Asia/Bangkok','Asia/Jakarta','Europe/London','Europe/Berlin','Europe/Paris',
+  'America/New_York','America/Chicago','America/Los_Angeles','America/Toronto',
+  'America/Sao_Paulo','Africa/Johannesburg','Australia/Sydney','Pacific/Auckland',
 ];
 
-export default function Settings({ currentUser, API_BASE_URL, initialTab = 'profile', onThemeChange, onTimezoneChange, onLogout }) {
-  const [activeTab, setActiveTab] = useState(initialTab);
-  const [profile, setProfile] = useState({ full_name: currentUser.full_name || '', timezone: 'UTC' });
-  const [preferences, setPreferences] = useState({
-    timezone: 'UTC',
-    theme: 'light',
-    language: 'en',
-    ceo_mode: false,
-    notification_density: 'all',
-    default_landing_page: currentUser.role === 'platform_owner' ? 'owner' : currentUser.role === 'ceo' ? 'ceo' : 'dashboard',
-    email_notifications: true,
-    weekly_digest: true,
-  });
-  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
-  const [supportForm, setSupportForm] = useState({ subject: '', body: '', priority: 'medium' });
-  const [message, setMessage] = useState('');
-  const [billingMessage, setBillingMessage] = useState('');
+const LOCATIONS = [
+  'Bangalore, India','Mumbai, India','Delhi, India','Hyderabad, India','Chennai, India',
+  'Pune, India','Kolkata, India','Ahmedabad, India','Jaipur, India',
+  'London, UK','Manchester, UK','Berlin, Germany','Paris, France','Amsterdam, Netherlands',
+  'Dubai, UAE','Singapore','Tokyo, Japan','Sydney, Australia','Toronto, Canada',
+  'New York, USA','San Francisco, USA','Seattle, USA','Austin, USA',
+  'Other',
+];
 
-  const token = localStorage.getItem('token');
-  const headers = useMemo(() => ({
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  }), [token]);
+const POSITIONS = [
+  'Software Engineer','Senior Software Engineer','Staff Engineer','Principal Engineer',
+  'Engineering Manager','VP of Engineering','CTO','Chief Technology Officer',
+  'Product Manager','Senior Product Manager','VP of Product','CPO',
+  'Data Scientist','ML Engineer','AI Engineer','Data Engineer',
+  'Designer','UX Designer','Product Designer','UI Developer',
+  'DevOps Engineer','SRE','Platform Engineer','Cloud Architect',
+  'Business Analyst','Project Manager','Delivery Manager','Scrum Master',
+  'Sales Manager','Account Executive','Customer Success Manager',
+  'Marketing Manager','Content Strategist',
+  'CEO','COO','CFO','Founder','Co-founder',
+  'Consultant','Freelancer','Intern','Associate',
+  'Other',
+];
 
+function EyeIcon({ open }) {
+  return open ? (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  ) : (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
+    </svg>
+  );
+}
+
+function PeekInput({ placeholder, value, onChange, autoComplete }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type={show ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        style={{ paddingRight: 40 }}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        style={{
+          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+          background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, padding: 2,
+        }}
+        tabIndex={-1}
+      >
+        <EyeIcon open={show} />
+      </button>
+    </div>
+  );
+}
+
+function AvatarUpload({ avatarUrl, onChange }) {
+  const inputRef = useRef();
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => onChange(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+  const initials = '?';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+      <div
+        onClick={() => inputRef.current.click()}
+        style={{
+          width: 80, height: 80, borderRadius: '50%', overflow: 'hidden',
+          border: '2px dashed var(--border-soft)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'var(--bg-soft, #f5f5f5)', flexShrink: 0,
+          position: 'relative',
+        }}
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <span style={{ fontSize: 28, opacity: 0.3 }}>{initials}</span>
+        )}
+        <div style={{
+          position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          opacity: 0, transition: 'opacity 0.2s',
+        }}
+          onMouseEnter={e => e.currentTarget.style.opacity = 1}
+          onMouseLeave={e => e.currentTarget.style.opacity = 0}
+        >
+          <span style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>Change</span>
+        </div>
+      </div>
+      <div>
+        <button className="btn btn-secondary" style={{ fontSize: 13 }} onClick={() => inputRef.current.click()}>
+          Upload Photo
+        </button>
+        {avatarUrl && (
+          <button className="btn btn-secondary" style={{ fontSize: 13, marginLeft: 8 }} onClick={() => onChange(null)}>
+            Remove
+          </button>
+        )}
+        <p style={{ fontSize: 12, opacity: 0.55, margin: '4px 0 0' }}>JPG or PNG, max 2 MB</p>
+      </div>
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFile} />
+    </div>
+  );
+}
+
+function PositionField({ value, onChange, API_BASE_URL, headers }) {
+  const [custom, setCustom] = useState(false);
+  const [customVal, setCustomVal] = useState('');
+  const [validating, setValidating] = useState(false);
+  const [validResult, setValidResult] = useState(null); // {valid, suggestion, reason}
+  const debounceRef = useRef(null);
+
+  // If the saved value isn't in our dropdown list, treat as custom
   useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
+    if (value && !POSITIONS.includes(value)) {
+      setCustom(true);
+      setCustomVal(value);
+    }
+  }, []);
+
+  const handleDropdown = (e) => {
+    const v = e.target.value;
+    if (v === 'Other') { setCustom(true); setCustomVal(''); onChange(''); }
+    else { setCustom(false); onChange(v); setValidResult(null); }
+  };
+
+  const handleCustom = (e) => {
+    const v = e.target.value;
+    setCustomVal(v);
+    setValidResult(null);
+    clearTimeout(debounceRef.current);
+    if (v.trim().length < 2) { onChange(v); return; }
+    debounceRef.current = setTimeout(async () => {
+      setValidating(true);
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/validate-position`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ position: v }),
+        });
+        const data = await res.json();
+        setValidResult(data);
+        if (data.valid) onChange(data.suggestion || v);
+      } catch { /* ignore */ }
+      setValidating(false);
+    }, 600);
+  };
+
+  const dropdownValue = custom ? 'Other' : (value || '');
+
+  return (
+    <div>
+      <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>
+        Position / Job Title
+      </label>
+      <select value={dropdownValue} onChange={handleDropdown} style={{ marginBottom: custom ? 8 : 0 }}>
+        <option value="">— Select position —</option>
+        {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+      </select>
+      {custom && (
+        <div>
+          <div style={{ position: 'relative' }}>
+            <input
+              value={customVal}
+              onChange={handleCustom}
+              placeholder="Type your position title…"
+              style={{
+                borderColor: validResult
+                  ? validResult.valid ? '#2e7d32' : '#e53935'
+                  : undefined,
+              }}
+            />
+            {validating && (
+              <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, opacity: 0.5 }}>
+                checking…
+              </span>
+            )}
+          </div>
+          {validResult && !validResult.valid && (
+            <p style={{ fontSize: 12, color: '#e53935', margin: '4px 0 0' }}>
+              {validResult.reason}
+              {validResult.suggestion && ` — did you mean "${validResult.suggestion}"?`}
+            </p>
+          )}
+          {validResult && validResult.valid && (
+            <p style={{ fontSize: 12, color: '#2e7d32', margin: '4px 0 0' }}>Looks good ✓</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Settings({ currentUser, API_BASE_URL, initialTab = 'profile', onThemeChange, onTimezoneChange, onLogout }) {
+  const [activeTab, setActiveTab]   = useState(initialTab);
+  const [profile, setProfile]       = useState({
+    first_name: '', last_name: '', phone: '', secondary_email: '',
+    position: '', location: '', avatar_url: null, timezone: 'UTC',
+  });
+  const [preferences, setPreferences] = useState({
+    timezone: 'UTC', theme: 'light', language: 'en', ceo_mode: false,
+    notification_density: 'all', default_landing_page: 'dashboard',
+    email_notifications: true, weekly_digest: true,
+  });
+  const [pwForm, setPwForm]         = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [supportForm, setSupportForm] = useState({ subject: '', body: '', priority: 'medium' });
+  const [msg, setMsg]               = useState('');
+  const [billingMsg, setBillingMsg] = useState('');
+  const [locationOther, setLocationOther] = useState(false);
+
+  const token   = localStorage.getItem('token');
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+
+  useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/settings/me`, { headers })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data) return;
+        const u = data.user;
         setProfile({
-          full_name: data.user.full_name || '',
-          timezone: data.preferences.timezone || 'UTC',
+          first_name:      u.first_name || '',
+          last_name:       u.last_name  || '',
+          phone:           u.phone      || '',
+          secondary_email: u.secondary_email || '',
+          position:        u.position   || '',
+          location:        u.location   || '',
+          avatar_url:      u.avatar_url || null,
+          timezone:        data.preferences.timezone || 'UTC',
         });
-        setPreferences((current) => ({
-          ...current,
-          ...data.preferences,
-        }));
+        if (u.location && !LOCATIONS.includes(u.location)) setLocationOther(true);
+        setPreferences((p) => ({ ...p, ...data.preferences }));
       });
   }, [API_BASE_URL]);
 
-  const updateProfile = async () => {
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
+
+  const saveProfile = async () => {
     const res = await fetch(`${API_BASE_URL}/settings/profile`, {
-      method: 'PATCH',
-      headers,
-      body: JSON.stringify(profile),
+      method: 'PATCH', headers, body: JSON.stringify(profile),
     });
     const data = await res.json();
-    if (res.ok) {
-      onTimezoneChange(data.preferences.timezone);
-      setMessage('Profile updated.');
-    } else {
-      setMessage(data.detail || 'Could not update profile.');
-    }
+    if (res.ok) { onTimezoneChange(data.preferences.timezone); flash('Profile saved.'); }
+    else flash(data.detail || 'Could not save profile.');
   };
 
-  const updatePreferences = async () => {
+  const savePreferences = async () => {
     const res = await fetch(`${API_BASE_URL}/settings/preferences`, {
-      method: 'PATCH',
-      headers,
-      body: JSON.stringify(preferences),
+      method: 'PATCH', headers, body: JSON.stringify(preferences),
     });
     const data = await res.json();
     if (res.ok) {
-      if (preferences.theme) onThemeChange(preferences.theme);
+      if (preferences.theme)    onThemeChange(preferences.theme);
       if (preferences.timezone) onTimezoneChange(preferences.timezone);
-      setMessage('Preferences saved.');
-    } else {
-      setMessage(data.detail || 'Could not save preferences.');
-    }
+      flash('Preferences saved.');
+    } else flash(data.detail || 'Could not save preferences.');
   };
 
   const changePassword = async () => {
-    if (passwordForm.new_password !== passwordForm.confirm_password) {
-      setMessage('New password and confirm password must match.');
-      return;
-    }
+    if (pwForm.new_password !== pwForm.confirm_password) { flash('Passwords do not match.'); return; }
     const res = await fetch(`${API_BASE_URL}/settings/change-password`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        current_password: passwordForm.current_password,
-        new_password: passwordForm.new_password,
-      }),
+      method: 'POST', headers,
+      body: JSON.stringify({ current_password: pwForm.current_password, new_password: pwForm.new_password }),
     });
     const data = await res.json();
-    setMessage(data.message || data.detail || 'Password update completed.');
+    flash(data.message || data.detail || 'Done.');
+    if (res.ok) setPwForm({ current_password: '', new_password: '', confirm_password: '' });
   };
 
   const submitSupport = async () => {
     const res = await fetch(`${API_BASE_URL}/settings/support`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(supportForm),
+      method: 'POST', headers, body: JSON.stringify(supportForm),
     });
     const data = await res.json();
-    if (res.ok) {
-      setMessage('Your ticket has been submitted. We\'ll respond to your email.');
-      setSupportForm({ subject: '', body: '', priority: 'medium' });
-    } else {
-      setMessage(data.detail || 'Could not submit support request.');
-    }
+    if (res.ok) { flash("Ticket submitted — we'll reply to your email."); setSupportForm({ subject: '', body: '', priority: 'medium' }); }
+    else flash(data.detail || 'Could not submit ticket.');
   };
 
   const exportData = async () => {
-    const res = await fetch(`${API_BASE_URL}/settings/export`, { headers });
+    const res  = await fetch(`${API_BASE_URL}/settings/export`, { headers });
     const data = await res.json();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'orchestrator-user-export.json';
-    anchor.click();
+    const url  = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    Object.assign(document.createElement('a'), { href: url, download: 'orchestrator-export.json' }).click();
     URL.revokeObjectURL(url);
   };
 
-  const startSubscription = async (planTier) => {
-    const res = await fetch(`${API_BASE_URL}/billing/subscribe`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ plan_tier: planTier }),
-    });
+  const startSubscription = async (plan) => {
+    const res  = await fetch(`${API_BASE_URL}/billing/subscribe`, { method: 'POST', headers, body: JSON.stringify({ plan_tier: plan }) });
     const data = await res.json();
-    if (data.checkout_url) {
-      window.open(data.checkout_url, '_blank');
-    } else {
-      setBillingMessage(data.detail || 'Billing checkout is unavailable.');
-    }
+    data.checkout_url ? window.open(data.checkout_url, '_blank') : setBillingMsg(data.detail || 'Unavailable.');
   };
 
   const openBillingPortal = async () => {
-    const res = await fetch(`${API_BASE_URL}/billing/portal`, { headers });
+    const res  = await fetch(`${API_BASE_URL}/billing/portal`, { headers });
     const data = await res.json();
-    if (data.url) {
-      window.open(data.url, '_blank');
-    } else {
-      setBillingMessage(data.detail || 'Billing portal is unavailable.');
-    }
+    data.url ? window.open(data.url, '_blank') : setBillingMsg(data.detail || 'Unavailable.');
   };
 
   const tabs = [
-    ['profile', 'Profile'],
-    ['preferences', 'Preferences'],
-    ['security', 'Security'],
-    ['support', 'Support'],
-    ['privacy', 'Data & Privacy'],
+    ['profile', 'Profile'], ['preferences', 'Preferences'],
+    ['security', 'Security'], ['support', 'Support'], ['privacy', 'Data & Privacy'],
   ];
-  if (currentUser.role === 'admin' || currentUser.role === 'ceo') {
-    tabs.push(['billing', 'Billing']);
-  }
+  if (['admin', 'ceo'].includes(currentUser.role)) tabs.push(['billing', 'Billing']);
+
+  const pSet = (field) => (e) => setProfile((p) => ({ ...p, [field]: e.target.value }));
 
   return (
     <div className="dashboard">
       <div className="card full-width">
         <p className="eyebrow">Settings</p>
-        <h2>Personalization and account controls</h2>
-        {message && <p>{message}</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, marginTop: 20 }}>
-          <div style={{ display: 'grid', gap: 10 }}>
+        <h2>Account &amp; Personalization</h2>
+        {msg && <p style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(46,125,50,0.1)', color: '#2e7d32', marginTop: 8 }}>{msg}</p>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 20, marginTop: 20 }}>
+          {/* Sidebar */}
+          <div style={{ display: 'grid', gap: 8, alignContent: 'start' }}>
             {tabs.map(([key, label]) => (
               <button key={key} className={`btn ${activeTab === key ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab(key)}>
                 {label}
               </button>
             ))}
           </div>
+
+          {/* Content */}
           <div className="card">
+
+            {/* ── PROFILE ─────────────────────────────────────── */}
             {activeTab === 'profile' && (
-              <div style={{ display: 'grid', gap: 12 }}>
-                <input value={profile.full_name} onChange={(e) => setProfile((current) => ({ ...current, full_name: e.target.value }))} placeholder="Full name" />
-                <input value={currentUser.email} readOnly />
-                <input value={currentUser.role} readOnly />
-                <select value={profile.timezone} onChange={(e) => setProfile((current) => ({ ...current, timezone: e.target.value }))}>
-                  {majorTimezones.map((timezone) => <option key={timezone} value={timezone}>{timezone}</option>)}
-                </select>
-                <button className="btn btn-primary" onClick={updateProfile}>Save Profile</button>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <AvatarUpload avatarUrl={profile.avatar_url} onChange={(v) => setProfile((p) => ({ ...p, avatar_url: v }))} />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>
+                      First Name <span style={{ color: '#e53935' }}>*</span>
+                    </label>
+                    <input value={profile.first_name} onChange={pSet('first_name')} placeholder="First name" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Last Name <span style={{ color: '#e53935' }}>*</span></label>
+                    <input value={profile.last_name} onChange={pSet('last_name')} placeholder="Last name" />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Primary Email</label>
+                  <input value={currentUser.email} readOnly style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+                  <p style={{ fontSize: 12, opacity: 0.5, margin: '4px 0 0' }}>Primary email cannot be changed here — contact support.</p>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Secondary Email</label>
+                  <input value={profile.secondary_email} onChange={pSet('secondary_email')} placeholder="secondary@email.com (optional)" type="email" />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Phone / Mobile</label>
+                  <input value={profile.phone} onChange={pSet('phone')} placeholder="+91 98765 43210" type="tel" />
+                </div>
+
+                <PositionField
+                  value={profile.position}
+                  onChange={(v) => setProfile((p) => ({ ...p, position: v }))}
+                  API_BASE_URL={API_BASE_URL}
+                  headers={headers}
+                />
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Location</label>
+                  <select
+                    value={locationOther ? 'Other' : (profile.location || '')}
+                    onChange={(e) => {
+                      if (e.target.value === 'Other') { setLocationOther(true); setProfile((p) => ({ ...p, location: '' })); }
+                      else { setLocationOther(false); setProfile((p) => ({ ...p, location: e.target.value })); }
+                    }}
+                    style={{ marginBottom: locationOther ? 8 : 0 }}
+                  >
+                    <option value="">— Select location —</option>
+                    {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                  {locationOther && (
+                    <input
+                      value={profile.location}
+                      onChange={pSet('location')}
+                      placeholder="Enter your city and country…"
+                    />
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Timezone</label>
+                  <select value={profile.timezone} onChange={pSet('timezone')}>
+                    {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Role</label>
+                  <input value={currentUser.role} readOnly style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+                </div>
+
+                <button
+                  className="btn btn-primary"
+                  disabled={!profile.first_name.trim() || !profile.last_name.trim()}
+                  onClick={saveProfile}
+                >
+                  Save Profile
+                </button>
               </div>
             )}
 
+            {/* ── PREFERENCES ─────────────────────────────────── */}
             {activeTab === 'preferences' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <select value={preferences.theme} onChange={(e) => setPreferences((current) => ({ ...current, theme: e.target.value }))}>
-                  <option value="light">Light</option>
-                  <option value="dark">Dark</option>
-                </select>
-                <select value={preferences.language} onChange={(e) => setPreferences((current) => ({ ...current, language: e.target.value }))}>
-                  <option value="en">English</option>
-                </select>
-                <select value={preferences.default_landing_page} onChange={(e) => setPreferences((current) => ({ ...current, default_landing_page: e.target.value }))}>
-                  <option value="dashboard">Dashboard</option>
-                  <option value="projects">Projects</option>
-                  {currentUser.role === 'ceo' && <option value="ceo">CEO Dashboard</option>}
-                  {currentUser.role === 'platform_owner' && <option value="owner">Owner Panel</option>}
-                </select>
-                <label><input type="checkbox" checked={preferences.email_notifications} onChange={(e) => setPreferences((current) => ({ ...current, email_notifications: e.target.checked }))} /> Email notifications</label>
-                <label><input type="checkbox" checked={preferences.weekly_digest} onChange={(e) => setPreferences((current) => ({ ...current, weekly_digest: e.target.checked }))} /> Weekly digest</label>
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Theme</label>
+                  <select value={preferences.theme} onChange={(e) => setPreferences((p) => ({ ...p, theme: e.target.value }))}>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                    <option value="ocean">Ocean</option>
+                    <option value="earth">Earth</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Language</label>
+                  <select value={preferences.language} onChange={(e) => setPreferences((p) => ({ ...p, language: e.target.value }))}>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Default Landing Page</label>
+                  <select value={preferences.default_landing_page} onChange={(e) => setPreferences((p) => ({ ...p, default_landing_page: e.target.value }))}>
+                    <option value="dashboard">Dashboard</option>
+                    <option value="projects">Projects</option>
+                    {currentUser.role === 'ceo' && <option value="ceo">CEO Dashboard</option>}
+                    {currentUser.role === 'platform_owner' && <option value="owner">Owner Panel</option>}
+                  </select>
+                </div>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={preferences.email_notifications} onChange={(e) => setPreferences((p) => ({ ...p, email_notifications: e.target.checked }))} />
+                  Email notifications
+                </label>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={preferences.weekly_digest} onChange={(e) => setPreferences((p) => ({ ...p, weekly_digest: e.target.checked }))} />
+                  Weekly digest email
+                </label>
                 {currentUser.role === 'ceo' && (
-                  <label><input type="checkbox" checked={preferences.ceo_mode} onChange={(e) => setPreferences((current) => ({ ...current, ceo_mode: e.target.checked }))} /> Technical View Access</label>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={preferences.ceo_mode} onChange={(e) => setPreferences((p) => ({ ...p, ceo_mode: e.target.checked }))} />
+                    Technical view (CEO mode)
+                  </label>
                 )}
-                <button className="btn btn-primary" onClick={updatePreferences}>Save Preferences</button>
+                <button className="btn btn-primary" onClick={savePreferences}>Save Preferences</button>
               </div>
             )}
 
+            {/* ── SECURITY ─────────────────────────────────────── */}
             {activeTab === 'security' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <input type="password" placeholder="Current password" value={passwordForm.current_password} onChange={(e) => setPasswordForm((current) => ({ ...current, current_password: e.target.value }))} />
-                <input type="password" placeholder="New password" value={passwordForm.new_password} onChange={(e) => setPasswordForm((current) => ({ ...current, new_password: e.target.value }))} />
-                <input type="password" placeholder="Confirm new password" value={passwordForm.confirm_password} onChange={(e) => setPasswordForm((current) => ({ ...current, confirm_password: e.target.value }))} />
-                <button className="btn btn-primary" onClick={changePassword}>Change Password</button>
+                <p className="eyebrow" style={{ marginBottom: 4 }}>Change Password</p>
+                <PeekInput placeholder="Current password" value={pwForm.current_password}
+                  onChange={(e) => setPwForm((p) => ({ ...p, current_password: e.target.value }))}
+                  autoComplete="current-password" />
+                <PeekInput placeholder="New password" value={pwForm.new_password}
+                  onChange={(e) => setPwForm((p) => ({ ...p, new_password: e.target.value }))}
+                  autoComplete="new-password" />
+                <PeekInput placeholder="Confirm new password" value={pwForm.confirm_password}
+                  onChange={(e) => setPwForm((p) => ({ ...p, confirm_password: e.target.value }))}
+                  autoComplete="new-password" />
+                {pwForm.confirm_password && pwForm.new_password !== pwForm.confirm_password && (
+                  <p style={{ fontSize: 13, color: '#e53935', margin: 0 }}>Passwords do not match.</p>
+                )}
+                <button
+                  className="btn btn-primary"
+                  disabled={!pwForm.current_password || !pwForm.new_password || pwForm.new_password !== pwForm.confirm_password}
+                  onClick={changePassword}
+                >
+                  Change Password
+                </button>
               </div>
             )}
 
+            {/* ── SUPPORT ──────────────────────────────────────── */}
             {activeTab === 'support' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <select value={supportForm.priority} onChange={(e) => setSupportForm((current) => ({ ...current, priority: e.target.value }))}>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="critical">Critical</option>
-                </select>
-                <input value={supportForm.subject} onChange={(e) => setSupportForm((current) => ({ ...current, subject: e.target.value }))} placeholder="Subject" />
-                <textarea value={supportForm.body} onChange={(e) => setSupportForm((current) => ({ ...current, body: e.target.value }))} placeholder="How can we help?" style={{ minHeight: 160 }} />
-                <button className="btn btn-primary" onClick={submitSupport}>Submit Ticket</button>
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Priority</label>
+                  <select value={supportForm.priority} onChange={(e) => setSupportForm((p) => ({ ...p, priority: e.target.value }))}>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <input value={supportForm.subject} onChange={(e) => setSupportForm((p) => ({ ...p, subject: e.target.value }))} placeholder="Subject" />
+                <textarea value={supportForm.body} onChange={(e) => setSupportForm((p) => ({ ...p, body: e.target.value }))} placeholder="How can we help?" style={{ minHeight: 160 }} />
+                <button className="btn btn-primary" disabled={!supportForm.subject.trim() || !supportForm.body.trim()} onClick={submitSupport}>
+                  Submit Ticket
+                </button>
               </div>
             )}
 
+            {/* ── PRIVACY ──────────────────────────────────────── */}
             {activeTab === 'privacy' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                <button className="btn btn-secondary" onClick={exportData}>Export My Data</button>
-                <button className="btn btn-danger" onClick={() => window.alert('Delete-account flow is not wired yet. Contact platform support.')}>Delete Account</button>
+                <button className="btn btn-secondary" onClick={exportData}>Export My Data (JSON)</button>
+                <button className="btn btn-danger" onClick={() => alert('Delete-account flow — contact platform support.')}>Delete Account</button>
                 <button className="btn btn-secondary" onClick={onLogout}>Logout</button>
               </div>
             )}
 
+            {/* ── BILLING ──────────────────────────────────────── */}
             {activeTab === 'billing' && (
               <div style={{ display: 'grid', gap: 12 }}>
-                {billingMessage && <p>{billingMessage}</p>}
-                <p>Upgrade or manage your workspace billing from here.</p>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={() => startSubscription('starter')}>Starter Plan</button>
-                  <button className="btn btn-primary" onClick={() => startSubscription('growth')}>Growth Plan</button>
-                  <button className="btn btn-primary" onClick={() => startSubscription('enterprise')}>Enterprise Plan</button>
+                {billingMsg && <p style={{ color: '#e53935' }}>{billingMsg}</p>}
+                <p style={{ opacity: 0.7 }}>Upgrade or manage your workspace plan.</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
+                  {[['starter','Starter — ₹1,000/mo'],['pro','Pro — ₹5,000/6mo'],['enterprise','Enterprise — ₹15,000/yr']].map(([tier, label]) => (
+                    <button key={tier} className="btn btn-primary" onClick={() => startSubscription(tier)}>{label}</button>
+                  ))}
                 </div>
-                <button className="btn btn-secondary" onClick={openBillingPortal}>Manage Billing</button>
+                <button className="btn btn-secondary" onClick={openBillingPortal}>Manage Billing Portal</button>
               </div>
             )}
+
           </div>
         </div>
       </div>

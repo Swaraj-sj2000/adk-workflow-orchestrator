@@ -79,13 +79,25 @@ class SettingsService:
 
     @classmethod
     def update_profile(cls, db: Session, user: User, updates: dict) -> User:
-        full_name = updates.get("full_name")
-        timezone_value = updates.get("timezone")
+        str_fields = ["first_name", "last_name", "full_name", "phone",
+                      "secondary_email", "position", "location", "avatar_url"]
+        changed = False
+        for field in str_fields:
+            value = updates.get(field)
+            if value is not None:
+                setattr(user, field, value.strip() if isinstance(value, str) else value)
+                changed = True
 
-        if full_name is not None:
-            user.full_name = full_name.strip()
+        # Auto-build full_name from first/last if not explicitly supplied
+        if updates.get("full_name") is None and (updates.get("first_name") or updates.get("last_name")):
+            first = user.first_name or ""
+            last  = user.last_name or ""
+            user.full_name = f"{first} {last}".strip()
+
+        if changed:
             db.add(user)
 
+        timezone_value = updates.get("timezone")
         if timezone_value is not None:
             cls.update_preferences(db, user.id, {"timezone": timezone_value})
         else:

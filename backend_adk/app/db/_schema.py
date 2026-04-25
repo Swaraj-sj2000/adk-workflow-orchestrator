@@ -6,14 +6,19 @@ ADDITIVE_COLUMNS = {
         "tenant_id": "INTEGER",
         "password_reset_token": "VARCHAR",
         "password_reset_expires": "DATETIME",
-        # Email verification — DEFAULT 1 so existing rows are treated as already verified
         "email_verified": "INTEGER DEFAULT 1",
         "email_verify_token": "VARCHAR",
-        # 2FA
         "totp_secret": "VARCHAR",
         "totp_enabled": "INTEGER DEFAULT 0",
-        # Soft delete
         "deleted_at": "DATETIME",
+        # Extended profile
+        "first_name": "VARCHAR",
+        "last_name": "VARCHAR",
+        "phone": "VARCHAR",
+        "secondary_email": "VARCHAR",
+        "position": "VARCHAR",
+        "location": "VARCHAR",
+        "avatar_url": "TEXT",
     },
     "projects": {
         "tenant_id": "INTEGER",

@@ -261,24 +261,27 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
                     )}
                   </div>
 
-                  {/* Action buttons */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 100 }}>
-                    <button
-                      className="btn btn-secondary"
-                      disabled={!t.suspended || isLoading}
-                      onClick={() => activateTenant(t.tenant_id)}
-                      title={!t.suspended ? 'Already active' : 'Reactivate this company'}
-                    >
-                      Activate
-                    </button>
-                    <button
-                      className="btn btn-danger"
-                      disabled={t.suspended || isLoading}
-                      onClick={() => setSuspendModal({ tenantId: t.tenant_id, tenantName: t.tenant_name })}
-                      title={t.suspended ? 'Already suspended' : 'Suspend this company'}
-                    >
-                      Suspend
-                    </button>
+                  {/* Single toggle button */}
+                  <div style={{ minWidth: 110 }}>
+                    {t.suspended ? (
+                      <button
+                        className="btn btn-secondary"
+                        disabled={isLoading}
+                        onClick={() => activateTenant(t.tenant_id)}
+                        style={{ width: '100%', borderColor: '#2e7d32', color: '#2e7d32' }}
+                      >
+                        {isLoading ? '…' : '▶ Activate'}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-danger"
+                        disabled={isLoading}
+                        onClick={() => setSuspendModal({ tenantId: t.tenant_id, tenantName: t.tenant_name })}
+                        style={{ width: '100%' }}
+                      >
+                        {isLoading ? '…' : '⏸ Suspend'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

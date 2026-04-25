@@ -34,8 +34,15 @@ class UserPreferencesRead(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    full_name: str | None = Field(default=None, min_length=2, max_length=120)
-    timezone: str | None = None
+    first_name: str | None      = Field(default=None, min_length=1, max_length=60)
+    last_name: str | None       = Field(default=None, min_length=1, max_length=60)
+    full_name: str | None       = Field(default=None, min_length=2, max_length=120)
+    phone: str | None           = Field(default=None, max_length=20)
+    secondary_email: str | None = Field(default=None, max_length=254)
+    position: str | None        = Field(default=None, max_length=120)
+    location: str | None        = Field(default=None, max_length=120)
+    avatar_url: str | None      = Field(default=None, max_length=2_000_000)
+    timezone: str | None        = None
 
 
 class PasswordChange(BaseModel):
