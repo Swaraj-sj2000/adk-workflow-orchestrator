@@ -1,18 +1,20 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import './Navbar.css';
+import ColorPicker from './ColorPicker';
 
 export default function Navbar({
   user,
   onLogout,
   setPage,
   theme,
-  palette,
-  onChangePalette,
   onToggleTheme,
   onOpenSettings,
+  customAccent,
+  onAccentChange,
 }) {
   const role = user?.role;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const navItems = useMemo(() => {
     if (role === 'platform_owner') {
@@ -70,14 +72,34 @@ export default function Navbar({
         >
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
-        <label className="palette-picker">
-          <span>Palette</span>
-          <select value={palette} onChange={(event) => onChangePalette(event.target.value)}>
-            <option value="sage">Sage</option>
-            <option value="ocean">Ocean</option>
-            <option value="sunset">Sunset</option>
-          </select>
-        </label>
+        <div style={{ position: 'relative' }}>
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={() => setPickerOpen((o) => !o)}
+            data-tooltip="Colour palette"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 13, fontWeight: 600, padding: '6px 12px',
+            }}
+          >
+            <span style={{
+              width: 16, height: 16, borderRadius: '50%',
+              background: customAccent?.accent || 'var(--accent)',
+              display: 'inline-block', flexShrink: 0,
+              border: '2px solid rgba(255,255,255,0.4)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+            Palette
+          </button>
+          {pickerOpen && (
+            <ColorPicker
+              currentAccent={customAccent}
+              onAccentChange={(v) => { onAccentChange(v); }}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
+        </div>
         <div className="avatar-menu">
           <button className="avatar-btn" onClick={() => setMenuOpen((current) => !current)}
             style={{ overflow: 'hidden', padding: user?.avatar_url ? 0 : undefined }}>

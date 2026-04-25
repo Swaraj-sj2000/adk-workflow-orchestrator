@@ -19,7 +19,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
   const [theme, setTheme] = useState('light');
-  const [palette, setPalette] = useState('sage');
+  const [customAccent, setCustomAccent] = useState(null); // { h, s, v, accent, accentStrong }
   const [userTimezone, setUserTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [settingsTab, setSettingsTab] = useState('profile');
   const [onboardingComplete, setOnboardingComplete] = useState(true);
@@ -31,10 +31,10 @@ export default function App() {
     if (storedTheme === 'dark' || storedTheme === 'light') {
       setTheme(storedTheme);
     }
-    const storedPalette = localStorage.getItem('palette');
-    if (storedPalette) {
-      setPalette(storedPalette);
-    }
+    try {
+      const storedAccent = localStorage.getItem('customAccent');
+      if (storedAccent) setCustomAccent(JSON.parse(storedAccent));
+    } catch (_) {}
   }, []);
 
   useEffect(() => {
@@ -74,9 +74,13 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('theme', theme);
-      localStorage.setItem('palette', palette);
     }
-  }, [theme, palette, currentUser]);
+  }, [theme, currentUser]);
+
+  const handleAccentChange = (v) => {
+    setCustomAccent(v);
+    localStorage.setItem('customAccent', JSON.stringify(v));
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -97,17 +101,22 @@ export default function App() {
     return <LoginPage setCurrentUser={setCurrentUser} />;
   }
 
+  const accentStyle = customAccent ? {
+    '--accent': customAccent.accent,
+    '--accent-strong': customAccent.accentStrong,
+  } : {};
+
   return (
-    <div className={`app theme-${theme} palette-${palette}`}>
+    <div className={`app theme-${theme}`} style={accentStyle}>
       <Navbar
         user={currentUser}
         onLogout={handleLogout}
         setPage={setCurrentPage}
         theme={theme}
-        palette={palette}
-        onChangePalette={setPalette}
         onToggleTheme={toggleTheme}
         onOpenSettings={handleSettingsOpen}
+        customAccent={customAccent}
+        onAccentChange={handleAccentChange}
       />
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
