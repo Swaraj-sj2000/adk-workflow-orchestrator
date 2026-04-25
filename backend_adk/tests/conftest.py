@@ -1,4 +1,7 @@
 """Shared pytest fixtures — in-memory SQLite database, test client."""
+import asyncio
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -11,6 +14,16 @@ TEST_DATABASE_URL = "sqlite:///./test_app.db"
 
 engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_scheduler():
+    """Stop the background scheduler loop from running during tests."""
+    async def _noop(*args, **kwargs):
+        await asyncio.sleep(9999)
+
+    with patch("app.services._scheduler_service.SchedulerService.run_scheduler_loop", side_effect=_noop):
+        yield
 
 
 @pytest.fixture(scope="session", autouse=True)

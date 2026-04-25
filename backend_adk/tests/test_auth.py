@@ -92,7 +92,7 @@ class TestPasswordReset:
         assert resp.status_code == 200
 
     def test_reset_with_invalid_token_fails(self, client):
-        resp = client.post("/auth/reset-password", json={"token": "bad", "new_password": "NewPass1!"})
+        resp = client.post("/auth/reset-password", json={"token": "badtoken99", "new_password": "NewPass1!"})
         assert resp.status_code == 400
 
 

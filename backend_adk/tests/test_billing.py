@@ -10,6 +10,11 @@ from app.models._tenant import Tenant
 from app.models._tenant_settings import TenantSettings
 from app.services._stripe_service import StripeService
 
+_STRIPE_SETTINGS = {
+    "STRIPE_SECRET_KEY": "sk_test_dummy",
+    "STRIPE_WEBHOOK_SECRET": "whsec_dummy",
+}
+
 
 @pytest.fixture()
 def tenant(db: Session) -> Tenant:
@@ -78,7 +83,10 @@ class TestStripeWebhookHandling:
         db.commit()
 
         _, event = self._build_event("invoice.paid", "cus_test123", {"period_end": 9999999999})
-        with patch.object(StripeService, "_stripe") as mock_stripe:
+        with (
+            patch.object(StripeService, "_stripe") as mock_stripe,
+            patch.multiple("app.services._stripe_service.settings", **_STRIPE_SETTINGS),
+        ):
             mock_stripe.return_value.Webhook.construct_event.return_value = event
             StripeService.handle_stripe_webhook(b"payload", "sig", db)
 
@@ -93,6 +101,7 @@ class TestStripeWebhookHandling:
         with (
             patch.object(StripeService, "_stripe") as mock_stripe,
             patch.object(StripeService, "_tenant_admins", return_value=[]),
+            patch.multiple("app.services._stripe_service.settings", **_STRIPE_SETTINGS),
         ):
             mock_stripe.return_value.Webhook.construct_event.return_value = event
             StripeService.handle_stripe_webhook(b"payload", "sig", db)
@@ -106,6 +115,7 @@ class TestStripeWebhookHandling:
         with (
             patch.object(StripeService, "_stripe") as mock_stripe,
             patch.object(StripeService, "_tenant_admins", return_value=[]),
+            patch.multiple("app.services._stripe_service.settings", **_STRIPE_SETTINGS),
         ):
             mock_stripe.return_value.Webhook.construct_event.return_value = event
             StripeService.handle_stripe_webhook(b"payload", "sig", db)
@@ -116,7 +126,10 @@ class TestStripeWebhookHandling:
 
     def test_unknown_customer_is_ignored(self, db: Session):
         _, event = self._build_event("invoice.paid", "cus_unknown999")
-        with patch.object(StripeService, "_stripe") as mock_stripe:
+        with (
+            patch.object(StripeService, "_stripe") as mock_stripe,
+            patch.multiple("app.services._stripe_service.settings", **_STRIPE_SETTINGS),
+        ):
             mock_stripe.return_value.Webhook.construct_event.return_value = event
             # Should not raise
             StripeService.handle_stripe_webhook(b"payload", "sig", db)
