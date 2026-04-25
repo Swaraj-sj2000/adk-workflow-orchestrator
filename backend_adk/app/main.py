@@ -38,6 +38,7 @@ from app.api.routes import _owner as _owner_routes
 from app.api.routes import _settings as _settings_routes
 from app.api.routes import _billing as _billing_routes
 from app.api.routes import _integrations as _integrations_routes
+from app.api.routes import _assistant as _assistant_routes
 from app.services._auth_service import bootstrap_tenant_data
 from app.services._scheduler_service import SchedulerService
 
@@ -182,6 +183,7 @@ app.include_router(_owner_routes.router, prefix="/owner")
 app.include_router(_settings_routes.router, prefix="/settings")
 app.include_router(_billing_routes.router, prefix="/billing")
 app.include_router(_integrations_routes.router)
+app.include_router(_assistant_routes.router, prefix="/assistant")
 
 
 @app.get("/")

@@ -44,6 +44,7 @@ def get_me(
             "default_landing_page": preferences.default_landing_page,
             "email_notifications": preferences.email_notifications,
             "weekly_digest": preferences.weekly_digest,
+            "onboarding_complete": getattr(preferences, "onboarding_complete", False),
         },
     }
 

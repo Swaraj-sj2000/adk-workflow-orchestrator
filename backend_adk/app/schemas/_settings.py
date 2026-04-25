@@ -14,6 +14,7 @@ class UserPreferencesUpdate(BaseModel):
     default_landing_page: str | None = None
     email_notifications: bool | None = None
     weekly_digest: bool | None = None
+    onboarding_complete: bool | None = None
 
 
 class UserPreferencesRead(BaseModel):

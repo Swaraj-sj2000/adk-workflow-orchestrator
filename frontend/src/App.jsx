@@ -11,6 +11,8 @@ import MultiAgentWorkbench from './components/MultiAgentWorkbench';
 import CEODashboard from './components/CEODashboard';
 import OwnerPanel from './components/OwnerPanel';
 import Settings from './components/Settings';
+import OnboardingWizard from './components/OnboardingWizard';
+import PlatformAssistant from './components/PlatformAssistant';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -20,6 +22,7 @@ export default function App() {
   const [palette, setPalette] = useState('sage');
   const [userTimezone, setUserTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [settingsTab, setSettingsTab] = useState('profile');
+  const [onboardingComplete, setOnboardingComplete] = useState(true);
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -50,6 +53,7 @@ export default function App() {
         if (data.preferences.timezone) {
           setUserTimezone(data.preferences.timezone);
         }
+        setOnboardingComplete(!!data.preferences.onboarding_complete);
         if (currentUser.role === 'platform_owner') {
           setCurrentPage('owner');
         } else if (currentUser.role === 'ceo') {
@@ -134,6 +138,15 @@ export default function App() {
           />
         )}
       </div>
+
+      {!onboardingComplete && (
+        <OnboardingWizard
+          currentUser={currentUser}
+          onComplete={() => setOnboardingComplete(true)}
+        />
+      )}
+
+      <PlatformAssistant currentUser={currentUser} />
     </div>
   );
 }

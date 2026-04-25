@@ -20,7 +20,8 @@ class UserPreferences(Base):
     weekly_digest = Column(Boolean, nullable=False, default=True)
     # Google integrations
     google_calendar_connected = Column(Boolean, nullable=False, default=False)
-    google_calendar_token = Column(JSON, nullable=True)  # encrypted OAuth token blob
+    google_calendar_token = Column(JSON, nullable=True)
     google_calendar_email = Column(String, nullable=True)
+    onboarding_complete = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
