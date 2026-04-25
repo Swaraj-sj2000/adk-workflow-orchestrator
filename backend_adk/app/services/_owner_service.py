@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.core._plans import PLAN_CONFIG, get_plan
 from app.models._platform_audit_log import PlatformAuditLog
 from app.models._project import Project
 from app.models._support_ticket import SupportTicket
@@ -16,10 +17,8 @@ from app.services._email_service import EmailService
 
 
 PLAN_MRR_ESTIMATES = {
-    "trial": 0.0,
-    "starter": 99.0,
-    "growth": 299.0,
-    "enterprise": 999.0,
+    tier: (cfg["price_inr"] / (cfg["billing_days"] / 30))
+    for tier, cfg in PLAN_CONFIG.items()
 }
 
 
@@ -89,33 +88,69 @@ class OwnerService:
                 default=None,
             )
 
+            tier = tenant_settings.plan_tier if tenant_settings else "trial"
+            plan = get_plan(tier)
+            now = cls._now()
+
+            sub_expires = tenant_settings.subscription_expires_at if tenant_settings else None
+            grace_ends  = tenant_settings.grace_period_ends_at if tenant_settings else None
+            suspended   = tenant_settings.suspended if tenant_settings else False
+
+            if suspended:
+                billing_status = "suspended"
+            elif sub_expires and sub_expires < now:
+                if grace_ends and grace_ends >= now:
+                    billing_status = "grace_period"
+                else:
+                    billing_status = "expired"
+            elif sub_expires:
+                days_left = (sub_expires - now).days
+                billing_status = "expiring_soon" if days_left <= 7 else "active"
+            else:
+                billing_status = "active"
+
             payload.append(
                 {
                     "tenant_id": tenant.id,
                     "tenant_name": tenant.name,
                     "tenant_slug": tenant.slug,
-                    "plan_tier": tenant_settings.plan_tier if tenant_settings else "trial",
-                    "suspended": tenant_settings.suspended if tenant_settings else False,
+                    # plan
+                    "plan_tier": tier,
+                    "plan_display_name": plan["display_name"],
+                    "price_inr": plan["price_inr"],
+                    "billing_days": plan["billing_days"],
+                    "max_teams": plan["max_teams"],
+                    "max_projects": plan["max_projects"],
+                    "max_users": plan["max_users"],
+                    "max_ai_calls": plan["max_ai_calls"],
+                    # billing state
+                    "billing_status": billing_status,
+                    "subscription_expires_at": sub_expires.isoformat() if sub_expires else None,
+                    "grace_period_ends_at": grace_ends.isoformat() if grace_ends else None,
+                    "next_billing_date": (
+                        tenant_settings.next_billing_date.isoformat()
+                        if tenant_settings and tenant_settings.next_billing_date else None
+                    ),
+                    # suspension
+                    "suspended": suspended,
                     "suspension_reason": tenant_settings.suspension_reason if tenant_settings else None,
+                    "suspended_at": (
+                        tenant_settings.suspended_at.isoformat()
+                        if tenant_settings and tenant_settings.suspended_at else None
+                    ),
+                    # users / projects
                     "user_count": len(tenant_users),
-                    "admin_count": sum(1 for user in tenant_users if user.role == "admin"),
-                    "employee_count": sum(1 for user in tenant_users if user.role == "employee"),
-                    "client_count": sum(1 for user in tenant_users if user.role == "client"),
+                    "admin_count": sum(1 for u in tenant_users if u.role == "admin"),
+                    "employee_count": sum(1 for u in tenant_users if u.role == "employee"),
+                    "client_count": sum(1 for u in tenant_users if u.role == "client"),
                     "project_count": len(tenant_projects),
                     "active_project_count": sum(
-                        1 for project in tenant_projects if project.status not in {"completed", "cancelled"}
+                        1 for p in tenant_projects if p.status not in {"completed", "cancelled"}
                     ),
-                    "stripe_customer_id": tenant_settings.stripe_customer_id if tenant_settings else None,
-                    "next_billing_date": tenant_settings.next_billing_date.isoformat()
-                    if tenant_settings and tenant_settings.next_billing_date
-                    else None,
+                    "admin_emails": [u.email for u in tenant_users if u.role in {"admin", "ceo"}],
                     "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
                     "last_active_at": (last_project_activity or tenant.created_at).isoformat()
-                    if (last_project_activity or tenant.created_at)
-                    else None,
-                    "admin_emails": [
-                        admin.email for admin in tenant_users if admin.role in {"admin", "ceo"}
-                    ],
+                    if (last_project_activity or tenant.created_at) else None,
                 }
             )
         return payload

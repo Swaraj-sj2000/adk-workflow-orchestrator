@@ -196,8 +196,11 @@ class StripeService:
 
     @classmethod
     def check_and_enforce_grace_periods(cls, db: Session) -> None:
+        from app.core._plans import get_plan
         now = cls._now()
-        due_tenants = (
+
+        # 1. Grace period expired after payment failure → suspend
+        grace_due = (
             db.query(TenantSettings)
             .filter(
                 TenantSettings.grace_period_ends_at.isnot(None),
@@ -206,16 +209,54 @@ class StripeService:
             )
             .all()
         )
-        for tenant_settings in due_tenants:
-            tenant_settings.suspended = True
-            tenant_settings.suspension_reason = "payment_failed"
-            db.add(tenant_settings)
-            tenant_name = cls._tenant_name(db, tenant_settings.tenant_id)
-            for admin in cls._tenant_admins(db, tenant_settings.tenant_id):
-                EmailService.send_suspension_email(
-                    to_email=admin.email,
-                    company_name=tenant_name,
-                )
+        for ts in grace_due:
+            ts.suspended = True
+            ts.suspension_reason = "payment_failed"
+            ts.suspended_at = now
+            db.add(ts)
+            tenant_name = cls._tenant_name(db, ts.tenant_id)
+            for admin in cls._tenant_admins(db, ts.tenant_id):
+                EmailService.send_suspension_email(to_email=admin.email, company_name=tenant_name)
+
+        # 2. Subscription expired with no grace period (trial) → suspend immediately
+        #    Subscription expired with grace period → open grace window if not already open
+        sub_expired = (
+            db.query(TenantSettings)
+            .filter(
+                TenantSettings.subscription_expires_at.isnot(None),
+                TenantSettings.subscription_expires_at < now,
+                TenantSettings.suspended.is_(False),
+                TenantSettings.grace_period_ends_at.is_(None),
+            )
+            .all()
+        )
+        for ts in sub_expired:
+            plan = get_plan(ts.plan_tier)
+            grace_days = plan["grace_days"]
+            tenant_name = cls._tenant_name(db, ts.tenant_id)
+            if grace_days == 0:
+                ts.suspended = True
+                ts.suspension_reason = "subscription_expired"
+                ts.suspended_at = now
+                db.add(ts)
+                for admin in cls._tenant_admins(db, ts.tenant_id):
+                    EmailService.send_suspension_email(to_email=admin.email, company_name=tenant_name)
+            else:
+                ts.grace_period_ends_at = now + timedelta(days=grace_days)
+                db.add(ts)
+                for admin in cls._tenant_admins(db, ts.tenant_id):
+                    EmailService.send_email(
+                        to_email=admin.email,
+                        subject="Subscription expired — action required",
+                        html_body=(
+                            f"<p>Hi,</p><p>Your subscription for <strong>{tenant_name}</strong> has expired. "
+                            f"You have a <strong>{grace_days}-day grace period</strong> to renew before your "
+                            f"account is suspended.</p><p>Grace period ends: {ts.grace_period_ends_at.strftime('%d %b %Y')}</p>"
+                        ),
+                        tenant_id=ts.tenant_id,
+                        template_name="subscription_expired",
+                    )
+
         db.commit()
 
     @classmethod

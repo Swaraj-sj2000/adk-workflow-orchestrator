@@ -437,9 +437,10 @@ def seed_tenant_a(db):
         plan_tier="pro", suspended=False,
         stripe_customer_id="cus_seed_orchestrateco",
         stripe_subscription_id="sub_seed_orchestrateco",
-        stripe_plan_id="price_pro_monthly",
-        next_billing_date=datetime.utcnow() + timedelta(days=22),
-        max_users=50, max_projects=20, max_ai_calls_per_month=500,
+        stripe_plan_id="price_pro_6month",
+        subscription_expires_at=datetime.utcnow() + timedelta(days=162),  # ~5.5 months left
+        next_billing_date=datetime.utcnow() + timedelta(days=162),
+        max_teams=-1, max_users=-1, max_projects=-1, max_ai_calls_per_month=5000,
     )
 
     ceo, ceo_created = _upsert_user(
@@ -499,8 +500,11 @@ def seed_tenant_b(db):
         plan_tier="starter", suspended=False,
         stripe_customer_id="cus_seed_globaltech",
         stripe_subscription_id="sub_seed_globaltech",
-        grace_period_ends_at=datetime.utcnow() + timedelta(days=3),
-        max_users=10, max_projects=5,
+        # Expired 2 days ago → in 7-day grace period (auto-suspend demo)
+        subscription_expires_at=datetime.utcnow() - timedelta(days=2),
+        grace_period_ends_at=datetime.utcnow() + timedelta(days=5),
+        next_billing_date=datetime.utcnow() + timedelta(days=5),
+        max_teams=10, max_users=25, max_projects=20, max_ai_calls_per_month=500,
     )
     admin, admin_created = _upsert_user(db, **ADMIN_B, tenant_id=tenant.id)
     if admin_created:

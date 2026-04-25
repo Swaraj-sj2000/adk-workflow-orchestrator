@@ -37,6 +37,10 @@ ADDITIVE_COLUMNS = {
         "google_calendar_token": "TEXT",
         "google_calendar_email": "VARCHAR",
     },
+    "tenant_settings": {
+        "max_teams": "INTEGER DEFAULT 1",
+        "subscription_expires_at": "DATETIME",
+    },
 }
 
 
