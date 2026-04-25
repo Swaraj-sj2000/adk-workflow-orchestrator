@@ -131,11 +131,14 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
         }}>
           <div style={{
-            background: 'var(--card-bg,#fff)', borderRadius: 16, padding: 28,
-            width: 440, maxWidth: '90vw', boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            background: 'var(--surface-card)', color: 'var(--text-primary)',
+            borderRadius: 16, padding: 28,
+            width: 440, maxWidth: '90vw',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.45)',
+            border: '1px solid var(--border-soft)',
           }}>
-            <h3 style={{ marginBottom: 6 }}>Suspend {suspendModal.tenantName}?</h3>
-            <p style={{ opacity: 0.65, fontSize: 14, marginBottom: 16 }}>
+            <h3 style={{ marginBottom: 6, color: 'var(--text-primary)' }}>Suspend {suspendModal.tenantName}?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 16 }}>
               All users in this company will be locked out immediately and notified by email.
             </p>
             <textarea
@@ -143,7 +146,12 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
               placeholder="Reason for suspension (required)…"
               value={suspendReason}
               onChange={(e) => setSuspendReason(e.target.value)}
-              style={{ width: '100%', minHeight: 90, marginBottom: 16 }}
+              style={{
+                width: '100%', minHeight: 90, marginBottom: 16,
+                background: 'var(--surface-soft)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-soft)',
+              }}
             />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setSuspendModal(null)}>Cancel</button>

@@ -215,12 +215,14 @@ function PositionField({ value, onChange, API_BASE_URL, headers }) {
   );
 }
 
-export default function Settings({ currentUser, API_BASE_URL, initialTab = 'profile', onThemeChange, onTimezoneChange, onLogout }) {
+export default function Settings({ currentUser, API_BASE_URL, initialTab = 'profile', onThemeChange, onTimezoneChange, onLogout, onProfileUpdate }) {
   const [activeTab, setActiveTab]   = useState(initialTab);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [profile, setProfile]       = useState({
     first_name: '', last_name: '', phone: '', secondary_email: '',
     position: '', location: '', avatar_url: null, timezone: 'UTC',
   });
+  const [savedProfile, setSavedProfile] = useState(null); // what came from server
   const [preferences, setPreferences] = useState({
     timezone: 'UTC', theme: 'light', language: 'en', ceo_mode: false,
     notification_density: 'all', default_landing_page: 'dashboard',
@@ -237,26 +239,42 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
 
   useEffect(() => { setActiveTab(initialTab); }, [initialTab]);
 
-  useEffect(() => {
+  const loadProfile = () => {
     fetch(`${API_BASE_URL}/settings/me`, { headers })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data) return;
         const u = data.user;
-        setProfile({
-          first_name:      u.first_name || '',
-          last_name:       u.last_name  || '',
+
+        // Fall back: split full_name into first/last if the new columns are empty
+        let firstName = u.first_name || '';
+        let lastName  = u.last_name  || '';
+        if (!firstName && !lastName && u.full_name) {
+          const parts = u.full_name.trim().split(/\s+/);
+          firstName = parts[0] || '';
+          lastName  = parts.slice(1).join(' ') || '';
+        }
+
+        const loaded = {
+          first_name:      firstName,
+          last_name:       lastName,
           phone:           u.phone      || '',
           secondary_email: u.secondary_email || '',
           position:        u.position   || '',
           location:        u.location   || '',
           avatar_url:      u.avatar_url || null,
           timezone:        data.preferences.timezone || 'UTC',
-        });
+          email:           u.email,
+          role:            u.role,
+        };
+        setProfile(loaded);
+        setSavedProfile(loaded);
         if (u.location && !LOCATIONS.includes(u.location)) setLocationOther(true);
         setPreferences((p) => ({ ...p, ...data.preferences }));
       });
-  }, [API_BASE_URL]);
+  };
+
+  useEffect(() => { loadProfile(); }, [API_BASE_URL]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
 
@@ -265,8 +283,21 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
       method: 'PATCH', headers, body: JSON.stringify(profile),
     });
     const data = await res.json();
-    if (res.ok) { onTimezoneChange(data.preferences.timezone); flash('Profile saved.'); }
-    else flash(data.detail || 'Could not save profile.');
+    if (res.ok) {
+      onTimezoneChange(data.preferences.timezone);
+      if (onProfileUpdate) onProfileUpdate(data.user);
+      loadProfile();
+      setEditingProfile(false);
+      flash('Profile saved.');
+    } else flash(data.detail || 'Could not save profile.');
+  };
+
+  const cancelEdit = () => {
+    if (savedProfile) {
+      setProfile(savedProfile);
+      setLocationOther(savedProfile.location && !LOCATIONS.includes(savedProfile.location));
+    }
+    setEditingProfile(false);
   };
 
   const savePreferences = async () => {
@@ -350,36 +381,100 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
           <div className="card">
 
             {/* ── PROFILE ─────────────────────────────────────── */}
-            {activeTab === 'profile' && (
+            {activeTab === 'profile' && !editingProfile && savedProfile && (
+              <div style={{ display: 'grid', gap: 20 }}>
+                {/* Avatar + name header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                  <div style={{
+                    width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+                    background: 'var(--surface-pill)', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', fontSize: 28, fontWeight: 700, color: 'var(--text-secondary)',
+                    border: '2px solid var(--border-soft)',
+                  }}>
+                    {savedProfile.avatar_url
+                      ? <img src={savedProfile.avatar_url} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : (savedProfile.first_name?.[0] || currentUser.email?.[0] || '?').toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: 20 }}>
+                      {[savedProfile.first_name, savedProfile.last_name].filter(Boolean).join(' ') || currentUser.full_name || currentUser.email}
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {savedProfile.position || '—'} {savedProfile.location ? `· ${savedProfile.location}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setEditingProfile(true)}
+                    style={{
+                      background: 'none', border: '1px solid var(--border-soft)', borderRadius: 8,
+                      padding: '5px 12px', cursor: 'pointer', fontSize: 13,
+                      color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    ✏ Edit
+                  </button>
+                </div>
+
+                {/* Info grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, borderTop: '1px solid var(--border-soft)' }}>
+                  {[
+                    ['Primary Email',    savedProfile.email || currentUser.email],
+                    ['Secondary Email',  savedProfile.secondary_email || '—'],
+                    ['Phone',            savedProfile.phone || '—'],
+                    ['Role',             currentUser.role],
+                    ['Timezone',         savedProfile.timezone],
+                    ['Location',         savedProfile.location || '—'],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ padding: '12px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                      <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>{label}</p>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 500 }}>{val}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'profile' && editingProfile && (
               <div style={{ display: 'grid', gap: 16 }}>
+                {/* Edit header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0 }}>Edit Profile</h3>
+                  <button onClick={cancelEdit} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 20, color: 'var(--text-secondary)', lineHeight: 1,
+                  }}>✕</button>
+                </div>
+
                 <AvatarUpload avatarUrl={profile.avatar_url} onChange={(v) => setProfile((p) => ({ ...p, avatar_url: v }))} />
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>
+                    <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
                       First Name <span style={{ color: '#e53935' }}>*</span>
                     </label>
                     <input value={profile.first_name} onChange={pSet('first_name')} placeholder="First name" />
                   </div>
                   <div>
-                    <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Last Name <span style={{ color: '#e53935' }}>*</span></label>
+                    <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>
+                      Last Name <span style={{ color: '#e53935' }}>*</span>
+                    </label>
                     <input value={profile.last_name} onChange={pSet('last_name')} placeholder="Last name" />
                   </div>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Primary Email</label>
-                  <input value={currentUser.email} readOnly style={{ opacity: 0.6, cursor: 'not-allowed' }} />
-                  <p style={{ fontSize: 12, opacity: 0.5, margin: '4px 0 0' }}>Primary email cannot be changed here — contact support.</p>
+                  <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Primary Email</label>
+                  <input value={currentUser.email} readOnly style={{ opacity: 0.5, cursor: 'not-allowed' }} />
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '3px 0 0', opacity: 0.7 }}>Contact support to change primary email.</p>
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Secondary Email</label>
+                  <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Secondary Email</label>
                   <input value={profile.secondary_email} onChange={pSet('secondary_email')} placeholder="secondary@email.com (optional)" type="email" />
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Phone / Mobile</label>
+                  <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Phone / Mobile</label>
                   <input value={profile.phone} onChange={pSet('phone')} placeholder="+91 98765 43210" type="tel" />
                 </div>
 
@@ -391,7 +486,7 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                 />
 
                 <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Location</label>
+                  <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Location</label>
                   <select
                     value={locationOther ? 'Other' : (profile.location || '')}
                     onChange={(e) => {
@@ -404,33 +499,28 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                     {LOCATIONS.map((l) => <option key={l} value={l}>{l}</option>)}
                   </select>
                   {locationOther && (
-                    <input
-                      value={profile.location}
-                      onChange={pSet('location')}
-                      placeholder="Enter your city and country…"
-                    />
+                    <input value={profile.location} onChange={pSet('location')} placeholder="City, Country" />
                   )}
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Timezone</label>
+                  <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Timezone</label>
                   <select value={profile.timezone} onChange={pSet('timezone')}>
                     {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
                   </select>
                 </div>
 
-                <div>
-                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Role</label>
-                  <input value={currentUser.role} readOnly style={{ opacity: 0.6, cursor: 'not-allowed' }} />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!profile.first_name.trim() || !profile.last_name.trim()}
+                    onClick={saveProfile}
+                    style={{ flex: 1 }}
+                  >
+                    Save Changes
+                  </button>
+                  <button className="btn btn-secondary" onClick={cancelEdit}>Cancel</button>
                 </div>
-
-                <button
-                  className="btn btn-primary"
-                  disabled={!profile.first_name.trim() || !profile.last_name.trim()}
-                  onClick={saveProfile}
-                >
-                  Save Profile
-                </button>
               </div>
             )}
 

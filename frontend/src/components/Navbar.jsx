@@ -79,8 +79,11 @@ export default function Navbar({
           </select>
         </label>
         <div className="avatar-menu">
-          <button className="avatar-btn" onClick={() => setMenuOpen((current) => !current)}>
-            {user?.full_name?.[0] || user?.email?.[0] || 'U'}
+          <button className="avatar-btn" onClick={() => setMenuOpen((current) => !current)}
+            style={{ overflow: 'hidden', padding: user?.avatar_url ? 0 : undefined }}>
+            {user?.avatar_url
+              ? <img src={user.avatar_url} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : (user?.full_name?.[0] || user?.email?.[0] || 'U')}
           </button>
           {menuOpen && (
             <div className="avatar-dropdown">

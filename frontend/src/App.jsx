@@ -126,6 +126,11 @@ export default function App() {
             onThemeChange={setTheme}
             onTimezoneChange={setUserTimezone}
             onLogout={handleLogout}
+            onProfileUpdate={(updated) => {
+              const merged = { ...currentUser, ...updated };
+              setCurrentUser(merged);
+              localStorage.setItem('user', JSON.stringify(merged));
+            }}
           />
         )}
       </div>
