@@ -2,10 +2,10 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
-from app.db._database import Base
+from app.db._database import Base, SafeJSON
 
 
 class WorkflowRun(Base):
@@ -17,9 +17,9 @@ class WorkflowRun(Base):
     requested_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     requires_human_review = Column(Boolean, nullable=False, default=False)
-    input_payload = Column(JSON, nullable=False, default={})
-    shared_context = Column(JSON, nullable=True)
-    final_output = Column(JSON, nullable=True)
+    input_payload = Column(SafeJSON, nullable=False, default={})
+    shared_context = Column(SafeJSON, nullable=True)
+    final_output = Column(SafeJSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
