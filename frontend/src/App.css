@@ -84,39 +84,58 @@ body {
 
 /* Login Page */
 .login-page {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-  background: linear-gradient(135deg, #274d3d 0%, #6aa27c 100%);
+  min-height: 100vh;
+  background: #07071c;
+  overflow: hidden;
+}
+
+.login-neural-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: blur(2.5px);
+  opacity: 0.85;
+  pointer-events: none;
+  user-select: none;
 }
 
 .login-card {
-  background: white;
-  padding: 40px;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  position: relative;
+  z-index: 1;
+  background: #ffffff;
+  padding: 44px 40px 36px;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(48,48,160,0.08), 0 32px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.3);
   width: 100%;
   max-width: 400px;
-}
-
-.login-card h1 {
-  text-align: center;
-  margin-bottom: 30px;
-  color: #333;
 }
 
 .login-card form {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
 }
 
 .login-card input {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: 11px 14px;
+  border: 1px solid #e2e4eb;
+  border-radius: 8px;
   font-size: 14px;
+  color: #111;
+  background: #fafbfc;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.login-card input:focus {
+  border-color: #3030a0;
+  box-shadow: 0 0 0 3px rgba(48,48,160,0.10);
+  background: #fff;
 }
 
 .password-field {
@@ -131,96 +150,117 @@ body {
 }
 
 .password-toggle {
-  padding: 10px 12px;
-  border: 1px solid #d1dbd4;
-  border-radius: 10px;
-  background: #eef3ef;
-  color: #234535;
+  padding: 11px 13px;
+  border: 1px solid #e2e4eb;
+  border-radius: 8px;
+  background: #fafbfc;
+  color: #555;
   cursor: pointer;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .password-toggle:hover {
-  background: #e4ece7;
+  background: #f0f1f8;
+  border-color: #c0c2d8;
 }
 
-.login-card button {
-  padding: 10px;
-  background: #2f7d62;
-  color: white;
+.login-card button[type="submit"] {
+  margin-top: 4px;
+  padding: 12px;
+  background: #3030a0;
+  color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
-  transition: background 0.3s;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 8px rgba(48,48,160,0.25);
 }
 
-.login-card button:hover {
-  background: #276a53;
+.login-card button[type="submit"]:hover {
+  background: #28288c;
+  box-shadow: 0 4px 16px rgba(48,48,160,0.35);
 }
 
-.login-card button:disabled {
-  background: #ccc;
+.login-card button[type="submit"]:disabled {
+  background: #9898c0;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
 /* Auth Tabs */
 .auth-tabs {
   display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-  border-bottom: 2px solid #eee;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #e8e9f0;
 }
 
 .tab {
   flex: 1;
-  padding: 12px;
+  padding: 10px 12px;
   background: none;
   border: none;
-  border-bottom: 3px solid transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   cursor: pointer;
   font-weight: 600;
+  font-size: 13px;
   color: #999;
-  transition: all 0.3s;
+  letter-spacing: 0.02em;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .tab:hover {
-  color: #2f7d62;
+  color: #3030a0;
 }
 
 .tab.active {
-  color: #2f7d62;
-  border-bottom-color: #2f7d62;
+  color: #3030a0;
+  border-bottom-color: #3030a0;
 }
 
 /* Auth Messages */
 .auth-message {
-  padding: 10px;
-  border-radius: 4px;
-  margin-bottom: 15px;
-  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
   text-align: center;
 }
 
 .auth-message.success {
-  background: #d1fae5;
-  color: #047857;
-  border-left: 4px solid #10b981;
+  background: #edfaf4;
+  color: #0e6640;
+  border: 1px solid #a7e8c8;
 }
 
 .auth-message.error {
-  background: #fee2e2;
-  color: #dc2626;
-  border-left: 4px solid #ef4444;
+  background: #fff0f0;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
 }
 
 .login-card select {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: 11px 14px;
+  border: 1px solid #e2e4eb;
+  border-radius: 8px;
   font-size: 14px;
-  background: white;
+  background: #fafbfc;
+  color: #111;
   cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.login-card select:focus {
+  border-color: #3030a0;
+  box-shadow: 0 0 0 3px rgba(48,48,160,0.10);
 }
 
 /* Dashboard */
@@ -501,18 +541,19 @@ button:disabled {
   content: attr(data-tooltip);
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 8px);
   transform: translateX(-50%);
   background: rgba(20, 31, 27, 0.94);
   color: #f6fbf8;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 8px;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.4;
   width: max-content;
-  max-width: 220px;
+  max-width: 240px;
   pointer-events: none;
-  z-index: 20;
+  z-index: 9500;
+  white-space: pre-wrap;
 }
 
 .app.theme-dark .summary-card,

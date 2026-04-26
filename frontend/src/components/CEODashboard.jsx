@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
+import { CeoAnalytics } from './Analytics';
 
-export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate }) {
+export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, tenantLogoUrl, onCompanyUpdate }) {
   const [loading, setLoading] = useState(true);
   const [ceoMode, setCeoMode] = useState(localStorage.getItem('ceo_mode') === 'true');
   const [overview, setOverview] = useState(null);
@@ -10,23 +11,59 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate }) 
   const [clients, setClients] = useState([]);
   const [risks, setRisks] = useState([]);
 
+  const [showAnalytics, setShowAnalytics] = useState(false);
+
+  // Company profile state
+  const [companyProfile, setCompanyProfile] = useState(null);
+  const [companyForm, setCompanyForm] = useState({ name: '', description: '', logo_url: '' });
+  const [companyMsg, setCompanyMsg] = useState('');
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [showCompanyEditor, setShowCompanyEditor] = useState(false);
+
+  // Talent pool state
+  const [talentPool, setTalentPool] = useState({ members: [], pending_invites: [] });
+  const [inviteForm, setInviteForm] = useState({ email: '', role_title: '' });
+  const [inviteMsg, setInviteMsg] = useState('');
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [showTeamPanel, setShowTeamPanel] = useState(false);
+
+  const token = localStorage.getItem('token');
+  const headers = { Authorization: `Bearer ${token}` };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const headers = { Authorization: `Bearer ${token}` };
     setLoading(true);
     Promise.all([
-      fetch(`${API_BASE_URL}/ceo/overview`, { headers }).then((res) => res.json()),
-      fetch(`${API_BASE_URL}/ceo/financials`, { headers }).then((res) => res.json()),
-      fetch(`${API_BASE_URL}/ceo/teams`, { headers }).then((res) => res.json()),
-      fetch(`${API_BASE_URL}/ceo/clients`, { headers }).then((res) => res.json()),
-      fetch(`${API_BASE_URL}/ceo/risks`, { headers }).then((res) => res.json()),
+      fetch(`${API_BASE_URL}/ceo/overview`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/ceo/financials`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/ceo/teams`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/ceo/clients`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/ceo/risks`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/settings/company`, { headers }).then((r) => r.ok ? r.json() : null),
+      fetch(`${API_BASE_URL}/invite/talent-pool`, { headers }).then((r) => r.ok ? r.json() : { members: [], pending_invites: [] }),
     ])
-      .then(([overviewData, financialData, teamData, clientData, riskData]) => {
+      .then(([overviewData, financialData, teamData, clientData, riskData, companyData, poolData]) => {
         setOverview(overviewData);
         setFinancials(financialData);
         setTeams(teamData);
         setClients(clientData || []);
         setRisks(riskData || []);
+        if (companyData) {
+          setCompanyProfile(companyData);
+          setCompanyForm({
+            name: companyData.name || '',
+            description: companyData.description || '',
+            logo_url: companyData.logo_url || '',
+            industry: companyData.industry || '',
+            website_url: companyData.website_url || '',
+            headquarters: companyData.headquarters || '',
+            employee_count_range: companyData.employee_count_range || '',
+            founded_year: companyData.founded_year || '',
+            contact_email: companyData.contact_email || '',
+            contact_phone: companyData.contact_phone || '',
+          });
+        }
+        setTalentPool(poolData || { members: [], pending_invites: [] });
       })
       .finally(() => setLoading(false));
   }, [API_BASE_URL]);
@@ -34,6 +71,53 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate }) 
   useEffect(() => {
     localStorage.setItem('ceo_mode', String(ceoMode));
   }, [ceoMode]);
+
+  const handleSaveCompany = async () => {
+    setSavingCompany(true);
+    setCompanyMsg('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/company`, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify(companyForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Save failed');
+      setCompanyProfile(data);
+      setCompanyMsg('Company profile saved.');
+      if (onCompanyUpdate) onCompanyUpdate(data);
+    } catch (err) {
+      setCompanyMsg(err.message);
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
+  const handleSendInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteForm.email.trim()) return;
+    setSendingInvite(true);
+    setInviteMsg('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/invite/org`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ email: inviteForm.email.trim(), role_title: inviteForm.role_title.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Invite failed');
+      setInviteMsg(`Invite sent to ${inviteForm.email}.`);
+      setInviteForm({ email: '', role_title: '' });
+      // Refresh talent pool
+      fetch(`${API_BASE_URL}/invite/talent-pool`, { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setTalentPool(d));
+    } catch (err) {
+      setInviteMsg(err.message);
+    } finally {
+      setSendingInvite(false);
+    }
+  };
 
   if (ceoMode) {
     return (
@@ -56,23 +140,228 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate }) 
 
   return (
     <div className="dashboard">
-      <div className="card full-width" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <p className="eyebrow">CEO Dashboard</p>
-          <h2 style={{ marginBottom: 8 }}>{currentUser.tenant_name || 'Company Overview'}</h2>
-          <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', background: 'var(--surface-soft)', padding: '10px 14px', borderRadius: 999 }}>
-            <span>Health Score</span>
-            <strong style={{ color: healthColor }}>{healthScore.toFixed(1)}</strong>
+
+      {/* Header */}
+      <div className="card full-width" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {(companyProfile?.logo_url || tenantLogoUrl) && (
+            <img
+              src={companyProfile?.logo_url || tenantLogoUrl}
+              alt="Company logo"
+              style={{ height: 52, maxWidth: 160, objectFit: 'contain', borderRadius: 8 }}
+            />
+          )}
+          <div>
+            <p className="eyebrow">CEO Dashboard</p>
+            <h2 style={{ marginBottom: 8 }}>{companyProfile?.name || currentUser.tenant_name || 'Company Overview'}</h2>
+            {companyProfile?.description && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>{companyProfile.description}</p>
+            )}
+            <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', background: 'var(--surface-soft)', padding: '8px 12px', borderRadius: 999, marginTop: 8 }}>
+              <span>Health Score</span>
+              <strong style={{ color: healthColor }}>{healthScore.toFixed(1)}</strong>
+            </div>
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setCeoMode(true)}>Technical View</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowCompanyEditor((v) => !v); }}>
+            {showCompanyEditor ? 'Close Company Editor' : 'Edit Company Profile'}
+          </button>
+          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowTeamPanel((v) => !v); }}>
+            {showTeamPanel ? 'Close Team Panel' : 'Team Management'}
+          </button>
+          <button className="btn btn-secondary" onClick={() => { setShowCompanyEditor(false); setShowTeamPanel(false); setShowAnalytics((v) => !v); }}>
+            {showAnalytics ? 'Close Analytics' : 'Business Analytics'}
+          </button>
+          <button className="btn btn-primary" onClick={() => setCeoMode(true)}>Technical View</button>
+        </div>
       </div>
 
+      {/* Company Profile Editor */}
+      {showCompanyEditor && (
+        <div className="card full-width">
+          <p className="eyebrow">Company Settings</p>
+          <h2 style={{ marginBottom: 16 }}>Company Profile</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            {[
+              { key: 'name', label: 'Company Name', placeholder: 'Acme Corp' },
+              { key: 'industry', label: 'Industry', placeholder: 'Software / Technology' },
+              { key: 'website_url', label: 'Website', placeholder: 'https://acmecorp.com' },
+              { key: 'headquarters', label: 'Headquarters', placeholder: 'Mumbai, India' },
+              { key: 'contact_email', label: 'Company Email', placeholder: 'hello@acmecorp.com' },
+              { key: 'contact_phone', label: 'Company Phone', placeholder: '+91 98765 43210' },
+            ].map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>{label}</label>
+                <input
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                  value={companyForm[key] || ''}
+                  onChange={(e) => setCompanyForm((f) => ({ ...f, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                />
+              </div>
+            ))}
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Team Size</label>
+              <select
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                value={companyForm.employee_count_range || ''}
+                onChange={(e) => setCompanyForm((f) => ({ ...f, employee_count_range: e.target.value }))}
+              >
+                <option value="">Select size</option>
+                {['1–10', '11–50', '51–200', '201–500', '500+'].map(s => <option key={s} value={s}>{s} employees</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Founded Year</label>
+              <input
+                type="number"
+                min="1900" max="2030"
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                value={companyForm.founded_year || ''}
+                onChange={(e) => setCompanyForm((f) => ({ ...f, founded_year: e.target.value ? Number(e.target.value) : null }))}
+                placeholder="2019"
+              />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>About the Company</label>
+              <textarea
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, resize: 'vertical', minHeight: 80, boxSizing: 'border-box' }}
+                value={companyForm.description || ''}
+                onChange={(e) => setCompanyForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="What your company does, your mission, and key focus areas."
+              />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Company Logo URL</label>
+              <input
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                value={companyForm.logo_url || ''}
+                onChange={(e) => setCompanyForm((f) => ({ ...f, logo_url: e.target.value }))}
+                placeholder="https://yourdomain.com/logo.png"
+              />
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>Direct image URL — PNG or SVG, transparent background preferred. Displayed in navbar and dashboard.</p>
+            </div>
+            {companyForm.logo_url && (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Logo preview:</p>
+                <img
+                  src={companyForm.logo_url}
+                  alt="Logo preview"
+                  style={{ height: 48, maxWidth: 200, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--border-soft)', padding: 6, background: 'var(--surface-soft)' }}
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              </div>
+            )}
+            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <button className="btn btn-primary" onClick={handleSaveCompany} disabled={savingCompany}>
+                {savingCompany ? 'Saving...' : 'Save Company Profile'}
+              </button>
+              {companyMsg && (
+                <span style={{ fontSize: 13, color: companyMsg.includes('saved') ? '#15803d' : '#dc2626' }}>{companyMsg}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Team Management Panel */}
+      {showTeamPanel && (
+        <div className="card full-width">
+          <p className="eyebrow">Org Talent Pool</p>
+          <h2 style={{ marginBottom: 4 }}>Team Management</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
+            Invite people to join your company talent pool. Once they accept, you can assign them to projects.
+          </p>
+
+          {/* Invite form */}
+          <form onSubmit={handleSendInvite} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 24 }}>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email Address</label>
+              <input
+                type="email"
+                required
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="new.hire@email.com"
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role / Title (optional)</label>
+              <input
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                value={inviteForm.role_title}
+                onChange={(e) => setInviteForm((f) => ({ ...f, role_title: e.target.value }))}
+                placeholder="Senior Developer"
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={sendingInvite} style={{ whiteSpace: 'nowrap' }}>
+              {sendingInvite ? 'Sending...' : 'Send Invite'}
+            </button>
+          </form>
+          {inviteMsg && (
+            <p style={{ fontSize: 13, color: inviteMsg.includes('sent') ? '#15803d' : '#dc2626', marginBottom: 16 }}>{inviteMsg}</p>
+          )}
+
+          {/* Pending invites */}
+          {talentPool.pending_invites?.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ marginBottom: 10, fontSize: 14, color: 'var(--text-secondary)' }}>Pending Invites ({talentPool.pending_invites.length})</h3>
+              <div className="list">
+                {talentPool.pending_invites.map((inv) => (
+                  <div key={inv.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong>{inv.email}</strong>
+                      {inv.role_title && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-secondary)' }}>{inv.role_title}</span>}
+                    </div>
+                    <span className="status-badge status-pending">Pending</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Current members */}
+          <div>
+            <h3 style={{ marginBottom: 10, fontSize: 14, color: 'var(--text-secondary)' }}>
+              Active Members ({talentPool.members?.length || 0})
+            </h3>
+            {(talentPool.members?.length || 0) === 0 ? (
+              <div className="list-item"><p style={{ color: 'var(--text-secondary)' }}>No team members yet. Send invites to build your talent pool.</p></div>
+            ) : (
+              <div className="list">
+                {talentPool.members.map((m) => (
+                  <div key={m.user_id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong>{m.full_name || m.email}</strong>
+                      {m.full_name && <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--text-secondary)' }}>{m.email}</span>}
+                      {m.role_title && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--accent)' }}>{m.role_title}</span>}
+                    </div>
+                    <span className="status-badge status-available">{m.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Analytics Panel */}
+      {showAnalytics && (
+        <div className="card full-width">
+          <p className="eyebrow">Business Intelligence</p>
+          <h2 style={{ marginBottom: 20 }}>Company Analytics</h2>
+          <CeoAnalytics />
+        </div>
+      )}
+
+      {/* KPI cards */}
       {(loading ? Array.from({ length: 4 }) : [
         { label: 'Total Projects', value: overview?.total_projects, meta: `${overview?.projects_on_track || 0} on track / ${overview?.projects_at_risk || 0} at risk / ${overview?.projects_delayed || 0} delayed` },
         { label: 'Team Utilization', value: `${teams?.overall_utilization_pct || 0}%`, meta: `${overview?.employees_overloaded || 0} overloaded employees` },
         { label: 'Outstanding Payments', value: financials?.total_outstanding || 0, meta: `${financials?.overdue_payments?.length || 0} overdue accounts` },
-        { label: 'Active Blockers', value: overview?.active_blockers || 0, meta: `${risks.filter((risk) => risk.type === 'unresolved_blocker').length} critical blockers` },
+        { label: 'Active Blockers', value: overview?.active_blockers || 0, meta: `${risks.filter((r) => r.type === 'unresolved_blocker').length} critical blockers` },
       ]).map((card, index) => (
         <div key={card?.label || index} className="card">
           {loading ? <div style={{ height: 120, background: 'var(--surface-soft)', borderRadius: 14 }} /> : (
