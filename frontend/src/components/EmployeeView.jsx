@@ -744,53 +744,73 @@ export default function EmployeeView({ role }) {
       <div className="card">
         <h2>Project Invitations</h2>
         <div className="list">
-          {projectInvites.length > 0 ? projectInvites.map((invite) => (
-            <div key={`${invite.project_id}-${invite.title}`} className="list-item">
-              <div className="task-line">
-                <div>
-                  <strong>{invite.project_name}</strong>
-                  <p>Project #{invite.project_id} | {invite.title}</p>
-                </div>
-                <span className={`status-badge status-${(invite.status || 'pending').replace(/\s+/g, '-')}`}>
-                  {invite.status}
-                </span>
-              </div>
-              <p>{invite.viewer_guidance}</p>
-              <p><strong>Decision Support:</strong> {invite.decision_support}</p>
-              <p><strong>Join Window:</strong> {invite.join_deadline || 'Waiting for admin confirmation'}</p>
-              <p><strong>Role Focus:</strong> {(invite.role_focus || []).join(', ') || 'Role focus will appear after planning.'}</p>
-              <p><strong>Why You:</strong> {invite.capacity_reasoning || 'Selected for role fit and current availability.'}</p>
-              {(invite.planned_tasks || []).length > 0 && (
-                <div className="info-pill">
-                  <span>Planned Work Track</span>
-                  <strong>{invite.planned_tasks.map((task) => task.task_name).join(', ')}</strong>
-                </div>
-              )}
-              <div className="form-group">
-                <label>Response Note</label>
-                <textarea
-                  rows="2"
-                  value={inviteNotes[invite.project_id] || ''}
-                  onChange={(event) => setInviteNotes((current) => ({ ...current, [invite.project_id]: event.target.value }))}
-                  placeholder="Share any acceptance note, capacity concern, or blocker."
-                />
-              </div>
-              {invite.status === 'pending' && (
-                <div className="project-card-actions">
-                  <button className="btn btn-primary" onClick={() => respondToInvite(invite.project_id, true)} disabled={Boolean(actionKey)}>
-                    {actionKey === `accept-${invite.project_id}` ? 'Accepting...' : 'Accept Project'}
-                  </button>
-                  <button className="btn btn-danger" onClick={() => respondToInvite(invite.project_id, false)} disabled={Boolean(actionKey)}>
-                    {actionKey === `reject-${invite.project_id}` ? 'Rejecting...' : 'Reject Project'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )) : (
-            <div className="list-item">
-              <p>No pending project invitations right now.</p>
-            </div>
-          )}
+          {(() => {
+            const pending = projectInvites.filter(i => i.status === 'pending');
+            const accepted = projectInvites.filter(i => i.status !== 'pending');
+            return (
+              <>
+                {pending.length === 0 && accepted.length === 0 && (
+                  <div className="list-item"><p>No pending project invitations right now.</p></div>
+                )}
+                {pending.length === 0 && accepted.length > 0 && (
+                  <div className="list-item"><p>No pending invitations — all responded to.</p></div>
+                )}
+                {pending.map((invite) => (
+                  <div key={`${invite.project_id}-${invite.title}`} className="list-item">
+                    <div className="task-line">
+                      <div>
+                        <strong>{invite.project_name}</strong>
+                        <p>Project #{invite.project_id} | {invite.title}</p>
+                      </div>
+                      <span className="status-badge status-pending">pending</span>
+                    </div>
+                    <p>{invite.viewer_guidance}</p>
+                    <p><strong>Join Window:</strong> {invite.join_deadline || 'Waiting for admin confirmation'}</p>
+                    <p><strong>Role Focus:</strong> {(invite.role_focus || []).join(', ') || 'Role focus will appear after planning.'}</p>
+                    <p><strong>Why You:</strong> {invite.capacity_reasoning || 'Selected for role fit and current availability.'}</p>
+                    {(invite.planned_tasks || []).length > 0 && (
+                      <div className="info-pill">
+                        <span>Planned Work</span>
+                        <strong>{invite.planned_tasks.map((t) => t.task_name).join(', ')}</strong>
+                      </div>
+                    )}
+                    <div className="form-group">
+                      <label>Response Note</label>
+                      <textarea
+                        rows="2"
+                        value={inviteNotes[invite.project_id] || ''}
+                        onChange={(e) => setInviteNotes((n) => ({ ...n, [invite.project_id]: e.target.value }))}
+                        placeholder="Share any acceptance note, capacity concern, or blocker."
+                      />
+                    </div>
+                    <div className="project-card-actions">
+                      <button className="btn btn-primary" onClick={() => respondToInvite(invite.project_id, true)} disabled={Boolean(actionKey)}>
+                        {actionKey === `accept-${invite.project_id}` ? 'Accepting...' : 'Accept Project'}
+                      </button>
+                      <button className="btn btn-danger" onClick={() => respondToInvite(invite.project_id, false)} disabled={Boolean(actionKey)}>
+                        {actionKey === `reject-${invite.project_id}` ? 'Rejecting...' : 'Reject'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {accepted.length > 0 && (
+                  <details className="list-item" style={{ padding: '8px 12px' }}>
+                    <summary style={{ fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', userSelect: 'none' }}>
+                      {accepted.length} accepted invite{accepted.length > 1 ? 's' : ''} — click to expand
+                    </summary>
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {accepted.map((invite) => (
+                        <div key={`${invite.project_id}-accepted`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                          <span>{invite.project_name} <span style={{ color: 'var(--text-secondary)' }}>#{invite.project_id} · {invite.title}</span></span>
+                          <span className={`status-badge status-${(invite.status || 'accepted').replace(/\s+/g, '-')}`}>{invite.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -840,16 +860,37 @@ export default function EmployeeView({ role }) {
                         #{project.project_id}{dl ? ` · Due ${dl}` : ''}
                       </p>
                     </div>
-                    <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
-                      {project.status}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      {project.my_task_total > 0 && (
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                          background: project.my_completion_pct >= 100 ? '#d1fae5' : '#fef3c7',
+                          color: project.my_completion_pct >= 100 ? '#065f46' : '#92400e',
+                        }}>
+                          My tasks {project.my_completion_pct >= 100 ? '✓ done' : `${project.my_completion_pct}%`}
+                        </span>
+                      )}
+                      <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
+                        {project.status}
+                      </span>
+                    </div>
                   </div>
                 </summary>
                 <div style={{ paddingTop: 12, marginTop: 8, borderTop: '1px solid var(--border-soft)' }}>
                   {project.public_status_label && <p style={{ fontSize: 13, marginBottom: 6 }}>{project.public_status_label}</p>}
-                  <p style={{ fontSize: 13 }}><strong>Progress:</strong> {project.progress || 0}%</p>
-                  <div className="progress" style={{ marginTop: 6 }}>
-                    <div className="progress-fill" style={{ width: `${project.progress || 0}%` }} />
+                  {project.my_task_total > 0 && (
+                    <>
+                      <p style={{ fontSize: 13, marginBottom: 4 }}>
+                        <strong>My tasks:</strong> {project.my_task_done}/{project.my_task_total} completed ({project.my_completion_pct}%)
+                      </p>
+                      <div className="progress" style={{ marginBottom: 10 }}>
+                        <div className="progress-fill" style={{ width: `${project.my_completion_pct}%`, background: project.my_completion_pct >= 100 ? '#10b981' : undefined }} />
+                      </div>
+                    </>
+                  )}
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}><strong>Overall project:</strong> {project.progress || 0}%</p>
+                  <div className="progress" style={{ marginTop: 4 }}>
+                    <div className="progress-fill" style={{ width: `${project.progress || 0}%`, opacity: 0.5 }} />
                   </div>
                 </div>
               </details>

@@ -3112,11 +3112,26 @@ def build_employee_workspace(db: Session, user: User):
 
         if project.id not in seen_projects:
             seen_projects.add(project.id)
+            # Personal task completion within this project
+            my_project_tasks = [t for t in all_tasks + [task_payload] if t.get("project_id") == project.id] if False else []
+            # Count from the full assignment list for this project
+            proj_assignments = (
+                db.query(TaskAssignment)
+                .join(Task, Task.id == TaskAssignment.task_id)
+                .filter(Task.project_id == project.id, TaskAssignment.employee_id == profile.id)
+                .all()
+            )
+            total_mine = len(proj_assignments)
+            done_mine = sum(1 for a in proj_assignments if a.status == "completed")
+            my_completion_pct = round((done_mine / total_mine) * 100) if total_mine else 0
             payload = {
                 "project_id": project.id,
                 "name": project.name,
                 "status": project.status,
                 "progress": project.progress,
+                "my_task_total": total_mine,
+                "my_task_done": done_mine,
+                "my_completion_pct": my_completion_pct,
                 "public_status_label": _client_business_summary(project, [task for task in project.tasks if task.parent_task_id is None], meta),
                 "viewer_guidance": _guidance_for_viewer(meta, user),
                 "decision_support": _decision_support_for_viewer(meta, user),
