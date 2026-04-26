@@ -1,4 +1,5 @@
 # backend/app/services/_auth_service.py
+import os
 import re
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -106,9 +107,9 @@ def _resolve_registration_tenant(
         db.flush()
         return tenant
 
-    if role == "admin":
+    if role in ("admin", "ceo"):
         domain = email.split("@", 1)[1]
-        slug = _slugify(domain.replace(".", "-"))
+        slug = _slugify((tenant_name or domain).replace(".", "-"))
         tenant = db.query(Tenant).filter(Tenant.slug == slug).first()
         if tenant:
             return tenant
@@ -251,7 +252,7 @@ def login_user(db: Session, email: str, password: str):
     if not user or not verify_password(password, user.password):
         return None
 
-    if getattr(user, "email_verified", None) is False:
+    if getattr(user, "email_verified", None) is False and os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true":
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Please verify your email address before logging in")
 
@@ -344,17 +345,19 @@ def refresh_access_token(db: Session, raw_refresh_token: str):
     return new_access, new_refresh
 
 
-def request_password_reset(db: Session, email: str) -> None:
+def request_password_reset(db: Session, email: str) -> str | None:
     normalized_email = normalize_email(email)
     user = db.query(User).filter(User.email == normalized_email).first()
     if not user:
-        return
+        return None
 
-    user.password_reset_token = str(uuid4())
+    token = str(uuid4())
+    user.password_reset_token = token
     user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
     db.add(user)
     db.commit()
-    EmailService.send_password_reset_email(user.email, user.password_reset_token)
+    EmailService.send_password_reset_email(user.email, token)
+    return token
 
 
 def reset_password(db: Session, token: str, new_password: str) -> None:

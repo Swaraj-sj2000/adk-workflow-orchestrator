@@ -29,6 +29,10 @@ from app.services._auth_service import (
     reset_password,
     verify_email_token,
 )
+from app.core._config import settings
+from app.core._logging import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -110,8 +114,13 @@ def verify_email(token: str = Query(..., min_length=1), db: Session = Depends(ge
 
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    request_password_reset(db, payload.email)
-    return {"message": "If that email exists, a reset link has been sent"}
+    token = request_password_reset(db, payload.email)
+    response: dict = {"message": "If that email exists, a reset link has been sent."}
+    # Dev mode: no email provider configured — surface token so flow is testable
+    if token and not settings.SENDGRID_API_KEY:
+        response["dev_reset_token"] = token
+        logger.warning("DEV MODE — password reset token for %s: %s", payload.email, token)
+    return response
 
 
 @router.post("/reset-password")
