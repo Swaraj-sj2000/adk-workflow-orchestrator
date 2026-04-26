@@ -564,7 +564,7 @@ class MultiAgentOrchestrator:
                 "Backend Engineer": ("backend", "api"),
                 "Frontend Engineer": ("frontend", "react"),
                 "QA Automation Engineer": ("qa", "testing", "automation"),
-                "Project Coordinator": ("project-management",),
+                "Delivery Lead": ("project-management",),
                 "Client Success Manager": ("client-success", "reporting"),
                 "DevOps Engineer": ("devops", "cloud", "security"),
                 "Data Engineer": ("data", "analytics"),

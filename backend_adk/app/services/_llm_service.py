@@ -690,7 +690,7 @@ class LLMService:
                 "difficulty": "medium",
                 "urgency": "high",
                 "estimated_time": 8,
-                "required_role": "Project Coordinator",
+                "required_role": "Delivery Lead",
                 "required_skills": {"project-management": 0.8, "communication": 0.7},
                 "output": "Signed-off scope brief",
                 "subtasks": [

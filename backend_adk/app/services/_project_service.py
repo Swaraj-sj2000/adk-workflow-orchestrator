@@ -60,7 +60,7 @@ ROLE_SKILL_MAP = {
     "Backend Engineer": ("backend", "api"),
     "Frontend Engineer": ("frontend", "react"),
     "QA Automation Engineer": ("qa", "testing", "automation"),
-    "Project Coordinator": ("project-management",),
+    "Delivery Lead": ("project-management",),
     "Client Success Manager": ("client-success", "reporting"),
     "DevOps Engineer": ("devops", "cloud", "security"),
     "Data Engineer": ("data", "analytics"),
@@ -68,8 +68,8 @@ ROLE_SKILL_MAP = {
 }
 
 DEFAULT_PROJECT_TEAM_ORDER = [
-    "Project Coordinator",
     "Solution Architect",
+    "Delivery Lead",
     "AI Engineer",
     "Backend Engineer",
     "Client Success Manager",
@@ -1925,7 +1925,7 @@ def _seed_project_plan(db: Session, project: Project, planning_packet: Dict, rol
                 "urgency": "high",
                 "estimated_time": 4.0,
                 "required_skills": {"project-management": 0.7, "communication": 0.7},
-                "required_role": "Project Coordinator",
+                "required_role": "Delivery Lead",
                 "deadline": now + timedelta(days=2),
                 "subtasks": [
                     ("Client expectation notes and risk register", 2.0, {"communication": 0.7}, "Capture scope, dependencies, and open assumptions."),
