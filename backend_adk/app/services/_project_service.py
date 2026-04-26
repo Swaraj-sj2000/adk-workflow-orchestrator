@@ -696,7 +696,7 @@ def build_admin_dashboard(db: Session, admin: User):
     projects = (
         db.query(Project)
         .options(joinedload(Project.client), joinedload(Project.tasks))
-        .filter(Project.tenant_id == admin.tenant_id)
+        .filter(Project.tenant_id == admin.tenant_id, Project.deleted_at.is_(None))
         .order_by(Project.created_at.desc())
         .all()
     )
@@ -788,6 +788,137 @@ def build_admin_dashboard(db: Session, admin: User):
     }
 
 
+PAYMENT_COLLECTED_STATUSES = {"client-confirmed", "admin-confirmed", "completed"}
+PAYMENT_INVOICED_STATUSES = {"partial", "client-confirmed", "admin-confirmed", "completed", "disputed"}
+
+
+def build_admin_analytics(db: Session, admin: User) -> dict:
+    """Team-scoped analytics for admin: revenue, project health, task stats, member performance."""
+    projects = (
+        db.query(Project)
+        .filter(Project.tenant_id == admin.tenant_id, Project.deleted_at.is_(None))
+        .all()
+    )
+    employees = (
+        db.query(EmployeeProfile)
+        .filter(EmployeeProfile.tenant_id == admin.tenant_id)
+        .all()
+    )
+    tasks = (
+        db.query(Task)
+        .filter(Task.tenant_id == admin.tenant_id)
+        .all()
+    )
+    metrics_rows = (
+        db.query(EmployeeMetrics)
+        .join(EmployeeProfile, EmployeeProfile.id == EmployeeMetrics.employee_id)
+        .filter(EmployeeProfile.tenant_id == admin.tenant_id)
+        .all()
+    )
+    blockers = (
+        db.query(Blocker)
+        .join(Task, Task.id == Blocker.task_id)
+        .filter(Task.tenant_id == admin.tenant_id)
+        .all()
+    )
+
+    total_budget = sum(float(p.budget or 0) for p in projects)
+    total_spent = sum(float(p.spent or 0) for p in projects)
+    total_collected = sum(float(p.budget or 0) for p in projects if p.payment_status in PAYMENT_COLLECTED_STATUSES)
+    total_invoiced = sum(float(p.budget or 0) for p in projects if p.payment_status in PAYMENT_INVOICED_STATUSES)
+    gross_profit = total_invoiced - total_spent
+    profit_margin_pct = round(gross_profit / total_invoiced * 100 if total_invoiced else 0, 1)
+
+    status_counts: dict = {}
+    priority_counts: dict = {}
+    for p in projects:
+        status_counts[p.status or "unknown"] = status_counts.get(p.status or "unknown", 0) + 1
+        priority_counts[p.priority or "medium"] = priority_counts.get(p.priority or "medium", 0) + 1
+
+    done_tasks = [t for t in tasks if t.status in ("done", "completed")]
+    blocked_tasks = [t for t in tasks if t.status == "blocked"]
+    in_progress_tasks = [t for t in tasks if t.status == "in_progress"]
+    open_blockers = [b for b in blockers if b.status == "open"]
+
+    per_project = []
+    for p in projects:
+        b = float(p.budget or 0)
+        s = float(p.spent or 0)
+        pm = round((b - s) / b * 100, 1) if b else 0
+        p_blockers = [bl for bl in open_blockers if any(t.id == bl.task_id and t.project_id == p.id for t in tasks)]
+        per_project.append({
+            "id": p.id,
+            "name": p.name,
+            "status": p.status,
+            "priority": p.priority,
+            "progress": float(p.progress or 0),
+            "budget": round(b, 2),
+            "spent": round(s, 2),
+            "profit_margin": pm,
+            "payment_status": p.payment_status,
+            "open_blockers": len(p_blockers),
+            "is_collected": p.payment_status in PAYMENT_COLLECTED_STATUSES,
+        })
+    per_project.sort(key=lambda x: -x["budget"])
+
+    avg_efficiency = round(sum(m.efficiency_score or 0 for m in metrics_rows) / len(metrics_rows) * 100 if metrics_rows else 0, 1)
+    avg_reliability = round(sum(m.reliability_score or 0 for m in metrics_rows) / len(metrics_rows) * 100 if metrics_rows else 0, 1)
+    avg_utilization = round(
+        sum(float(e.current_load or 0) / float(e.max_capacity or 1) * 100 for e in employees) / len(employees)
+        if employees else 0, 1
+    )
+    top_performers = sorted(
+        [
+            {
+                "name": (m.employee.user.full_name if m.employee and m.employee.user else f"Employee #{m.employee_id}"),
+                "efficiency": round((m.efficiency_score or 0) * 100, 1),
+                "reliability": round((m.reliability_score or 0) * 100, 1),
+                "tasks_completed": m.total_tasks_completed or 0,
+            }
+            for m in metrics_rows
+        ],
+        key=lambda x: x["efficiency"] + x["reliability"],
+        reverse=True,
+    )[:5]
+
+    return {
+        "revenue": {
+            "total_budget": round(total_budget, 2),
+            "total_spent": round(total_spent, 2),
+            "total_invoiced": round(total_invoiced, 2),
+            "total_collected": round(total_collected, 2),
+            "outstanding": round(total_invoiced - total_collected, 2),
+            "gross_profit": round(gross_profit, 2),
+            "profit_margin_pct": profit_margin_pct,
+            "collection_rate_pct": round(total_collected / total_invoiced * 100 if total_invoiced else 0, 1),
+        },
+        "projects": {
+            "total": len(projects),
+            "active": len([p for p in projects if p.status not in ("completed", "cancelled")]),
+            "completed": len([p for p in projects if p.status == "completed"]),
+            "by_status": [{"label": k, "value": v} for k, v in sorted(status_counts.items())],
+            "by_priority": [{"label": k, "value": v} for k, v in sorted(priority_counts.items())],
+        },
+        "tasks": {
+            "total": len(tasks),
+            "completed": len(done_tasks),
+            "in_progress": len(in_progress_tasks),
+            "blocked": len(blocked_tasks),
+            "open_blockers": len(open_blockers),
+            "completion_rate_pct": round(len(done_tasks) / len(tasks) * 100 if tasks else 0, 1),
+        },
+        "team": {
+            "total_employees": len(employees),
+            "avg_utilization_pct": avg_utilization,
+            "avg_efficiency_pct": avg_efficiency,
+            "avg_reliability_pct": avg_reliability,
+            "top_performers": top_performers,
+        },
+        "per_project": per_project,
+    }
+
+
+
 def build_team_dashboard(db: Session, admin: User):
     employees = (
         db.query(EmployeeProfile)
@@ -807,7 +938,7 @@ def build_team_dashboard(db: Session, admin: User):
     )
     invite_targets = (
         db.query(Project)
-        .filter(Project.tenant_id == admin.tenant_id, Project.status != "completed")
+        .filter(Project.tenant_id == admin.tenant_id, Project.status != "completed", Project.deleted_at.is_(None))
         .order_by(Project.created_at.desc())
         .all()
     )
@@ -891,7 +1022,7 @@ def build_agentic_dashboard(db: Session, admin: User):
     projects = (
         db.query(Project)
         .options(joinedload(Project.client))
-        .filter(Project.tenant_id == admin.tenant_id)
+        .filter(Project.tenant_id == admin.tenant_id, Project.deleted_at.is_(None))
         .order_by(Project.created_at.desc())
         .all()
     )
@@ -2800,6 +2931,7 @@ def build_employee_workspace(db: Session, user: User):
     my_projects = []
     seen_projects = set()
     my_tasks = []
+    completed_tasks = []
     project_invites = []
     planned_tracks = []
     project_history = []
@@ -2807,8 +2939,7 @@ def build_employee_workspace(db: Session, user: User):
     invite_projects = (
         db.query(Project)
         .options(joinedload(Project.tasks))
-        .filter(Project.tenant_id == user.tenant_id)
-        .filter(Project.status != "completed")
+        .filter(Project.tenant_id == user.tenant_id, Project.deleted_at.is_(None), Project.status != "completed")
         .order_by(Project.created_at.desc())
         .all()
     )
@@ -2908,8 +3039,13 @@ def build_employee_workspace(db: Session, user: User):
             },
         )
 
-        my_tasks.append(
-            {
+        task_completion = progress.completion_percentage if progress else 0
+        task_is_done = (
+            task.status in ("done", "completed", "cancelled")
+            or task_completion >= 100
+        )
+
+        task_payload = {
                 "assignment_id": assignment.id,
                 "task_id": task.id,
                 "project_id": project.id,
@@ -2918,7 +3054,7 @@ def build_employee_workspace(db: Session, user: User):
                 "status": task.status,
                 "assignment_status": assignment.status,
                 "estimated_hours": assignment.estimated_hours,
-                "completion_percentage": progress.completion_percentage if progress else 0,
+                "completion_percentage": task_completion,
                 "project_progress": project.progress,
                 "notes": task_brief,
                 "concern_path": "Raise a concern in this workspace first. The AI lead will respond before admin escalation is triggered.",
@@ -2968,7 +3104,11 @@ def build_employee_workspace(db: Session, user: User):
                     )
                 ],
             }
-        )
+
+        if task_is_done:
+            completed_tasks.append(task_payload)
+        else:
+            my_tasks.append(task_payload)
 
         if project.id not in seen_projects:
             seen_projects.add(project.id)
@@ -2987,10 +3127,11 @@ def build_employee_workspace(db: Session, user: User):
             else:
                 my_projects.append(payload)
 
+    all_tasks = my_tasks + completed_tasks
     overall_personal_progress = round(
-        (len([task for task in my_tasks if task["status"] == "done"]) / len(my_tasks)) * 100,
+        (len(completed_tasks) / len(all_tasks)) * 100,
         1,
-    ) if my_tasks else 0.0
+    ) if all_tasks else 0.0
 
     return {
         "employee": {
@@ -3020,6 +3161,7 @@ def build_employee_workspace(db: Session, user: User):
         "summary": {
             "active_projects": len(my_projects),
             "assigned_tasks": len(my_tasks),
+            "completed_tasks": len(completed_tasks),
             "personal_progress_percent": overall_personal_progress,
             "pending_invites": len([invite for invite in project_invites if invite["status"] == "pending"]),
             "experience_points": performance.get("experience_points", 0.0),
@@ -3030,6 +3172,7 @@ def build_employee_workspace(db: Session, user: User):
         "projects": my_projects,
         "history": project_history,
         "tasks": my_tasks,
+        "completed_tasks": completed_tasks,
     }
 
 

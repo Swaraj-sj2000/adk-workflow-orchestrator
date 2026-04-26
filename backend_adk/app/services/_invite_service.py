@@ -33,6 +33,27 @@ def get_or_create_project_team(db: Session, project: Project, created_by_user_id
     return team
 
 
+def get_or_create_org_pool_team(db: Session, tenant_id: int, admin_user_id: int) -> Team:
+    """Return the tenant-wide talent-pool team (no project). Created on first use."""
+    team = (
+        db.query(Team)
+        .filter(Team.tenant_id == tenant_id, Team.project_id.is_(None))
+        .first()
+    )
+    if team:
+        return team
+
+    team = Team(
+        tenant_id=tenant_id,
+        project_id=None,
+        name="Talent Pool",
+        created_by_user_id=admin_user_id,
+    )
+    db.add(team)
+    db.flush()
+    return team
+
+
 def create_team_invite(
     db: Session,
     *,
@@ -76,7 +97,9 @@ def create_team_invite(
     db.flush()
 
     inviter = db.query(User).filter(User.id == invited_by_user_id).first()
-    project = db.query(Project).filter(Project.id == team.project_id, Project.tenant_id == tenant_id).first()
+    project = None
+    if team.project_id:
+        project = db.query(Project).filter(Project.id == team.project_id, Project.tenant_id == tenant_id).first()
     EmailService.send_invite_email(
         to_email=normalized_email,
         inviter_name=inviter.full_name if inviter and inviter.full_name else (inviter.email if inviter else "A teammate"),
@@ -178,6 +201,64 @@ def apply_invite_response(
     db.add(member)
     db.flush()
     return member
+
+
+def list_talent_pool(db: Session, tenant_id: int) -> list[dict]:
+    """Return all accepted members of the org talent-pool team."""
+    pool_team = (
+        db.query(Team)
+        .filter(Team.tenant_id == tenant_id, Team.project_id.is_(None))
+        .first()
+    )
+    if not pool_team:
+        return []
+
+    members = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == pool_team.id)
+        .all()
+    )
+    result = []
+    for m in members:
+        user = db.query(User).filter(User.id == m.user_id).first()
+        result.append({
+            "user_id": m.user_id,
+            "email": user.email if user else None,
+            "full_name": user.full_name if user else None,
+            "role_title": m.role_title,
+            "status": m.status,
+            "joined_at": m.joined_at.isoformat() if m.joined_at else None,
+        })
+    return result
+
+
+def list_pending_org_invites(db: Session, tenant_id: int) -> list[dict]:
+    """Return pending invites to the org talent-pool team."""
+    pool_team = (
+        db.query(Team)
+        .filter(Team.tenant_id == tenant_id, Team.project_id.is_(None))
+        .first()
+    )
+    if not pool_team:
+        return []
+
+    invites = (
+        db.query(TeamInvite)
+        .filter(TeamInvite.team_id == pool_team.id, TeamInvite.status == "pending")
+        .all()
+    )
+    return [
+        {
+            "id": inv.id,
+            "email": inv.email,
+            "role_title": inv.role_title,
+            "status": inv.status,
+            "token": inv.token,
+            "note": inv.note,
+            "created_at": inv.created_at.isoformat() if inv.created_at else None,
+        }
+        for inv in invites
+    ]
 
 
 def find_project_invite_for_actor(db: Session, project_id: int, actor: User) -> TeamInvite:

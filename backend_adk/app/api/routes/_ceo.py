@@ -47,3 +47,11 @@ def get_risks(
     current_user: User = Depends(require_ceo_or_admin),
 ):
     return CEOService.get_risk_flags(db, current_user.tenant_id)
+
+
+@router.get("/analytics")
+def get_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_ceo_or_admin),
+):
+    return CEOService.get_analytics(db, current_user.tenant_id)

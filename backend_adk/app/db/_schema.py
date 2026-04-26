@@ -2,6 +2,17 @@ from sqlalchemy import inspect, text
 
 
 ADDITIVE_COLUMNS = {
+    "tenants": {
+        "logo_url": "TEXT",
+        "description": "TEXT",
+        "industry": "VARCHAR",
+        "website_url": "TEXT",
+        "headquarters": "VARCHAR",
+        "employee_count_range": "VARCHAR",
+        "founded_year": "INTEGER",
+        "contact_email": "VARCHAR",
+        "contact_phone": "VARCHAR",
+    },
     "users": {
         "tenant_id": "INTEGER",
         "password_reset_token": "VARCHAR",
@@ -55,14 +66,48 @@ _ALLOWED_COLUMNS: frozenset[str] = frozenset(
     col for cols in ADDITIVE_COLUMNS.values() for col in cols
 )
 
+# Tables and columns that must be made nullable (SQLite table-recreation technique)
+_MAKE_NULLABLE = [
+    ("teams", "project_id"),
+]
+
+
+def _drop_not_null(connection, table_name: str, column_name: str) -> None:
+    """Recreate a SQLite table to remove NOT NULL from one column."""
+    result = connection.execute(text(f"PRAGMA table_info(\"{table_name}\")"))
+    cols = result.fetchall()  # (cid, name, type, notnull, dflt_value, pk)
+
+    target = next((c for c in cols if c[1] == column_name), None)
+    if target is None or target[3] == 0:
+        return  # already nullable or column absent
+
+    col_defs = []
+    for col in cols:
+        cid, name, ctype, notnull, dflt_value, pk = col
+        parts = [f'"{name}"', ctype or "TEXT"]
+        if pk:
+            parts.append("PRIMARY KEY")
+        if notnull and name != column_name:
+            parts.append("NOT NULL")
+        if dflt_value is not None:
+            parts.append(f"DEFAULT {dflt_value}")
+        col_defs.append(" ".join(parts))
+
+    col_names = ", ".join(f'"{c[1]}"' for c in cols)
+    backup = f'_{table_name}_nb_bkp'
+
+    connection.execute(text(f'ALTER TABLE "{table_name}" RENAME TO "{backup}"'))
+    connection.execute(text(f'CREATE TABLE "{table_name}" ({", ".join(col_defs)})'))
+    connection.execute(text(f'INSERT INTO "{table_name}" SELECT {col_names} FROM "{backup}"'))
+    connection.execute(text(f'DROP TABLE "{backup}"'))
+
 
 def ensure_runtime_schema(engine) -> None:
     inspector = inspect(engine)
 
     with engine.begin() as connection:
+        # 1. Additive column migrations
         for table_name, columns in ADDITIVE_COLUMNS.items():
-            # Explicit allowlist — guards against injection if ADDITIVE_COLUMNS is ever
-            # extended with values from non-hardcoded sources.
             assert table_name in _ALLOWED_TABLES, f"Unexpected table: {table_name}"
             if table_name not in inspector.get_table_names():
                 continue
@@ -73,3 +118,9 @@ def ensure_runtime_schema(engine) -> None:
                 if column_name in existing_columns:
                     continue
                 connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+
+        # 2. Drop NOT NULL constraints where required
+        existing_tables = set(inspector.get_table_names())
+        for table_name, column_name in _MAKE_NULLABLE:
+            if table_name in existing_tables:
+                _drop_not_null(connection, table_name, column_name)

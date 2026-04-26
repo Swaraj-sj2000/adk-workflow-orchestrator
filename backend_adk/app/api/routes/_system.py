@@ -9,6 +9,7 @@ from app.services._monitoring_service import MonitoringService
 from app.services._decision_service import DecisionService
 from app.services._event_service import EventService
 from app.services._project_service import (
+    build_admin_analytics,
     build_admin_dashboard,
     build_agentic_dashboard,
     build_llm_status,
@@ -114,6 +115,16 @@ def route_admin_dashboard(
         raise HTTPException(status_code=403, detail="Only admins can view the admin dashboard")
 
     return build_admin_dashboard(db, current_user)
+
+
+@router.get("/admin-analytics")
+def route_admin_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ("admin", "ceo"):
+        raise HTTPException(status_code=403, detail="Only admins can view team analytics")
+    return build_admin_analytics(db, current_user)
 
 
 @router.get("/team-dashboard")

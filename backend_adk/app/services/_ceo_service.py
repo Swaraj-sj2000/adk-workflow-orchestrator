@@ -493,3 +493,133 @@ class CEOService:
                     )
 
         return risk_flags
+
+    @classmethod
+    def get_analytics(cls, db: Session, tenant_id: int | None) -> dict:
+        """Comprehensive analytics for CEO: revenue, project health, tasks, team, clients."""
+        if tenant_id is None:
+            return {}
+
+        projects = db.query(Project).filter(Project.tenant_id == tenant_id).all()
+        employees = db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == tenant_id).all()
+        clients = db.query(ClientProfile).filter(ClientProfile.tenant_id == tenant_id).all()
+        tasks = db.query(Task).filter(Task.tenant_id == tenant_id).all()
+        metrics_rows = db.query(EmployeeMetrics).join(EmployeeProfile, EmployeeProfile.id == EmployeeMetrics.employee_id).filter(EmployeeProfile.tenant_id == tenant_id).all()
+        blockers_by_project = cls._project_blockers(db, tenant_id)
+
+        # --- Revenue ---
+        total_budget = sum(float(p.budget or 0) for p in projects)
+        total_spent = sum(float(p.spent or 0) for p in projects)
+        total_collected = sum(float(p.budget or 0) for p in projects if p.payment_status in PAYMENT_COLLECTED_STATUSES)
+        total_invoiced = sum(float(p.budget or 0) for p in projects if p.payment_status in PAYMENT_INVOICED_STATUSES)
+        gross_profit = total_invoiced - total_spent
+        profit_margin_pct = round((gross_profit / total_invoiced * 100) if total_invoiced else 0, 1)
+
+        # --- Projects by status ---
+        status_counts: dict[str, int] = {}
+        priority_counts: dict[str, int] = {}
+        for p in projects:
+            status_counts[p.status or "unknown"] = status_counts.get(p.status or "unknown", 0) + 1
+            priority_counts[p.priority or "medium"] = priority_counts.get(p.priority or "medium", 0) + 1
+
+        completed_projects = [p for p in projects if p.status == "completed"]
+        active_projects = [p for p in projects if p.status not in ("completed", "cancelled")]
+
+        # --- Tasks ---
+        done_tasks = [t for t in tasks if t.status in ("done", "completed")]
+        blocked_tasks = [t for t in tasks if t.status == "blocked"]
+        in_progress_tasks = [t for t in tasks if t.status == "in_progress"]
+        task_completion_rate = round(len(done_tasks) / len(tasks) * 100 if tasks else 0, 1)
+
+        # --- Per-project analytics ---
+        per_project = []
+        for p in projects:
+            b = float(p.budget or 0)
+            s = float(p.spent or 0)
+            pm = round((b - s) / b * 100, 1) if b else 0
+            open_blockers = len([bl for bl in blockers_by_project.get(p.id, []) if bl.status == "open"])
+            per_project.append({
+                "id": p.id,
+                "name": p.name,
+                "status": p.status,
+                "priority": p.priority,
+                "progress": float(p.progress or 0),
+                "budget": round(b, 2),
+                "spent": round(s, 2),
+                "profit_margin": pm,
+                "payment_status": p.payment_status,
+                "open_blockers": open_blockers,
+                "is_collected": p.payment_status in PAYMENT_COLLECTED_STATUSES,
+            })
+        per_project.sort(key=lambda x: -x["budget"])
+
+        # --- Team performance ---
+        avg_efficiency = round(sum(m.efficiency_score or 0 for m in metrics_rows) / len(metrics_rows) * 100 if metrics_rows else 0, 1)
+        avg_reliability = round(sum(m.reliability_score or 0 for m in metrics_rows) / len(metrics_rows) * 100 if metrics_rows else 0, 1)
+        avg_utilization = round(
+            sum(float(e.current_load or 0) / float(e.max_capacity or 1) * 100 for e in employees) / len(employees)
+            if employees else 0, 1
+        )
+        top_performers = sorted(
+            [
+                {
+                    "name": (m.employee.user.full_name if m.employee and m.employee.user else f"Employee #{m.employee_id}"),
+                    "efficiency": round((m.efficiency_score or 0) * 100, 1),
+                    "reliability": round((m.reliability_score or 0) * 100, 1),
+                    "tasks_completed": m.total_tasks_completed or 0,
+                }
+                for m in metrics_rows
+            ],
+            key=lambda x: x["efficiency"] + x["reliability"],
+            reverse=True,
+        )[:5]
+
+        # --- Client health ---
+        client_payment_summary = {"collected": 0, "pending": 0, "partial": 0, "overdue": 0}
+        for p in projects:
+            if p.payment_status in PAYMENT_COLLECTED_STATUSES:
+                client_payment_summary["collected"] += 1
+            elif p.payment_status == "partial":
+                client_payment_summary["partial"] += 1
+            elif p.payment_status == "pending":
+                client_payment_summary["pending"] += 1
+
+        return {
+            "revenue": {
+                "total_budget": round(total_budget, 2),
+                "total_spent": round(total_spent, 2),
+                "total_invoiced": round(total_invoiced, 2),
+                "total_collected": round(total_collected, 2),
+                "outstanding": round(total_invoiced - total_collected, 2),
+                "gross_profit": round(gross_profit, 2),
+                "profit_margin_pct": profit_margin_pct,
+                "collection_rate_pct": round(total_collected / total_invoiced * 100 if total_invoiced else 0, 1),
+            },
+            "projects": {
+                "total": len(projects),
+                "active": len(active_projects),
+                "completed": len(completed_projects),
+                "by_status": [{"label": k, "value": v} for k, v in sorted(status_counts.items())],
+                "by_priority": [{"label": k, "value": v} for k, v in sorted(priority_counts.items())],
+                "avg_progress": round(sum(float(p.progress or 0) for p in active_projects) / len(active_projects) if active_projects else 0, 1),
+            },
+            "tasks": {
+                "total": len(tasks),
+                "completed": len(done_tasks),
+                "in_progress": len(in_progress_tasks),
+                "blocked": len(blocked_tasks),
+                "completion_rate_pct": task_completion_rate,
+            },
+            "team": {
+                "total_employees": len(employees),
+                "avg_utilization_pct": avg_utilization,
+                "avg_efficiency_pct": avg_efficiency,
+                "avg_reliability_pct": avg_reliability,
+                "top_performers": top_performers,
+            },
+            "clients": {
+                "total": len(clients),
+                "payment_summary": client_payment_summary,
+            },
+            "per_project": per_project,
+        }

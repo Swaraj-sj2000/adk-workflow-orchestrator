@@ -8,7 +8,14 @@ from app.models._team import Team
 from app.models._user import User
 from app.schemas._invite import TeamInviteAction, TeamInviteCreate
 from app.services import _project_service
-from app.services._invite_service import create_team_invite, get_or_create_project_team, list_user_invites
+from app.services._invite_service import (
+    create_team_invite,
+    get_or_create_org_pool_team,
+    get_or_create_project_team,
+    list_pending_org_invites,
+    list_talent_pool,
+    list_user_invites,
+)
 
 router = APIRouter(tags=["Invites"])
 
@@ -49,6 +56,50 @@ def create_invite(
         "status": invite.status,
         "token": invite.token,
         "existing_user": bool(existing_user),
+    }
+
+
+@router.post("/invite/org")
+def create_org_invite(
+    payload: TeamInviteCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Invite someone to join the company talent pool — no project needed."""
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="You must belong to a tenant to invite members")
+
+    team = get_or_create_org_pool_team(db, current_user.tenant_id, current_user.id)
+    invite, existing_user = create_team_invite(
+        db,
+        team=team,
+        tenant_id=current_user.tenant_id,
+        email=payload.email,
+        invited_by_user_id=current_user.id,
+        role_title=payload.role_title,
+        note=payload.note,
+    )
+    db.commit()
+
+    return {
+        "invite_id": invite.id,
+        "team_id": invite.team_id,
+        "email": invite.email,
+        "status": invite.status,
+        "token": invite.token,
+        "existing_user": bool(existing_user),
+    }
+
+
+@router.get("/invite/talent-pool")
+def get_talent_pool(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """List all accepted members in the org talent pool."""
+    return {
+        "members": list_talent_pool(db, current_user.tenant_id),
+        "pending_invites": list_pending_org_invites(db, current_user.tenant_id),
     }
 
 
