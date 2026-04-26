@@ -19,9 +19,13 @@ class StaffingAgent(BaseAgent):
 
     def run(self, shared_context: Dict[str, Any]) -> AgentResult:
         planned_tasks = shared_context["execution_plan"]["tasks"]
-        employees = self.db.query(EmployeeProfile).filter(
-            EmployeeProfile.availability_status == "available"
-        ).all()
+        tenant_id = shared_context.get("tenant_id")
+        query = self.db.query(EmployeeProfile).filter(
+            EmployeeProfile.availability_status.in_(["available", "on-duty"]),
+        )
+        if tenant_id:
+            query = query.filter(EmployeeProfile.tenant_id == tenant_id)
+        employees = query.all()
 
         recommendations: List[Dict[str, Any]] = []
         under_staffed = 0
@@ -35,6 +39,7 @@ class StaffingAgent(BaseAgent):
                 task_like = type("TaskLike", (), {
                     "required_skills": task.get("required_skills", {}),
                     "estimated_time": task.get("estimated_time"),
+                    "deadline": task.get("deadline"),
                 })()
                 score = self.scoring_fn(employee, task_like)
                 ranked.append(

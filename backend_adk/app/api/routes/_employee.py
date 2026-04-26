@@ -149,17 +149,66 @@ def route_list_employees(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all employees (admin only for full list)."""
+    """List all employees (admin/CEO see full list; others see only available)."""
     query = db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == current_user.tenant_id)
-    
-    if current_user.role != "admin":
-        # Non-admins can only see available employees
-        query = query.filter(
-            EmployeeProfile.availability_status == "available"
-        )
-    
+
+    if current_user.role not in ("admin", "ceo", "platform_owner"):
+        query = query.filter(EmployeeProfile.availability_status.in_(["available", "on-duty"]))
+
     employees = query.offset(skip).limit(limit).all()
     return employees
+
+
+@router.get("/directory")
+def route_employee_directory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rich employee directory for admin/CEO: name, role, department, skills, load, team."""
+    if current_user.role not in ("admin", "ceo", "platform_owner"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from app.models._team import Team, TeamMember
+    from sqlalchemy.orm import joinedload
+
+    profiles = (
+        db.query(EmployeeProfile)
+        .options(joinedload(EmployeeProfile.user), joinedload(EmployeeProfile.metrics))
+        .filter(EmployeeProfile.tenant_id == current_user.tenant_id)
+        .order_by(EmployeeProfile.department, EmployeeProfile.id)
+        .all()
+    )
+
+    # Build team membership lookup
+    teams = db.query(Team).filter(Team.tenant_id == current_user.tenant_id).all()
+    team_name_map = {t.id: t.name for t in teams}
+    memberships = db.query(TeamMember).filter(TeamMember.tenant_id == current_user.tenant_id).all()
+    emp_teams: dict = {}
+    for m in memberships:
+        if m.employee_profile_id:
+            emp_teams.setdefault(m.employee_profile_id, []).append(team_name_map.get(m.team_id, "Unknown"))
+
+    result = []
+    for p in profiles:
+        cap = p.max_capacity or 8.0
+        load = p.current_load or 0.0
+        result.append({
+            "employee_profile_id": p.id,
+            "user_id": p.user_id,
+            "name": p.user.full_name if p.user else f"Employee {p.id}",
+            "email": p.user.email if p.user else None,
+            "department": p.department,
+            "skills": p.skills or {},
+            "availability_status": p.availability_status,
+            "current_load": load,
+            "max_capacity": cap,
+            "workload_percent": round((load / cap) * 100) if cap > 0 else 0,
+            "teams": emp_teams.get(p.id, []),
+            "efficiency_score": p.metrics.efficiency_score if p.metrics else None,
+            "reliability_score": p.metrics.reliability_score if p.metrics else None,
+            "total_tasks_completed": p.metrics.total_tasks_completed if p.metrics else 0,
+        })
+    return {"employees": result, "total": len(result)}
 
 
 @router.get("/my-work")

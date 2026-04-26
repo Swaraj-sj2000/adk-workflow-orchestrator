@@ -97,6 +97,12 @@ class MultiAgentOrchestrator:
         self._record_agent_run(workflow.id, {"parsed_brief": shared_context["parsed_brief"]}, planning_result)
         shared_context["execution_plan"] = planning_result.output_payload
 
+        # Resolve tenant for this admin so project gets scoped correctly
+        from app.models._user import User as _AdminUser
+        _admin_user = self.db.query(_AdminUser).filter(_AdminUser.id == requested_by).first()
+        _tenant_id = _admin_user.tenant_id if _admin_user else None
+        shared_context["tenant_id"] = _tenant_id
+
         if persist_project:
             logger.info("Materializing project in database")
             project, sequence_to_task_id = self._materialize_project(
@@ -105,6 +111,7 @@ class MultiAgentOrchestrator:
                 budget=budget,
                 priority=priority,
                 deadline=deadline,
+                tenant_id=_tenant_id,
             )
             workflow.project_id = project.id
             shared_context["project_id"] = project.id
@@ -118,6 +125,15 @@ class MultiAgentOrchestrator:
         logger.info(f"StaffingAgent completed: confidence={staffing_result.confidence:.2f}")
         self._record_agent_run(workflow.id, {"execution_plan": shared_context["execution_plan"]}, staffing_result)
         shared_context["staffing"] = staffing_result.output_payload
+
+        # Persist staffing recommendations into the project's custom_fields so the
+        # admin dashboard can show the draft team and allow swap/remove/accept flows.
+        if shared_context.get("project_id"):
+            self._bridge_staffing_to_project(
+                project_id=shared_context["project_id"],
+                staffing_output=staffing_result.output_payload,
+                admin_user_id=requested_by,
+            )
 
         risk_result = RiskAgent().run(shared_context)
         logger.info(f"RiskAgent completed: confidence={risk_result.confidence:.2f}")
@@ -429,17 +445,43 @@ class MultiAgentOrchestrator:
         budget: float,
         priority: str,
         deadline: Optional[datetime],
+        tenant_id: Optional[int] = None,
     ) -> tuple[Project, Dict[int, int]]:
+        from datetime import timedelta as _td
+        approval_deadline = (datetime.utcnow() + _td(minutes=240)).isoformat()
         project = Project(
             name=execution_plan["project_title"],
             description=execution_plan["project_summary"],
             admin_id=requested_by,
+            tenant_id=tenant_id,
             budget=budget,
             priority=priority,
             deadline=deadline,
             status="planning",
             custom_fields={
+                "current_phase": "intake",
+                "approval_status": "awaiting-admin-approval",
+                "approval_deadline": approval_deadline,
+                "approval_window_minutes": 240,
+                "next_decision": "Admin approval required for the AI-generated team draft and role plan",
+                "recommended_team": [],
+                "role_clusters": [],
+                "team_invites": [],
+                "team_join_deadline": None,
+                "team_join_window_minutes": 240,
+                "team_join_status": "pending-admin-approval",
+                "replacement_suggestions": [],
+                "emp_involved_ids": [],
+                "report_text": None,
+                "final_report": None,
+                "payment_updates": [],
+                "notifications": [],
                 "project_complexity": execution_plan.get("project_complexity", 0.7),
+                "planning_packet": {
+                    "project_complexity": execution_plan.get("project_complexity", 0.7),
+                    "project_summary": execution_plan.get("project_summary", ""),
+                    "tasks": execution_plan.get("tasks", []),
+                },
                 "created_by_workflow": "project_intake",
             },
         )
@@ -475,6 +517,104 @@ class MultiAgentOrchestrator:
 
         self.db.flush()
         return project, sequence_to_task_id
+
+    def _bridge_staffing_to_project(
+        self,
+        project_id: int,
+        staffing_output: Dict[str, Any],
+        admin_user_id: int,
+    ) -> None:
+        """Convert StaffingAgent recommendations → project.custom_fields['recommended_team'].
+
+        This makes the workbench-created project behave identically to a project
+        created via create_project(), so the admin dashboard can show the draft team
+        with swap/remove/accept controls.
+        """
+        from app.models._employee_profile import EmployeeProfile as _EP
+        from app.models._user import User as _U
+        from app.services._invite_service import get_or_create_project_team
+
+        project = self.db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            return
+
+        recommendations = staffing_output.get("staffing_recommendations", [])
+        seen_ids: set = set()
+        recommended_team = []
+
+        for rec in recommendations:
+            owner = rec.get("recommended_owner")
+            if not owner:
+                continue
+            ep_id = owner.get("employee_profile_id")
+            if not ep_id or ep_id in seen_ids:
+                continue
+            seen_ids.add(ep_id)
+
+            ep = self.db.query(_EP).filter(_EP.id == ep_id).first()
+            if not ep:
+                continue
+            user = self.db.query(_U).filter(_U.id == ep.user_id).first()
+
+            # Derive role title from skills (mirrors _title_from_employee logic)
+            skills = set((ep.skills or {}).keys())
+            ROLE_SKILL_MAP = {
+                "Solution Architect": ("architecture", "delivery"),
+                "AI Engineer": ("llm", "modeling"),
+                "Backend Engineer": ("backend", "api"),
+                "Frontend Engineer": ("frontend", "react"),
+                "QA Automation Engineer": ("qa", "testing", "automation"),
+                "Project Coordinator": ("project-management",),
+                "Client Success Manager": ("client-success", "reporting"),
+                "DevOps Engineer": ("devops", "cloud", "security"),
+                "Data Engineer": ("data", "analytics"),
+                "Prompt Engineer": ("prompting", "research"),
+            }
+            best_title = ep.department or "AI Services"
+            best_score = 0
+            for title, markers in ROLE_SKILL_MAP.items():
+                score = len(skills.intersection(set(markers)))
+                if score > best_score:
+                    best_title = title
+                    best_score = score
+
+            cap = ep.max_capacity or 8.0
+            load = ep.current_load or 0.0
+            workload_pct = round((load / cap) * 100) if cap > 0 else 0
+
+            recommended_team.append({
+                "employee_id": ep.id,
+                "name": user.full_name if user else f"Employee {ep.id}",
+                "title": best_title,
+                "workload_percent": workload_pct,
+                "task_title": rec.get("task_title"),
+                "score": owner.get("score"),
+            })
+
+        meta = dict(project.custom_fields or {})
+        meta["recommended_team"] = recommended_team
+
+        # Mark as awaiting admin approval so the approval widget shows up
+        if not meta.get("approval_status") or meta["approval_status"] == "awaiting-admin-approval":
+            from datetime import timedelta as _td2
+            meta["approval_status"] = "awaiting-admin-approval"
+            meta["approval_deadline"] = (datetime.utcnow() + _td2(minutes=240)).isoformat()
+            meta["next_decision"] = (
+                f"Review the AI-drafted team of {len(recommended_team)} members and approve or swap before kickoff."
+                if recommended_team
+                else "No candidates found — ensure employees have correct skills and availability."
+            )
+
+        project.custom_fields = meta
+        self.db.add(project)
+
+        # Ensure a Team record exists for this project so team management APIs work
+        get_or_create_project_team(self.db, project, admin_user_id)
+
+        self.db.flush()
+        logger.info(
+            f"Bridged staffing → project {project_id}: {len(recommended_team)} team members written to custom_fields"
+        )
 
     def _recommended_next_actions(self, shared_context: Dict[str, Any]):
         actions = list(shared_context["execution_coordination"]["next_actions"])
