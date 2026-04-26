@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core._deps import get_current_user, get_db
 from app.models._user import User
+from app.models._tenant import Tenant
 from app.schemas._settings import PasswordChange, ProfileUpdate, SupportTicketCreate, UserPreferencesUpdate
 from app.services._settings_service import SettingsService
 
@@ -19,6 +21,7 @@ def get_me(
     current_user: User = Depends(get_current_user),
 ):
     preferences = SettingsService.get_preferences(db, current_user.id)
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     return {
         "user": {
             "id":              current_user.id,
@@ -33,6 +36,10 @@ def get_me(
             "avatar_url":      getattr(current_user, "avatar_url", None),
             "role":            current_user.role,
             "tenant_id":       current_user.tenant_id,
+            "tenant_name":     tenant.name if tenant else None,
+            "tenant_slug":     tenant.slug if tenant else None,
+            "tenant_logo_url": getattr(tenant, "logo_url", None) if tenant else None,
+            "tenant_description": getattr(tenant, "description", None) if tenant else None,
         },
         "preferences": {
             "id": preferences.id,
@@ -139,6 +146,86 @@ def export_data(
     current_user: User = Depends(get_current_user),
 ):
     return SettingsService.export_user_data(db, current_user)
+
+
+_COMPANY_STRING_FIELDS = ("description", "logo_url", "industry", "website_url", "headquarters",
+                          "employee_count_range", "contact_email", "contact_phone")
+
+
+def _tenant_profile_dict(tenant) -> dict:
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "description": getattr(tenant, "description", None),
+        "logo_url": getattr(tenant, "logo_url", None),
+        "industry": getattr(tenant, "industry", None),
+        "website_url": getattr(tenant, "website_url", None),
+        "headquarters": getattr(tenant, "headquarters", None),
+        "employee_count_range": getattr(tenant, "employee_count_range", None),
+        "founded_year": getattr(tenant, "founded_year", None),
+        "contact_email": getattr(tenant, "contact_email", None),
+        "contact_phone": getattr(tenant, "contact_phone", None),
+    }
+
+
+class CompanyProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    industry: Optional[str] = None
+    website_url: Optional[str] = None
+    headquarters: Optional[str] = None
+    employee_count_range: Optional[str] = None
+    founded_year: Optional[int] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+
+    class Config:
+        extra = "ignore"
+
+
+@router.get("/company")
+def get_company_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return _tenant_profile_dict(tenant)
+
+
+@router.patch("/company")
+def update_company_profile(
+    payload: CompanyProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ("admin", "ceo"):
+        raise HTTPException(status_code=403, detail="Only admin or CEO can update company profile")
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if payload.name is not None:
+        stripped = payload.name.strip()
+        if stripped:
+            tenant.name = stripped
+
+    for field in _COMPANY_STRING_FIELDS:
+        val = getattr(payload, field, None)
+        if val is not None:
+            setattr(tenant, field, val.strip() or None)
+
+    if payload.founded_year is not None:
+        tenant.founded_year = payload.founded_year
+
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return _tenant_profile_dict(tenant)
 
 
 class PositionValidateRequest(BaseModel):
