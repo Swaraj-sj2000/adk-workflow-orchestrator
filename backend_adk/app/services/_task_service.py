@@ -115,6 +115,14 @@ def _sync_assignment_status(db: Session, task: Task) -> None:
     assignments = db.query(TaskAssignment).filter(TaskAssignment.task_id == assignment_task_id).all()
     for assignment in assignments:
         if task.status == "done":
+            if assignment.status != "completed":
+                # Release the load this task held on the employee
+                employee = db.query(EmployeeProfile).filter(EmployeeProfile.id == assignment.employee_id).first()
+                if employee:
+                    hours = float(assignment.estimated_hours or task.estimated_time or 0.0)
+                    employee.current_load = max(0.0, round((employee.current_load or 0.0) - hours, 1))
+                    employee.availability_status = "busy" if employee.current_load > 0 else "available"
+                    db.add(employee)
             assignment.status = "completed"
             assignment.completed_at = assignment.completed_at or datetime.now(timezone.utc)
         elif task.status in {"running", "blocked", "delayed"}:

@@ -3288,6 +3288,14 @@ def update_checkpoint_status(db: Session, checkpoint_id: int, completed: bool, u
 
         if assignment:
             if completion_percentage >= 100:
+                if assignment.status != "completed":
+                    # Release the load this task held on the employee
+                    emp = db.query(EmployeeProfile).filter(EmployeeProfile.id == assignment.employee_id).first()
+                    if emp:
+                        hours = float(assignment.estimated_hours or task.estimated_time or 0.0)
+                        emp.current_load = max(0.0, round((emp.current_load or 0.0) - hours, 1))
+                        _sync_employee_capacity_state(emp)
+                        db.add(emp)
                 assignment.status = "completed"
                 assignment.completed_at = assignment.completed_at or _utcnow()
                 assignment.actual_hours = assignment.actual_hours or assignment.estimated_hours or task.estimated_time or 0.0
