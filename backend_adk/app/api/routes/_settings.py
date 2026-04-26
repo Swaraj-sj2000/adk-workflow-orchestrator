@@ -52,6 +52,7 @@ def get_me(
             "email_notifications": preferences.email_notifications,
             "weekly_digest": preferences.weekly_digest,
             "onboarding_complete": getattr(preferences, "onboarding_complete", False),
+            "currency": getattr(preferences, "currency", "USD") or "USD",
         },
     }
 

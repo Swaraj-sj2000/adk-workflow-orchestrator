@@ -227,7 +227,7 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
   const [preferences, setPreferences] = useState({
     timezone: 'UTC', theme: 'light', language: 'en', ceo_mode: false,
     notification_density: 'all', default_landing_page: 'dashboard',
-    email_notifications: true, weekly_digest: true,
+    email_notifications: true, weekly_digest: true, currency: 'USD',
   });
   const [pwForm, setPwForm]         = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [supportForm, setSupportForm] = useState({ subject: '', body: '', priority: 'medium' });
@@ -311,6 +311,12 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
     if (res.ok) {
       if (preferences.theme)    onThemeChange(preferences.theme);
       if (preferences.timezone) onTimezoneChange(preferences.timezone);
+      // Persist currency onto cached user so getCurrency() reads it immediately
+      try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        localStorage.setItem('user', JSON.stringify({ ...u, currency: preferences.currency || 'USD' }));
+      } catch {}
+      if (onProfileUpdate) onProfileUpdate({ currency: preferences.currency || 'USD' });
       flash('Preferences saved.');
     } else flash(data.detail || 'Could not save preferences.');
   };
@@ -572,6 +578,13 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                   <input type="checkbox" checked={preferences.weekly_digest} onChange={(e) => setPreferences((p) => ({ ...p, weekly_digest: e.target.checked }))} />
                   Weekly digest email
                 </label>
+                <div>
+                  <label style={{ fontSize: 13, opacity: 0.7, display: 'block', marginBottom: 4 }}>Currency</label>
+                  <select value={preferences.currency || 'USD'} onChange={(e) => setPreferences((p) => ({ ...p, currency: e.target.value }))}>
+                    <option value="USD">USD — US Dollar ($)</option>
+                    <option value="INR">INR — Indian Rupee (₹)</option>
+                  </select>
+                </div>
                 {currentUser.role === 'ceo' && (
                   <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
                     <input type="checkbox" checked={preferences.ceo_mode} onChange={(e) => setPreferences((p) => ({ ...p, ceo_mode: e.target.checked }))} />

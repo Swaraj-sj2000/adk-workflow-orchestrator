@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { API_BASE_URL as API } from '../config';
+import { formatCurrency } from '../utils/currency';
 import './Analytics.css';
+
+function getCurrency() {
+  try { return JSON.parse(localStorage.getItem('user'))?.currency || 'USD'; }
+  catch { return 'USD'; }
+}
 
 /* ─── Primitive Chart Components ─────────────────────────────────── */
 
@@ -61,14 +67,14 @@ function SectionHead({ title, sub }) {
   );
 }
 
-const fmt$ = (v) => v == null ? '—' : `$${Number(v).toLocaleString()}`;
 const fmtPct = (v) => `${v}%`;
 
 /* ─── Shared Analytics Panel ─────────────────────────────────────── */
 
-function AnalyticsPanel({ data }) {
+function AnalyticsPanel({ data, currency = 'USD' }) {
   if (!data) return <div className="loading"><div className="spinner" /></div>;
 
+  const fmt$ = (v) => formatCurrency(v, currency);
   const rev = data.revenue || {};
   const proj = data.projects || {};
   const tasks = data.tasks || {};
@@ -234,6 +240,7 @@ export function CeoAnalytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const token = localStorage.getItem('token');
+  const currency = getCurrency();
 
   useEffect(() => {
     fetch(`${API}/ceo/analytics`, { headers: { Authorization: `Bearer ${token}` } })
@@ -243,7 +250,7 @@ export function CeoAnalytics() {
   }, []);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
-  return <AnalyticsPanel data={data} />;
+  return <AnalyticsPanel data={data} currency={currency} />;
 }
 
 /* ─── Admin Analytics Page ───────────────────────────────────────── */
@@ -252,6 +259,7 @@ export function AdminAnalytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const token = localStorage.getItem('token');
+  const currency = getCurrency();
 
   useEffect(() => {
     fetch(`${API}/system/admin-analytics`, { headers: { Authorization: `Bearer ${token}` } })
@@ -261,5 +269,5 @@ export function AdminAnalytics() {
   }, []);
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
-  return <AnalyticsPanel data={data} />;
+  return <AnalyticsPanel data={data} currency={currency} />;
 }

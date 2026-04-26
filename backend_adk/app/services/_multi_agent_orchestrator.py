@@ -591,8 +591,41 @@ class MultiAgentOrchestrator:
                 "score": owner.get("score"),
             })
 
+        # Build task_role_map: {str(task_id): role_title} so _assign_role_tasks_to_employee
+        # can auto-assign tasks when each invited employee accepts their invite.
+        ep_id_to_title = {member["employee_id"]: member["title"] for member in recommended_team}
+        tasks_ordered = (
+            self.db.query(Task)
+            .filter(Task.project_id == project_id, Task.parent_task_id.is_(None))
+            .order_by(Task.id.asc())
+            .all()
+        )
+        seq_to_task_id = {idx + 1: task.id for idx, task in enumerate(tasks_ordered)}
+        task_id_to_title = {task.id: task.title for task in tasks_ordered}
+
+        task_role_map: dict = {}
+        role_task_groups: dict = {}  # role_title -> [task_title]
+        for rec in recommendations:
+            owner = rec.get("recommended_owner")
+            if not owner:
+                continue
+            ep_id = owner.get("employee_profile_id")
+            seq = rec.get("task_sequence")
+            task_id = seq_to_task_id.get(seq)
+            role_title = ep_id_to_title.get(ep_id)
+            if task_id and role_title:
+                task_role_map[str(task_id)] = role_title
+                role_task_groups.setdefault(role_title, []).append(task_id_to_title.get(task_id, f"Task {seq}"))
+
+        role_clusters = [
+            {"role": role, "task_titles": titles, "skills": [], "capacity_reasoning": "AI-drafted by staffing agent"}
+            for role, titles in role_task_groups.items()
+        ]
+
         meta = dict(project.custom_fields or {})
         meta["recommended_team"] = recommended_team
+        meta["task_role_map"] = task_role_map
+        meta["role_clusters"] = role_clusters
 
         # Mark as awaiting admin approval so the approval widget shows up
         if not meta.get("approval_status") or meta["approval_status"] == "awaiting-admin-approval":

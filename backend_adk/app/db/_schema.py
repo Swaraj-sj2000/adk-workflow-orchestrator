@@ -53,6 +53,7 @@ ADDITIVE_COLUMNS = {
         "google_calendar_token": "TEXT",
         "google_calendar_email": "VARCHAR",
         "onboarding_complete": "INTEGER DEFAULT 0",
+        "currency": "VARCHAR DEFAULT 'USD'",
     },
     "tenant_settings": {
         "max_teams": "INTEGER DEFAULT 1",

@@ -23,5 +23,6 @@ class UserPreferences(Base):
     google_calendar_token = Column(JSON, nullable=True)
     google_calendar_email = Column(String, nullable=True)
     onboarding_complete = Column(Boolean, nullable=False, default=False)
+    currency = Column(String, nullable=False, default="USD")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
 import { CeoAnalytics } from './Analytics';
+import { formatCurrency } from '../utils/currency';
 
 export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, tenantLogoUrl, onCompanyUpdate }) {
+  const currency = currentUser?.currency || 'USD';
+  const fmt$ = (v) => formatCurrency(v, currency);
   const [loading, setLoading] = useState(true);
   const [ceoMode, setCeoMode] = useState(localStorage.getItem('ceo_mode') === 'true');
   const [overview, setOverview] = useState(null);
@@ -360,7 +363,7 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
       {(loading ? Array.from({ length: 4 }) : [
         { label: 'Total Projects', value: overview?.total_projects, meta: `${overview?.projects_on_track || 0} on track / ${overview?.projects_at_risk || 0} at risk / ${overview?.projects_delayed || 0} delayed` },
         { label: 'Team Utilization', value: `${teams?.overall_utilization_pct || 0}%`, meta: `${overview?.employees_overloaded || 0} overloaded employees` },
-        { label: 'Outstanding Payments', value: financials?.total_outstanding || 0, meta: `${financials?.overdue_payments?.length || 0} overdue accounts` },
+        { label: 'Outstanding Payments', value: fmt$(financials?.total_outstanding || 0), meta: `${financials?.overdue_payments?.length || 0} overdue accounts` },
         { label: 'Active Blockers', value: overview?.active_blockers || 0, meta: `${risks.filter((r) => r.type === 'unresolved_blocker').length} critical blockers` },
       ]).map((card, index) => (
         <div key={card?.label || index} className="card">
@@ -440,9 +443,9 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                 <tr key={client.client_id}>
                   <td>{client.company_name}</td>
                   <td>{client.active_projects} active / {client.completed_projects} complete</td>
-                  <td>{client.total_billed}</td>
-                  <td>{client.total_paid}</td>
-                  <td>{client.outstanding}</td>
+                  <td>{fmt$(client.total_billed)}</td>
+                  <td>{fmt$(client.total_paid)}</td>
+                  <td>{fmt$(client.outstanding)}</td>
                   <td>{client.payment_status}</td>
                 </tr>
               ))}

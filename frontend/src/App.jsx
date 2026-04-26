@@ -92,7 +92,7 @@ export default function App() {
         if (data.user?.tenant_name) setTenantName(data.user.tenant_name);
         if (data.user?.tenant_logo_url !== undefined) setTenantLogoUrl(data.user.tenant_logo_url || null);
         if (data.user) {
-          const merged = { ...currentUser, ...data.user };
+          const merged = { ...currentUser, ...data.user, currency: data.preferences.currency || 'USD' };
           setCurrentUser(merged);
           localStorage.setItem('user', JSON.stringify(merged));
         }
@@ -191,8 +191,8 @@ export default function App() {
         {currentPage === 'owner' && currentUser.role === 'platform_owner' && (
           <OwnerPanel currentUser={currentUser} API_BASE_URL={API_BASE_URL} />
         )}
-        {currentPage === 'projects' && <Projects role={currentUser.role} />}
-        {currentPage === 'employees' && <EmployeeView role={currentUser.role} />}
+        {currentPage === 'projects' && <Projects role={currentUser.role} currency={currentUser.currency || 'USD'} />}
+        {currentPage === 'employees' && <EmployeeView role={currentUser.role} currency={currentUser.currency || 'USD'} />}
         {currentPage === 'task' && selectedId && <TaskDetail taskId={selectedId} userTimezone={userTimezone} />}
         {currentPage === 'decisions' && <Decisions />}
         {currentPage === 'multi-agent' && currentUser.role === 'admin' && <MultiAgentWorkbench />}

@@ -440,6 +440,17 @@ export default function Projects({ role }) {
                   </button>
                 </div>
               )}
+              {actionKey && (
+                <div className="action-loading-bar-wrap">
+                  <div className="action-loading-label">
+                    <div className="action-loading-spinner" />
+                    {actionKey.startsWith('approve') ? 'Approving…' : actionKey.startsWith('reject') ? 'Rejecting…' : actionKey.startsWith('delete') ? 'Deleting…' : 'Applying…'}
+                  </div>
+                  <div className="action-loading-track">
+                    <div className="action-loading-fill" />
+                  </div>
+                </div>
+              )}
               {role === 'admin' && (
                 <div className="project-card-actions">
                   <button className="btn btn-danger" onClick={() => deleteProject(selectedProject.id)} disabled={Boolean(actionKey)} data-tooltip="Delete the project with a full rollback">

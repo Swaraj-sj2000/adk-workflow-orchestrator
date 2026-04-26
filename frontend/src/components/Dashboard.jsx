@@ -752,9 +752,14 @@ export default function Dashboard({ role }) {
           </div>
 
           {actionKey && (
-            <div className="info-pill">
-              <span>Processing</span>
-              <strong>Your last action is still being applied. Buttons stay disabled until the update completes.</strong>
+            <div className="action-loading-bar-wrap">
+              <div className="action-loading-label">
+                <div className="action-loading-spinner" />
+                {actionKey.startsWith('approve') ? 'Approving…' : actionKey.startsWith('reject') ? 'Rejecting…' : actionKey.startsWith('delete') ? 'Deleting…' : 'Applying…'}
+              </div>
+              <div className="action-loading-track">
+                <div className="action-loading-fill" />
+              </div>
             </div>
           )}
 
