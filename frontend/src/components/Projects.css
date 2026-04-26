@@ -32,13 +32,23 @@
 
 .project-card {
   background: #fff;
-  padding: 20px;
   border-radius: 16px;
   border: 1px solid #e0e8e2;
   box-shadow: 0 8px 24px rgba(31, 51, 40, 0.05);
+  overflow: hidden;
+}
+
+/* collapsed header inherits Dashboard summary styles — padding only */
+.project-card-collapsible .project-card-summary {
+  padding: 16px 20px;
+}
+
+.project-card-collapsible .project-card-body {
+  padding: 14px 20px 20px;
+  border-top: 1px solid #e0e8e2;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .project-detail-card {

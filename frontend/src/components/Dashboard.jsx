@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './Dashboard.css';
 import { API_BASE_URL as API } from '../config';
+import { AdminAnalytics } from './Analytics';
 
 const initialForm = {
   name: '',
@@ -29,6 +30,7 @@ export default function Dashboard({ role }) {
   const [dashboard, setDashboard] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [formData, setFormData] = useState(initialForm);
   const [paymentForm, setPaymentForm] = useState(initialPaymentForm);
   const [message, setMessage] = useState('');
@@ -347,7 +349,7 @@ export default function Dashboard({ role }) {
           <h2>My Dashboard</h2>
           <div className="summary-grid">
             <SummaryCard label="My Projects" value={dashboard?.summary?.active_projects || 0} />
-            <SummaryCard label="Assigned Tasks" value={dashboard?.summary?.assigned_tasks || 0} />
+            <SummaryCard label="Active Tasks" value={dashboard?.summary?.assigned_tasks || 0} />
             <SummaryCard label="My Progress" value={`${dashboard?.summary?.personal_progress_percent || 0}%`} />
             <SummaryCard label="Workload" value={`${employee.workload_percent || 0}%`} />
             <SummaryCard label="Pending Invites" value={dashboard?.summary?.pending_invites || 0} />
@@ -529,10 +531,23 @@ export default function Dashboard({ role }) {
           <h2>Handle multiple client projects from one place</h2>
           <p>Track planning, delivery, team involvement, payment state, final reporting, and archived history from one tenant-aware view.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate((current) => !current)}>
-          {showCreate ? 'Close New Project Form' : 'New Project'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => { setShowAnalytics((v) => !v); setShowCreate(false); }}>
+            {showAnalytics ? 'Close Analytics' : 'Team Analytics'}
+          </button>
+          <button className="btn btn-primary" onClick={() => { setShowCreate((current) => !current); setShowAnalytics(false); }}>
+            {showCreate ? 'Close New Project Form' : 'New Project'}
+          </button>
+        </div>
       </div>
+
+      {showAnalytics && (
+        <div className="card full-width">
+          <p className="eyebrow">Performance Intelligence</p>
+          <h2 style={{ marginBottom: 20 }}>Team & Project Analytics</h2>
+          <AdminAnalytics />
+        </div>
+      )}
 
       <div className="summary-grid full-width">
         <SummaryCard label="Active Projects" value={summary.active_projects || 0} tooltip="Projects currently in planning or execution" />
@@ -1072,6 +1087,12 @@ function NotificationsPanel({ title, notifications, open, onToggle, emptyText })
   );
 }
 
+function fmtDeadline(d) {
+  if (!d) return null;
+  try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  catch { return null; }
+}
+
 function ProjectSection({ title, eyebrow, projects, emptyText, renderExtra, actions, onOpen }) {
   return (
     <div className="card full-width">
@@ -1082,30 +1103,46 @@ function ProjectSection({ title, eyebrow, projects, emptyText, renderExtra, acti
         </div>
       </div>
       <div className="project-grid">
-        {projects.length > 0 ? projects.map((project) => (
-          <article key={project.project_id || project.id} className="project-shell">
-            <div className="project-card-top">
-              <div>
-                <h3>{project.name || project.project_name}</h3>
-                <p className="id-line">Project ID: #{project.project_id || project.id}</p>
-                <p>{project.public_status_label || project.business_summary || project.description}</p>
-              </div>
-              <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
-                {project.status}
-              </span>
-            </div>
-            <div className="progress">
-              <div className="progress-fill" style={{ width: `${project.progress || 0}%` }}></div>
-            </div>
-            <p className="progress-text">{project.progress || 0}% complete</p>
-            {renderExtra ? renderExtra(project) : null}
-            {actions ? actions(project) : onOpen ? (
-              <div className="project-card-actions">
-                <button className="btn btn-secondary" type="button" onClick={() => onOpen(project.project_id || project.id)}>Open Status</button>
-              </div>
-            ) : null}
-          </article>
-        )) : (
+        {projects.length > 0 ? projects.map((project) => {
+          const pid = project.project_id || project.id;
+          const deadline = fmtDeadline(project.deadline);
+          return (
+            <article key={pid} className="project-shell">
+              <details>
+                <summary className="project-card-summary">
+                  <div className="project-summary-row">
+                    <div className="project-summary-main">
+                      <span className="project-summary-name">{project.name || project.project_name}</span>
+                      <span className="project-summary-meta">
+                        #{pid}
+                        {project.client_name ? ` · ${project.client_name}` : ''}
+                        {deadline ? ` · Due ${deadline}` : ''}
+                      </span>
+                    </div>
+                    <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
+                      {project.status}
+                    </span>
+                  </div>
+                </summary>
+                <div className="project-card-body">
+                  {(project.public_status_label || project.business_summary || project.description) && (
+                    <p className="project-card-desc">{project.public_status_label || project.business_summary || project.description}</p>
+                  )}
+                  <div className="progress">
+                    <div className="progress-fill" style={{ width: `${project.progress || 0}%` }} />
+                  </div>
+                  <p className="progress-text">{project.progress || 0}% complete</p>
+                  {renderExtra ? renderExtra(project) : null}
+                  {actions ? actions(project) : onOpen ? (
+                    <div className="project-card-actions">
+                      <button className="btn btn-secondary" type="button" onClick={() => onOpen(pid)}>Open Status</button>
+                    </div>
+                  ) : null}
+                </div>
+              </details>
+            </article>
+          );
+        }) : (
           <div className="empty-state full-width">
             <p>{emptyText}</p>
           </div>

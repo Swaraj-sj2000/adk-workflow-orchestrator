@@ -41,6 +41,7 @@ export default function EmployeeView({ role }) {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionKey, setActionKey] = useState('');
+  const [orgInvites, setOrgInvites] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -57,7 +58,14 @@ export default function EmployeeView({ role }) {
     setLoading(true);
     try {
       const endpoint = role === 'admin' ? `${API}/system/team-dashboard` : `${API}/employees/my-work`;
-      const res = await fetch(endpoint, { headers });
+      const [res, invRes] = await Promise.all([
+        fetch(endpoint, { headers }),
+        fetch(`${API}/my-invites`, { headers }),
+      ]);
+      if (invRes.ok) {
+        const invData = await invRes.json();
+        setOrgInvites(Array.isArray(invData) ? invData : []);
+      }
       if (res.ok) {
         const nextData = await res.json();
         setData(nextData);
@@ -262,21 +270,46 @@ export default function EmployeeView({ role }) {
     }
   };
 
+  const respondToOrgInvite = async (inviteId, accepted) => {
+    if (actionKey) return;
+    setActionKey(`org-${accepted ? 'accept' : 'reject'}-${inviteId}`);
+    try {
+      const res = await fetch(`${API}/accept-invite`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invite_id: inviteId, accepted }),
+      });
+      if (res.ok) {
+        setMessage(accepted ? 'You have joined the company talent pool.' : 'Invite declined.');
+        await fetchData();
+      } else {
+        const d = await res.json();
+        setMessage(d.detail || 'Could not process invite.');
+      }
+    } catch {
+      setMessage('Could not process invite.');
+    } finally {
+      setActionKey('');
+    }
+  };
+
   const inviteMember = async (event) => {
     event.preventDefault();
-    if (!inviteForm.projectId || !inviteForm.email.trim()) return;
+    if (!inviteForm.email.trim()) return;
     if (actionKey) return;
-    setActionKey(`invite-${inviteForm.projectId}`);
+    const isOrgInvite = !inviteForm.projectId;
+    setActionKey(`invite-${inviteForm.projectId || 'org'}`);
 
     try {
-      const res = await fetch(`${API}/invite`, {
+      const endpoint = isOrgInvite ? `${API}/invite/org` : `${API}/invite`;
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           ...headers,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          project_id: Number(inviteForm.projectId),
+          ...(isOrgInvite ? {} : { project_id: Number(inviteForm.projectId) }),
           email: inviteForm.email.trim().toLowerCase(),
           role_title: inviteForm.roleTitle.trim() || null,
         }),
@@ -376,16 +409,18 @@ export default function EmployeeView({ role }) {
         </div>
 
         <div className="card">
-          <h2>Add Member By Email</h2>
+          <h2>Invite Member to Company</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+            Invite someone directly to your talent pool — no project needed. Once accepted you can assign them to any project.
+          </p>
           <form className="project-create-form" onSubmit={inviteMember}>
             <div className="form-group">
-              <label>Project Team</label>
+              <label>Assign to Project (optional)</label>
               <select
                 value={inviteForm.projectId}
                 onChange={(event) => setInviteForm((current) => ({ ...current, projectId: event.target.value }))}
-                required
               >
-                <option value="">Select project</option>
+                <option value="">Org talent pool (no project)</option>
                 {inviteTargets.map((project) => (
                   <option key={project.project_id} value={project.project_id}>
                     {project.name} ({project.status})
@@ -413,7 +448,7 @@ export default function EmployeeView({ role }) {
             </div>
             <div className="form-actions form-span-2">
               <button className="btn btn-primary" type="submit" disabled={Boolean(actionKey)}>
-                {actionKey === `invite-${inviteForm.projectId}` ? 'Sending...' : 'Send Team Invite'}
+                {actionKey === `invite-${inviteForm.projectId || 'org'}` ? 'Sending...' : 'Send Invite'}
               </button>
             </div>
           </form>
@@ -553,6 +588,7 @@ export default function EmployeeView({ role }) {
   }
 
   const tasks = data?.tasks || [];
+  const completedTasks = data?.completed_tasks || [];
   const projects = data?.projects || [];
   const projectInvites = data?.project_invites || [];
   const plannedTracks = data?.planned_tracks || [];
@@ -563,6 +599,41 @@ export default function EmployeeView({ role }) {
       {message && (
         <div className={`card full-width workspace-message workspace-${messageTone(message)}`}>
           <strong>{message}</strong>
+        </div>
+      )}
+
+      {orgInvites.length > 0 && (
+        <div className="card full-width" style={{ borderLeft: '4px solid var(--accent)' }}>
+          <p className="eyebrow">Pending Company Invites</p>
+          <h2 style={{ marginBottom: 14 }}>You have been invited to join a company</h2>
+          <div className="list">
+            {orgInvites.map((inv) => (
+              <div key={inv.id} className="list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <strong>{inv.role_title || 'Team Member'}</strong>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '2px 0 0' }}>
+                    {inv.note || 'You have been invited to join the company talent pool.'}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    disabled={Boolean(actionKey)}
+                    onClick={() => respondToOrgInvite(inv.id, true)}
+                  >
+                    {actionKey === `org-accept-${inv.id}` ? 'Joining...' : 'Accept'}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    disabled={Boolean(actionKey)}
+                    onClick={() => respondToOrgInvite(inv.id, false)}
+                  >
+                    {actionKey === `org-reject-${inv.id}` ? 'Declining...' : 'Decline'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -755,26 +826,43 @@ export default function EmployeeView({ role }) {
       <div className="card">
         <h2>My Projects</h2>
         <div className="list">
-          {projects.map((project) => (
-            <div key={project.project_id} className="list-item">
-              <div className="task-line">
-                <div>
-                  <strong>{project.name}</strong>
-                  <p>Project ID: #{project.project_id}</p>
+          {projects.map((project) => {
+            const dl = project.deadline
+              ? new Date(project.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+              : null;
+            return (
+              <details key={project.project_id} className="list-item project-collapse">
+                <summary className="project-collapse-summary">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flex: 1 }}>
+                    <div>
+                      <strong style={{ fontSize: 14 }}>{project.name}</strong>
+                      <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+                        #{project.project_id}{dl ? ` · Due ${dl}` : ''}
+                      </p>
+                    </div>
+                    <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
+                      {project.status}
+                    </span>
+                  </div>
+                </summary>
+                <div style={{ paddingTop: 12, marginTop: 8, borderTop: '1px solid var(--border-soft)' }}>
+                  {project.public_status_label && <p style={{ fontSize: 13, marginBottom: 6 }}>{project.public_status_label}</p>}
+                  <p style={{ fontSize: 13 }}><strong>Progress:</strong> {project.progress || 0}%</p>
+                  <div className="progress" style={{ marginTop: 6 }}>
+                    <div className="progress-fill" style={{ width: `${project.progress || 0}%` }} />
+                  </div>
                 </div>
-                <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
-                  {project.status}
-                </span>
-              </div>
-              <p>{project.public_status_label}</p>
-              <p><strong>Project Progress:</strong> {project.progress || 0}%</p>
-            </div>
-          ))}
+              </details>
+            );
+          })}
         </div>
       </div>
 
       <div className="card">
         <h2>My Task Path</h2>
+        {tasks.length === 0 && completedTasks.length === 0 && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>No active tasks — all done or none assigned yet.</p>
+        )}
         <div className="list">
           {tasks.map((task) => (
             <div
@@ -800,6 +888,28 @@ export default function EmployeeView({ role }) {
             </div>
           ))}
         </div>
+
+        {completedTasks.length > 0 && (
+          <details style={{ marginTop: 16 }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 14, color: 'var(--text-secondary)', userSelect: 'none' }}>
+              Completed tasks ({completedTasks.length}) — project still active
+            </summary>
+            <div className="list" style={{ marginTop: 10, opacity: 0.7 }}>
+              {completedTasks.map((task) => (
+                <div key={task.assignment_id} className="list-item" style={{ borderLeftColor: '#4caf50' }}>
+                  <div className="task-line">
+                    <div>
+                      <strong>{task.task_name}</strong>
+                      <p>{task.project_name} — project at {task.project_progress || 0}%</p>
+                    </div>
+                    <span className="status-badge status-done">done</span>
+                  </div>
+                  <p>Your contribution complete. Waiting for project to close.</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
 
       <div className="card">

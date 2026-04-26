@@ -117,10 +117,126 @@
   background: #fbfcfb;
   border: 1px solid #e2e9e4;
   border-radius: 16px;
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ── Collapsible project card ─────────────────────── */
+.project-shell details {
+  width: 100%;
+}
+
+.project-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  outline: none;
+  transition: background 0.15s;
+}
+.project-card-summary::-webkit-details-marker { display: none; }
+.project-card-summary::marker { display: none; }
+
+.project-card-summary:hover {
+  background: rgba(0,0,0,0.025);
+}
+
+.project-card-summary::before {
+  content: '▶';
+  font-size: 9px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  width: 12px;
+  text-align: center;
+}
+
+details[open] > .project-card-summary::before {
+  transform: rotate(90deg);
+}
+
+.project-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.project-summary-main {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.project-summary-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-summary-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-card-body {
+  padding: 14px 18px 18px;
+  border-top: 1px solid #e2e9e4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Employee view collapsible project */
+.project-collapse {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.project-collapse-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  outline: none;
+  width: 100%;
+}
+.project-collapse-summary::-webkit-details-marker { display: none; }
+.project-collapse-summary::marker { display: none; }
+
+.project-collapse-summary::before {
+  content: '▶';
+  font-size: 9px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  width: 12px;
+  text-align: center;
+}
+
+details[open] > .project-collapse-summary::before {
+  transform: rotate(90deg);
 }
 
 .project-card-top,

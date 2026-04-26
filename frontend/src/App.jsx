@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import { API_BASE_URL } from './config';
+import synraLogo from './assets/synra_logo.svg';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Projects from './components/Projects';
@@ -55,6 +56,8 @@ export default function App() {
   const [userTimezone, setUserTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [settingsTab, setSettingsTab] = useState('profile');
   const [onboardingComplete, setOnboardingComplete] = useState(true);
+  const [tenantName, setTenantName] = useState(null);
+  const [tenantLogoUrl, setTenantLogoUrl] = useState(null);
 
   useEffect(() => {
     const user = localStorage.getItem('user');
@@ -86,6 +89,13 @@ export default function App() {
           setUserTimezone(data.preferences.timezone);
         }
         setOnboardingComplete(!!data.preferences.onboarding_complete);
+        if (data.user?.tenant_name) setTenantName(data.user.tenant_name);
+        if (data.user?.tenant_logo_url !== undefined) setTenantLogoUrl(data.user.tenant_logo_url || null);
+        if (data.user) {
+          const merged = { ...currentUser, ...data.user };
+          setCurrentUser(merged);
+          localStorage.setItem('user', JSON.stringify(merged));
+        }
         if (currentUser.role === 'platform_owner') {
           setCurrentPage('owner');
         } else if (currentUser.role === 'ceo') {
@@ -101,7 +111,7 @@ export default function App() {
           setCurrentPage('ceo');
         }
       });
-  }, [currentUser]);
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (currentUser) {
@@ -137,8 +147,25 @@ export default function App() {
 
   return (
     <div className={`app theme-${theme}`} style={accentStyle}>
+      <img
+        src={synraLogo}
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          bottom: 32,
+          right: 32,
+          width: 320,
+          opacity: theme === 'dark' ? 0.04 : 0.055,
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 0,
+          filter: theme === 'dark' ? 'invert(1)' : 'none',
+        }}
+      />
       <Navbar
         user={currentUser}
+        tenantName={tenantName}
+        tenantLogoUrl={tenantLogoUrl}
         onLogout={handleLogout}
         setPage={setCurrentPage}
         theme={theme}
@@ -150,7 +177,16 @@ export default function App() {
       <div className="container">
         {currentPage === 'dashboard' && <Dashboard role={currentUser.role} />}
         {currentPage === 'ceo' && currentUser.role === 'ceo' && (
-          <CEODashboard currentUser={currentUser} API_BASE_URL={API_BASE_URL} onNavigate={setCurrentPage} />
+          <CEODashboard
+            currentUser={currentUser}
+            API_BASE_URL={API_BASE_URL}
+            onNavigate={setCurrentPage}
+            tenantLogoUrl={tenantLogoUrl}
+            onCompanyUpdate={(updated) => {
+              if (updated.name) setTenantName(updated.name);
+              if (updated.logo_url !== undefined) setTenantLogoUrl(updated.logo_url || null);
+            }}
+          />
         )}
         {currentPage === 'owner' && currentUser.role === 'platform_owner' && (
           <OwnerPanel currentUser={currentUser} API_BASE_URL={API_BASE_URL} />
@@ -196,8 +232,20 @@ function LoginPage({ setCurrentUser }) {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('employee');
   const [fullName, setFullName] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [mfaToken, setMfaToken] = useState(null);
+  const [totpCode, setTotpCode] = useState('');
+
+  // Forgot-password flow: null | 'email' | 'reset'
+  const [forgotStep, setForgotStep] = useState(null);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [devResetToken, setDevResetToken] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetNewPw, setResetNewPw] = useState('');
+  const [resetConfirmPw, setResetConfirmPw] = useState('');
+  const [showResetPw, setShowResetPw] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -209,13 +257,40 @@ function LoginPage({ setCurrentUser }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
-      if (!res.ok) throw new Error('Login failed');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Login failed');
+      if (data.mfa_session_token) {
+        setMfaToken(data.mfa_session_token);
+        setMessage('');
+      } else {
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setCurrentUser(data.user);
+      }
+    } catch (err) {
+      setMessage('Login failed: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  const handleMfaVerify = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/2fa/verify-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfa_session_token: mfaToken, totp_code: totpCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Invalid code');
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setCurrentUser(data.user);
     } catch (err) {
-      setMessage('Login failed: ' + err.message);
+      setMessage(err.message);
+      setTotpCode('');
     }
     setLoading(false);
   };
@@ -228,7 +303,10 @@ function LoginPage({ setCurrentUser }) {
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, full_name: fullName, role })
+        body: JSON.stringify({
+          email, password, full_name: fullName, role,
+          ...(companyName && { tenant_name: companyName }),
+        })
       });
       if (res.ok) {
         setMessage('Registration successful! Please login.');
@@ -236,6 +314,7 @@ function LoginPage({ setCurrentUser }) {
         setEmail('');
         setPassword('');
         setFullName('');
+        setCompanyName('');
       } else {
         const data = await res.json();
         setMessage('Registration failed: ' + (data.detail || 'Unknown error'));
@@ -246,25 +325,150 @@ function LoginPage({ setCurrentUser }) {
     setLoading(false);
   };
 
+  const handleForgotRequest = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Request failed');
+      setForgotStep('reset');
+      if (data.dev_reset_token) {
+        setDevResetToken(data.dev_reset_token);
+        setResetToken(data.dev_reset_token);
+      }
+    } catch (err) {
+      setMessage(err.message);
+    }
+    setLoading(false);
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    if (resetNewPw !== resetConfirmPw) { setMessage('Passwords do not match.'); return; }
+    if (resetNewPw.length < 8) { setMessage('Password must be at least 8 characters.'); return; }
+    setLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, new_password: resetNewPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Reset failed');
+      // Success — go back to login with a success message
+      setForgotStep(null);
+      setForgotEmail('');
+      setResetToken('');
+      setResetNewPw('');
+      setResetConfirmPw('');
+      setDevResetToken('');
+      setIsLogin(true);
+      setMessage('Password updated successfully. Please log in.');
+    } catch (err) {
+      setMessage(err.message);
+    }
+    setLoading(false);
+  };
+
+  const exitForgot = () => {
+    setForgotStep(null);
+    setForgotEmail('');
+    setResetToken('');
+    setResetNewPw('');
+    setResetConfirmPw('');
+    setDevResetToken('');
+    setMessage('');
+  };
+
   return (
     <div className="login-page">
+      {/* Neural network background */}
+      <svg className="login-neural-bg" viewBox="0 0 1440 900" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <radialGradient id="fade" cx="50%" cy="50%" r="55%">
+            <stop offset="0%"   stopColor="#07071c" stopOpacity="0.7"/>
+            <stop offset="100%" stopColor="#07071c" stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+        {/* edges */}
+        {[
+          [120,80,310,190],[310,190,540,120],[540,120,720,260],[720,260,950,180],[950,180,1180,90],[1180,90,1360,210],
+          [120,80,80,320],[80,320,210,480],[210,480,310,190],[310,190,480,380],[480,380,540,120],
+          [540,120,700,60],[700,60,950,180],[950,180,1100,340],[1100,340,1360,210],
+          [80,320,180,620],[180,620,420,700],[420,700,480,380],[480,380,660,540],[660,540,720,260],
+          [720,260,900,480],[900,480,1100,340],[1100,340,1280,560],[1280,560,1360,210],
+          [180,620,300,820],[300,820,580,780],[580,780,660,540],[660,540,840,740],[840,740,900,480],
+          [900,480,1060,720],[1060,720,1280,560],[300,820,1060,720],[840,740,1060,720],
+          [1360,210,1420,480],[1420,480,1280,560],[1420,480,1380,720],[1380,720,1060,720],
+        ].map(([x1,y1,x2,y2],i) => (
+          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke="rgba(80,80,200,0.35)" strokeWidth="0.8"/>
+        ))}
+        {/* dim nodes */}
+        {[
+          [700,60],[1180,90],[80,320],[210,480],[480,380],[660,540],[900,480],[1100,340],[1280,560],
+          [180,620],[420,700],[580,780],[840,740],[1060,720],[1380,720],[1360,210],[1420,480],[300,820],
+        ].map(([cx,cy],i) => (
+          <circle key={i} cx={cx} cy={cy} r="4" fill="rgba(100,100,210,0.4)" filter="url(#glow)"/>
+        ))}
+        {/* bright nodes */}
+        {[
+          [120,80],[310,190],[540,120],[720,260],[950,180],[1360,210],
+          [80,320],[480,380],[660,540],[900,480],[1060,720],[300,820],
+        ].map(([cx,cy],i) => (
+          <g key={i} filter="url(#glow)">
+            <circle cx={cx} cy={cy} r="7" fill="rgba(48,48,180,0.18)"/>
+            <circle cx={cx} cy={cy} r="3.5" fill="rgba(120,120,230,0.75)"/>
+          </g>
+        ))}
+        {/* centre vignette — darkens the card area so the card pops */}
+        <rect x="0" y="0" width="1440" height="900" fill="url(#fade)"/>
+      </svg>
       <div className="login-card">
-        <h1>🧠 AI Workforce Orchestrator</h1>
+        <img src={synraLogo} alt="SynRA" style={{ width: '100%', maxWidth: 260, margin: '0 auto 8px', display: 'block' }} />
         
-        <div className="auth-tabs">
-          <button 
-            className={`tab ${isLogin ? 'active' : ''}`}
-            onClick={() => setIsLogin(true)}
-          >
-            Login
-          </button>
-          <button 
-            className={`tab ${!isLogin ? 'active' : ''}`}
-            onClick={() => setIsLogin(false)}
-          >
-            Register
-          </button>
-        </div>
+        {!mfaToken && !forgotStep && (
+          <div className="auth-tabs">
+            <button
+              className={`tab ${isLogin ? 'active' : ''}`}
+              onClick={() => setIsLogin(true)}
+            >
+              Login
+            </button>
+            <button
+              className={`tab ${!isLogin ? 'active' : ''}`}
+              onClick={() => setIsLogin(false)}
+            >
+              Register
+            </button>
+          </div>
+        )}
+        {mfaToken && (
+          <div style={{ textAlign: 'center', marginBottom: 20, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Two-Factor Authentication
+          </div>
+        )}
+        {forgotStep === 'email' && (
+          <div style={{ textAlign: 'center', marginBottom: 20, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Reset Password
+          </div>
+        )}
+        {forgotStep === 'reset' && (
+          <div style={{ textAlign: 'center', marginBottom: 20, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Set New Password
+          </div>
+        )}
 
         {message && (
           <div className={`auth-message ${message.includes('successful') ? 'success' : 'error'}`}>
@@ -272,7 +476,124 @@ function LoginPage({ setCurrentUser }) {
           </div>
         )}
 
-        {isLogin ? (
+        {/* ── MFA step ── */}
+        {mfaToken && (
+          <form onSubmit={handleMfaVerify}>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+              Enter the 6-digit code from your authenticator app.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="000000"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength={6}
+              style={{ textAlign: 'center', letterSpacing: '0.3em', fontSize: 22 }}
+              autoFocus
+              required
+            />
+            <button type="submit" disabled={loading || totpCode.length !== 6}>
+              {loading ? 'Verifying...' : 'Verify →'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMfaToken(null); setTotpCode(''); setMessage(''); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'underline', width: '100%', marginTop: 8 }}
+            >
+              ← Back to login
+            </button>
+          </form>
+        )}
+
+        {/* ── Forgot password — step 1: enter email ── */}
+        {!mfaToken && forgotStep === 'email' && (
+          <form onSubmit={handleForgotRequest}>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+              Enter your account email. We'll send you a reset link.
+            </p>
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              autoFocus
+              required
+            />
+            <button type="submit" disabled={loading || !forgotEmail.trim()}>
+              {loading ? 'Sending...' : 'Send Reset Link →'}
+            </button>
+            <button type="button" onClick={exitForgot}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'underline', width: '100%', marginTop: 8 }}
+            >
+              ← Back to login
+            </button>
+          </form>
+        )}
+
+        {/* ── Forgot password — step 2: enter token + new password ── */}
+        {!mfaToken && forgotStep === 'reset' && (
+          <form onSubmit={handleResetPassword}>
+            <p style={{ margin: '0 0 12px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
+              Check your email for the reset code and set a new password.
+            </p>
+            {devResetToken && (
+              <div style={{
+                background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.4)',
+                borderRadius: 8, padding: '10px 12px', marginBottom: 12,
+              }}>
+                <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#92400e', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                  Dev mode — no email provider configured
+                </p>
+                <p style={{ margin: 0, fontSize: 12, color: '#78350f', wordBreak: 'break-all' }}>
+                  Token: <strong>{devResetToken}</strong>
+                </p>
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: '#92400e' }}>
+                  Pre-filled below. This box won't appear in production.
+                </p>
+              </div>
+            )}
+            <input
+              type="text"
+              placeholder="Paste reset token from email"
+              value={resetToken}
+              onChange={(e) => setResetToken(e.target.value.trim())}
+              required
+              style={{ fontFamily: 'monospace', fontSize: 13 }}
+            />
+            <PasswordField
+              value={resetNewPw}
+              onChange={(e) => setResetNewPw(e.target.value)}
+              showPassword={showResetPw}
+              onToggleVisibility={() => setShowResetPw((s) => !s)}
+              placeholder="New password (min 8 chars)"
+            />
+            <PasswordField
+              value={resetConfirmPw}
+              onChange={(e) => setResetConfirmPw(e.target.value)}
+              showPassword={showResetPw}
+              onToggleVisibility={() => setShowResetPw((s) => !s)}
+              placeholder="Confirm new password"
+            />
+            {resetConfirmPw && resetNewPw !== resetConfirmPw && (
+              <p style={{ fontSize: 12, color: '#e53935', margin: '-8px 0 8px' }}>Passwords do not match.</p>
+            )}
+            <button
+              type="submit"
+              disabled={loading || !resetToken || !resetNewPw || resetNewPw !== resetConfirmPw || resetNewPw.length < 8}
+            >
+              {loading ? 'Updating...' : 'Set New Password →'}
+            </button>
+            <button type="button" onClick={exitForgot}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'underline', width: '100%', marginTop: 8 }}
+            >
+              ← Back to login
+            </button>
+          </form>
+        )}
+
+        {/* ── Normal login / register forms ── */}
+        {!mfaToken && !forgotStep && (isLogin ? (
           <form onSubmit={handleLogin}>
             <input
               type="email"
@@ -290,6 +611,13 @@ function LoginPage({ setCurrentUser }) {
             />
             <button type="submit" disabled={loading}>
               {loading ? 'Logging in...' : 'Login'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setForgotStep('email'); setForgotEmail(email); setMessage(''); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'underline', width: '100%', marginTop: 8 }}
+            >
+              Forgot password?
             </button>
           </form>
         ) : (
@@ -315,18 +643,31 @@ function LoginPage({ setCurrentUser }) {
               onToggleVisibility={() => setShowPassword((current) => !current)}
               placeholder="Password"
             />
-            <select value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="employee">Employee</option>
-              <option value="admin">Admin</option>
-              <option value="ceo">CEO</option>
+            <select value={role} onChange={(e) => { setRole(e.target.value); setCompanyName(''); }}>
+              <option value="employee">Employee — join via invite</option>
+              <option value="admin">Admin — set up a team</option>
+              <option value="ceo">CEO — register my company</option>
               <option value="client">Client</option>
-              <option value="platform_owner">Platform Owner</option>
             </select>
+            {(role === 'ceo' || role === 'admin') && (
+              <input
+                type="text"
+                placeholder="Company name *"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                required
+              />
+            )}
+            {role === 'employee' && (
+              <p style={{ margin: 0, fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+                Your admin will send you an invite link. Register here with the same email to accept it automatically.
+              </p>
+            )}
             <button type="submit" disabled={loading}>
-              {loading ? 'Registering...' : 'Register'}
+              {loading ? 'Registering...' : role === 'ceo' ? 'Create Company Account →' : 'Register'}
             </button>
           </form>
-        )}
+        ))}
       </div>
     </div>
   );

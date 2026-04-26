@@ -218,6 +218,7 @@ function PositionField({ value, onChange, API_BASE_URL, headers }) {
 export default function Settings({ currentUser, API_BASE_URL, initialTab = 'profile', onThemeChange, onTimezoneChange, onLogout, onProfileUpdate }) {
   const [activeTab, setActiveTab]   = useState(initialTab);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [profile, setProfile]       = useState({
     first_name: '', last_name: '', phone: '', secondary_email: '',
     position: '', location: '', avatar_url: null, timezone: 'UTC',
@@ -243,7 +244,7 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
     fetch(`${API_BASE_URL}/settings/me`, { headers })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
-        if (!data) return;
+        if (!data) { setProfileLoading(false); return; }
         const u = data.user;
 
         // Fall back: split full_name into first/last if the new columns are empty
@@ -271,7 +272,9 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
         setSavedProfile(loaded);
         if (u.location && !LOCATIONS.includes(u.location)) setLocationOther(true);
         setPreferences((p) => ({ ...p, ...data.preferences }));
-      });
+        setProfileLoading(false);
+      })
+      .catch(() => setProfileLoading(false));
   };
 
   useEffect(() => { loadProfile(); }, [API_BASE_URL]);
@@ -381,6 +384,16 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
           <div className="card">
 
             {/* ── PROFILE ─────────────────────────────────────── */}
+            {activeTab === 'profile' && profileLoading && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                <div className="spinner" />
+              </div>
+            )}
+            {activeTab === 'profile' && !profileLoading && !savedProfile && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+                Could not load profile. Please refresh the page.
+              </p>
+            )}
             {activeTab === 'profile' && !editingProfile && savedProfile && (
               <div style={{ display: 'grid', gap: 20 }}>
                 {/* Avatar + name header */}

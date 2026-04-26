@@ -146,77 +146,89 @@ export default function Projects({ role }) {
 
       <div className="projects-layout">
         <div className="projects-grid">
-          {projects.map((project) => (
-            <article key={project.id} className="project-card">
-              <div className="project-header-card">
-                <div>
-                  <h3>{project.name}</h3>
-                  <p className="id-line">
-                    Project ID: #{project.project_id || project.id}
-                    {role === 'admin' && project.client_id ? ` | Client ID: #${project.client_id}` : ''}
-                  </p>
+          {projects.map((project) => {
+            const pid = project.project_id || project.id;
+            const dl = project.deadline
+              ? new Date(project.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+              : null;
+            return (
+            <article key={project.id} className="project-card project-card-collapsible">
+              <details>
+                <summary className="project-card-summary">
+                  <div className="project-summary-row">
+                    <div className="project-summary-main">
+                      <span className="project-summary-name">{project.name}</span>
+                      <span className="project-summary-meta">
+                        #{pid}
+                        {project.client_name ? ` · ${project.client_name}` : project.client_id ? ` · Client #${project.client_id}` : ''}
+                        {dl ? ` · Due ${dl}` : ''}
+                      </span>
+                    </div>
+                    <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
+                      {project.status}
+                    </span>
+                  </div>
+                </summary>
+
+                <div className="project-card-body">
+                  <p className="project-description">{role === 'client' ? project.public_status_label : project.description}</p>
+
+                  <div className="project-details">
+                    {role === 'admin' && <div className="detail-item"><strong>Client ID:</strong> {project.client_id ? `#${project.client_id}` : 'Not linked'}</div>}
+                    {role !== 'client' && <div className="detail-item"><strong>Client:</strong> {project.client_name || `Client #${project.client_id || 'NA'}`}</div>}
+                    {role === 'admin' && <div className="detail-item"><strong>Client Contact:</strong> {project.client_contact_person || project.client_user_name || 'Not set'}</div>}
+                    <div className="detail-item"><strong>Payment:</strong> {project.payment_status}</div>
+                    <div className="detail-item"><strong>Approval:</strong> {project.approval_status || 'n/a'}</div>
+                    <div className="detail-item"><strong>Phase:</strong> {project.current_phase || 'n/a'}</div>
+                  </div>
+
+                  {role === 'admin' && project.approval_status === 'awaiting-team-join' && (
+                    <div className="info-pill">
+                      <span>Pending Responses</span>
+                      <strong>
+                        {project.pending_team_invite_count > 0
+                          ? (project.pending_team_invite_names || []).join(', ')
+                          : 'All drafted members have responded'}
+                      </strong>
+                    </div>
+                  )}
+
+                  <div className="info-pill">
+                    <span>Manager Brief</span>
+                    <strong>{project.viewer_guidance || 'No stage brief available yet.'}</strong>
+                  </div>
+                  {project.today_status && (
+                    <div className="info-pill">
+                      <span>Today's Status</span>
+                      <strong>{project.today_status}</strong>
+                    </div>
+                  )}
+
+                  <div className="progress">
+                    <div className="progress-fill" style={{ width: `${project.progress || 0}%` }} />
+                  </div>
+                  <p className="progress-text">{project.progress || 0}% complete</p>
+
+                  <div className="project-card-actions">
+                    <button className="btn btn-secondary" onClick={() => openProject(project.id)} data-tooltip="Open full project status">
+                      Open Status
+                    </button>
+                    {role === 'admin' && project.approval_status === 'awaiting-admin-approval' && (
+                      <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)} disabled={Boolean(actionKey)} data-tooltip="Approve the generated team plan">
+                        {actionKey === `approve-${project.id}` ? 'Approving...' : 'Approve'}
+                      </button>
+                    )}
+                    {role === 'admin' && (
+                      <button className="btn btn-danger" onClick={() => deleteProject(project.id)} disabled={Boolean(actionKey)} data-tooltip="Delete the project with a full rollback">
+                        {actionKey === `delete-${project.id}` ? 'Deleting...' : 'Delete'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <span className={`status-badge status-${(project.status || 'planning').replace(/\s+/g, '-')}`}>
-                  {project.status}
-                </span>
-              </div>
-
-              <p className="project-description">{role === 'client' ? project.public_status_label : project.description}</p>
-
-              <div className="project-details">
-                <div className="detail-item"><strong>Project ID:</strong> #{project.project_id || project.id}</div>
-                {role === 'admin' && <div className="detail-item"><strong>Client ID:</strong> {project.client_id ? `#${project.client_id}` : 'Not linked'}</div>}
-                {role !== 'client' && <div className="detail-item"><strong>Client:</strong> {project.client_name || `Client #${project.client_id || 'NA'}`}</div>}
-                {role === 'admin' && <div className="detail-item"><strong>Client Contact:</strong> {project.client_contact_person || project.client_user_name || 'Not set'}</div>}
-                <div className="detail-item"><strong>Payment:</strong> {project.payment_status}</div>
-                <div className="detail-item"><strong>Approval:</strong> {project.approval_status || 'n/a'}</div>
-                <div className="detail-item"><strong>Phase:</strong> {project.current_phase || 'n/a'}</div>
-              </div>
-
-              {role === 'admin' && project.approval_status === 'awaiting-team-join' && (
-                <div className="info-pill">
-                  <span>Pending Responses</span>
-                  <strong>
-                    {project.pending_team_invite_count > 0
-                      ? (project.pending_team_invite_names || []).join(', ')
-                      : 'All drafted members have responded'}
-                  </strong>
-                </div>
-              )}
-
-              <div className="info-pill">
-                <span>Manager Brief</span>
-                <strong>{project.viewer_guidance || 'No stage brief available yet.'}</strong>
-              </div>
-              {project.today_status && (
-                <div className="info-pill">
-                  <span>Today's Status</span>
-                  <strong>{project.today_status}</strong>
-                </div>
-              )}
-
-              <div className="progress">
-                <div className="progress-fill" style={{ width: `${project.progress || 0}%` }}></div>
-              </div>
-              <p className="progress-text">{project.progress || 0}% complete</p>
-
-              <div className="project-card-actions">
-                <button className="btn btn-secondary" onClick={() => openProject(project.id)} data-tooltip="Open full project status">
-                  Open Status
-                </button>
-                {role === 'admin' && project.approval_status === 'awaiting-admin-approval' && (
-                  <button className="btn btn-primary" onClick={() => updateApproval(project.id, true)} disabled={Boolean(actionKey)} data-tooltip="Approve the generated team plan">
-                    {actionKey === `approve-${project.id}` ? 'Approving...' : 'Approve'}
-                  </button>
-                )}
-                {role === 'admin' && (
-                  <button className="btn btn-danger" onClick={() => deleteProject(project.id)} disabled={Boolean(actionKey)} data-tooltip="Delete the project with a full rollback">
-                    {actionKey === `delete-${project.id}` ? 'Deleting...' : 'Delete'}
-                  </button>
-                )}
-              </div>
+              </details>
             </article>
-          ))}
+            );
+          })}
         </div>
 
         <div className="project-detail-card">
