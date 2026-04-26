@@ -3112,17 +3112,21 @@ def build_employee_workspace(db: Session, user: User):
 
         if project.id not in seen_projects:
             seen_projects.add(project.id)
-            # Personal task completion within this project
-            my_project_tasks = [t for t in all_tasks + [task_payload] if t.get("project_id") == project.id] if False else []
-            # Count from the full assignment list for this project
+            # Count personal task completion using task.status (same logic as task_is_done)
+            # so orchestrator-created "pending" assignments don't undercount done work.
             proj_assignments = (
                 db.query(TaskAssignment)
+                .options(joinedload(TaskAssignment.task))
                 .join(Task, Task.id == TaskAssignment.task_id)
                 .filter(Task.project_id == project.id, TaskAssignment.employee_id == profile.id)
                 .all()
             )
             total_mine = len(proj_assignments)
-            done_mine = sum(1 for a in proj_assignments if a.status == "completed")
+            done_mine = sum(
+                1 for a in proj_assignments
+                if a.status == "completed"
+                or (a.task and a.task.status in ("done", "completed", "cancelled"))
+            )
             my_completion_pct = round((done_mine / total_mine) * 100) if total_mine else 0
             payload = {
                 "project_id": project.id,
@@ -3147,6 +3151,22 @@ def build_employee_workspace(db: Session, user: User):
         (len(completed_tasks) / len(all_tasks)) * 100,
         1,
     ) if all_tasks else 0.0
+
+    # Self-heal workload: recalculate current_load from non-completed assignments
+    # so stale load values (e.g. from before the completion-fix was deployed) self-correct.
+    active_load = sum(
+        float(a.estimated_hours or (a.task.estimated_time if a.task else 0) or 0)
+        for a in assignments
+        if a.task and a.task.status not in ("done", "completed", "cancelled")
+        and a.status not in ("completed", "cancelled")
+    )
+    active_load = round(active_load, 1)
+    if profile.current_load != active_load:
+        profile.current_load = max(0.0, active_load)
+        _sync_employee_capacity_state(profile)
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
 
     return {
         "employee": {
