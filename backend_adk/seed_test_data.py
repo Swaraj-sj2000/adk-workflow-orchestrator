@@ -1,48 +1,20 @@
 #!/usr/bin/env python3
 """
-Production seed for AI Workforce Orchestrator — backend_adk (Cloud Run + Cloud SQL + Vertex AI).
+Comprehensive seed — AI Workforce Orchestrator backend_adk.
 
-TARGET  : Google Cloud SQL PostgreSQL (europe-west1, project havoc-ai-prod)
-AI STACK: Gemini 2.5 Flash via Vertex AI + Google ADK
-SAFETY  : Non-destructive by default. Skips rows that already exist.
+Creates 4 tenant companies, each with:
+  • 1 CEO
+  • 4 department admins (one per team)
+  • 20–30 employees spread across departments (varied skills, load, status)
+  • 2 clients
+  • 4 org-pool Teams (project_id=NULL) — employees pre-assigned to their admin's team
+  • NO initial projects (agentic planning starts fresh)
+  • EmployeeMetrics for every employee profile
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HOW TO CONNECT TO CLOUD SQL FROM YOUR LAPTOP
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Option A — Cloud SQL Auth Proxy (recommended):
-
-    # Terminal 1: start proxy
-    cloud-sql-proxy havoc-ai-prod:europe-west1:orchestrator-sql --port 5432
-
-    # Terminal 2: run seed via localhost
-    export DATABASE_URL="postgresql+psycopg2://orchestrator_user:PASSWORD@localhost:5432/orchestrator"
-    export GOOGLE_CLOUD_PROJECT="havoc-ai-prod"
-    export GOOGLE_CLOUD_LOCATION="europe-west1"
-    export GOOGLE_GENAI_USE_VERTEXAI="true"
-    export GEMINI_MODEL="gemini-2.5-flash"
-    python seed_test_data.py
-
-Option B — Cloud Run Job (no local proxy needed):
-
-    gcloud run jobs create seed-job \
-      --image REGION-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest \
-      --region europe-west1 \
-      --service-account ai-workflow-orchestrator@havoc-ai-prod.iam.gserviceaccount.com \
-      --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
-      --set-env-vars DATABASE_URL="postgresql+psycopg2://orchestrator_user:PASS@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql" \
-      --set-env-vars GOOGLE_CLOUD_PROJECT=havoc-ai-prod \
-      --set-env-vars GOOGLE_CLOUD_LOCATION=europe-west1 \
-      --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true \
-      --set-env-vars GEMINI_MODEL=gemini-2.5-flash \
-      --command python,seed_test_data.py
-    gcloud run jobs execute seed-job --region europe-west1
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FLAGS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  --local   Local dev mode: SQLite, no GCP env vars, drop+recreate DB
-  --check   Pre-flight only: verify DB + Vertex AI connectivity, no writes
-  --reset   DESTRUCTIVE wipe + rebuild (fresh Cloud SQL deployment only)
+Flags:
+  --local   SQLite dev mode (default DATABASE_URL = sqlite:///./app.db)
+  --check   Pre-flight only (production)
+  --reset   Destructive wipe (production)
 """
 
 from __future__ import annotations
@@ -52,11 +24,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
-# ── Parse --local early (before env-var guard runs) ──────────────────────────
 _LOCAL_MODE = "--local" in sys.argv
 
 if _LOCAL_MODE:
-    # Local dev: SQLite, no GCP checks needed
     os.environ.setdefault("DATABASE_URL", "sqlite:///./app.db")
     os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
     DATABASE_URL = os.environ["DATABASE_URL"]
@@ -64,20 +34,18 @@ if _LOCAL_MODE:
     GCP_REGION   = "local"
     GEMINI_MODEL = os.environ["GEMINI_MODEL"]
 else:
-    # Production mode: require PostgreSQL + GCP vars
     _REQUIRED = {
-        "DATABASE_URL":             "Cloud SQL PostgreSQL connection string (see header for format)",
-        "GOOGLE_CLOUD_PROJECT":     "GCP project ID (e.g. havoc-ai-prod)",
-        "GOOGLE_CLOUD_LOCATION":    "GCP region (e.g. europe-west1)",
-        "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true' for production",
+        "DATABASE_URL":             "Cloud SQL PostgreSQL connection string",
+        "GOOGLE_CLOUD_PROJECT":     "GCP project ID",
+        "GOOGLE_CLOUD_LOCATION":    "GCP region",
+        "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true'",
     }
     _missing = [k for k in _REQUIRED if not os.getenv(k)]
     if _missing:
-        print("\nERROR: Missing required environment variables:\n")
+        print("\nERROR: Missing env vars:\n")
         for k in _missing:
             print(f"  {k}  —  {_REQUIRED[k]}")
-        print("\nFor local testing run:  python seed_test_data.py --local")
-        print("See the file header for production connection instructions.\n")
+        print("\nFor local testing run:  python seed_test_data.py --local\n")
         sys.exit(1)
 
     DATABASE_URL = os.environ["DATABASE_URL"]
@@ -85,109 +53,53 @@ else:
     GCP_REGION   = os.environ["GOOGLE_CLOUD_LOCATION"]
 
     if DATABASE_URL.startswith("sqlite"):
-        print("ERROR: DATABASE_URL points to SQLite in production mode.")
-        print("For local testing run:  python seed_test_data.py --local")
+        print("ERROR: SQLite not allowed in production mode.")
         sys.exit(1)
 
     os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
     GEMINI_MODEL = os.environ["GEMINI_MODEL"]
 
-# ── Args ──────────────────────────────────────────────────────────────────────
-parser = argparse.ArgumentParser(description="Seed backend_adk database")
-parser.add_argument("--local",  action="store_true",
-                    help="Local dev mode: SQLite, skip GCP checks, drop+recreate")
-parser.add_argument("--check",  action="store_true",
-                    help="Pre-flight checks only — no database writes (production only)")
-parser.add_argument("--reset",  action="store_true",
-                    help="DROP and recreate all tables. DESTRUCTIVE — production use only.")
+parser = argparse.ArgumentParser()
+parser.add_argument("--local",  action="store_true")
+parser.add_argument("--check",  action="store_true")
+parser.add_argument("--reset",  action="store_true")
 args = parser.parse_args()
 
-# ── sys.path ──────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# ── Pre-flight checks ─────────────────────────────────────────────────────────
+
 def _preflight():
     ok = True
     host_display = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-
-    print("\n── Pre-flight checks ─────────────────────────────────────────")
-
-    # 1. Database connectivity
-    print(f"\n[1] Cloud SQL PostgreSQL  ({host_display})")
+    print(f"\n── Pre-flight ({host_display}) ────────────────────────────────")
     try:
         import psycopg2
-        # Build a raw psycopg2 DSN from SQLAlchemy URL
         raw = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
         conn = psycopg2.connect(raw, connect_timeout=10)
         conn.close()
-        print("    ✓ Connected successfully")
+        print("    ✓ Cloud SQL connected")
     except Exception as e:
-        print(f"    ✗ FAILED: {e}")
-        print("      → Is Cloud SQL Auth Proxy running? (see file header)")
+        print(f"    ✗ Cloud SQL FAILED: {e}")
         ok = False
-
-    # 2. google-genai / Vertex AI import
-    print(f"\n[2] Vertex AI SDK  (google-genai)")
     try:
-        from google import genai
+        from google import genai  # noqa
         print("    ✓ google-genai importable")
     except ImportError as e:
-        print(f"    ✗ FAILED: {e}")
-        print("      → pip install google-genai>=0.2.0")
+        print(f"    ✗ google-genai FAILED: {e}")
         ok = False
-
-    # 3. Vertex AI client init + model ping
-    print(f"\n[3] Gemini via Vertex AI  (project={GCP_PROJECT}, region={GCP_REGION})")
-    try:
-        from google import genai
-        from google.genai import types
-        client = genai.Client(vertexai=True, project=GCP_PROJECT, location=GCP_REGION)
-        # Minimal call — list first model to verify credentials + quota
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents="Say 'ok' in one word.",
-            config=types.GenerateContentConfig(max_output_tokens=5),
-        )
-        reply = (getattr(response, "text", "") or "").strip()
-        print(f"    ✓ {GEMINI_MODEL} responded: '{reply}'")
-    except Exception as e:
-        print(f"    ✗ FAILED: {e}")
-        print("      → Check IAM: service account needs roles/aiplatform.user")
-        print("      → Run: gcloud auth application-default login")
-        ok = False
-
-    # 4. ADK availability
-    print(f"\n[4] Google ADK")
-    try:
-        import google.adk  # noqa
-        print("    ✓ google-adk importable")
-    except ImportError:
-        print("    ⚠  google-adk not importable in this env (OK if running seed outside container)")
-
-    print("\n── Pre-flight result ─────────────────────────────────────────")
-    if ok:
-        print("    ALL CHECKS PASSED ✓\n")
-    else:
-        print("    ONE OR MORE CHECKS FAILED ✗")
-        print("    Fix the errors above before seeding.\n")
     return ok
 
 
 if args.check:
     if _LOCAL_MODE:
-        print("--check is for production mode only. In --local mode, just run the seed directly.")
+        print("--check is for production only.")
         sys.exit(0)
-    passed = _preflight()
-    sys.exit(0 if passed else 1)
+    sys.exit(0 if _preflight() else 1)
 
-# Production: run pre-flight before any heavy imports
 if not _LOCAL_MODE:
-    passed = _preflight()
-    if not passed:
-        print("Aborting seed — pre-flight failed. Use --check for details.\n")
+    if not _preflight():
         sys.exit(1)
 
-# ── Heavy imports (after pre-flight) ─────────────────────────────────────────
 import pyotp
 
 from app.core._security import generate_refresh_token, hash_password
@@ -203,25 +115,35 @@ from app.models import (
     _tenant_settings, _user, _user_preferences, _workflow_run,
 )
 from app.models._agent import Agent
-from app.models._agent_run import AgentRun
 from app.models._client_profile import ClientProfile
-from app.models._decision_log import DecisionLog
-from app.models._email_delivery_log import EmailDeliveryLog
 from app.models._employee_metrics import EmployeeMetrics
 from app.models._employee_profile import EmployeeProfile
-from app.models._project import Project
 from app.models._refresh_token import RefreshToken
 from app.models._scheduled_agent_job import ScheduledAgentJob
-from app.models._support_ticket import SupportTicket
-from app.models._task import Task
-from app.models._task_assignment import TaskAssignment
+from app.models._team import Team, TeamMember
 from app.models._tenant import Tenant
 from app.models._tenant_settings import TenantSettings
 from app.models._user import User
 from app.models._user_preferences import UserPreferences
-from app.models._workflow_run import WorkflowRun
 
-# ── Credentials ───────────────────────────────────────────────────────────────
+# ── Agent definitions ─────────────────────────────────────────────────────────
+
+AGENT_DEFINITIONS = [
+    {"name": "IntakeAgent",                "role": "intake",         "capability": f"Parse project intake via {GEMINI_MODEL}"},
+    {"name": "PlanningAgent",              "role": "planning",       "capability": f"Generate execution plan via {GEMINI_MODEL}"},
+    {"name": "StaffingAgent",              "role": "staffing",       "capability": f"Score + assign team members via {GEMINI_MODEL}"},
+    {"name": "RiskAgent",                  "role": "risk",           "capability": f"Evaluate timeline/budget risk via {GEMINI_MODEL}"},
+    {"name": "ExecutionCoordinatorAgent",  "role": "coordination",   "capability": f"Finalise execution plan via {GEMINI_MODEL}"},
+    {"name": "CommunicationAgent",         "role": "communication",  "capability": f"Draft client/admin emails via {GEMINI_MODEL}"},
+    {"name": "EscalationAgent",            "role": "escalation",     "capability": "Escalate to humans when confidence < 0.6"},
+    {"name": "ProjectObserverAgent",       "role": "observation",    "capability": f"Monitor project health via {GEMINI_MODEL}"},
+    {"name": "DeliveryReviewAgent",        "role": "review",         "capability": f"Review deliverables via {GEMINI_MODEL}"},
+    {"name": "RebalanceAgent",             "role": "rebalance",      "capability": f"Rebalance assignments via {GEMINI_MODEL}"},
+    {"name": "LoopCommunicationAgent",     "role": "loop_comms",     "capability": f"Update stakeholder comms via {GEMINI_MODEL}"},
+    {"name": "LoopEscalationAgent",        "role": "loop_escalation","capability": "Escalate loop blockers to admin"},
+]
+
+# ── Platform owner ─────────────────────────────────────────────────────────────
 
 PLATFORM_OWNER = {
     "email": "swaraj@orchestrator.ai",
@@ -230,94 +152,287 @@ PLATFORM_OWNER = {
     "role": "platform_owner",
 }
 
-TENANT_A_NAME = "OrchestrateCo"
-TENANT_A_SLUG = "orchestrateco"
+# ─────────────────────────────────────────────────────────────────────────────
+# TENANT DATA DEFINITIONS
+# Each entry: (slug, name, industry, hq, ceo, admins[], employees[], clients[])
+#
+# Skills chosen to match ROLE_SKILL_MAP in _project_service.py:
+#   Solution Architect → architecture, delivery
+#   AI Engineer        → llm, modeling
+#   Backend Engineer   → backend, api
+#   Frontend Engineer  → frontend, react
+#   QA Engineer        → qa, testing, automation
+#   Project Coordinator→ project-management
+#   Client Success Mgr → client-success, reporting
+#   DevOps Engineer    → devops, cloud, security
+#   Data Engineer      → data, analytics
+#   Prompt Engineer    → prompting, research
+# ─────────────────────────────────────────────────────────────────────────────
 
-CEO = {
-    "email": "priya.sharma@orchestrateco.ai",
-    "password": "CEO_Secure#88",
-    "full_name": "Priya Sharma",
-    "role": "ceo",
-}
-CEO_TOTP_SECRET = pyotp.random_base32()
+TENANTS = [
 
-ADMIN = {
-    "email": "rohan.mehta@orchestrateco.ai",
-    "password": "Admin_Secure#77",
-    "full_name": "Rohan Mehta",
-    "role": "admin",
-}
+    # ── 1. TechNova Solutions ─────────────────────────────────────────────────
+    {
+        "slug": "technova",
+        "name": "TechNova Solutions",
+        "industry": "SaaS / AI",
+        "hq": "Bengaluru, India",
+        "plan_tier": "pro",
+        "totp_for_ceo": True,
+        "ceo": {
+            "email": "priya.sharma@technova.ai",
+            "password": "CEO_Secure#88",
+            "full_name": "Priya Sharma",
+        },
+        "admins": [
+            {"email": "rohan.mehta@technova.ai",  "password": "Admin#Rohan77", "full_name": "Rohan Mehta",  "department": "Engineering"},
+            {"email": "kavya.nair@technova.ai",   "password": "Admin#Kavya77", "full_name": "Kavya Nair",   "department": "Product & AI"},
+            {"email": "aditya.singh@technova.ai", "password": "Admin#Adity77", "full_name": "Aditya Singh", "department": "Operations"},
+            {"email": "shruti.bose@technova.ai",  "password": "Admin#Shrut77", "full_name": "Shruti Bose",  "department": "People & HR"},
+        ],
+        "employees": [
+            # Engineering (Rohan)
+            {"email": "amira.khan@technova.ai",    "full_name": "Amira Khan",      "department": "Engineering",  "skills": {"architecture": 0.92, "delivery": 0.85, "backend": 0.75},          "load": 3.0, "status": "available"},
+            {"email": "arjun.rao@technova.ai",     "full_name": "Arjun Rao",       "department": "Engineering",  "skills": {"llm": 0.95, "modeling": 0.90, "python": 0.88},                    "load": 5.0, "status": "available"},
+            {"email": "neha.gupta@technova.ai",    "full_name": "Neha Gupta",      "department": "Engineering",  "skills": {"backend": 0.93, "api": 0.90, "python": 0.88},                     "load": 4.0, "status": "available"},
+            {"email": "yash.patel@technova.ai",    "full_name": "Yash Patel",      "department": "Engineering",  "skills": {"frontend": 0.91, "react": 0.89, "design-systems": 0.74},          "load": 2.0, "status": "available"},
+            {"email": "dev.sharma@technova.ai",    "full_name": "Dev Sharma",      "department": "Engineering",  "skills": {"devops": 0.88, "cloud": 0.85, "security": 0.72},                  "load": 6.0, "status": "available"},
+            {"email": "preet.kaur@technova.ai",    "full_name": "Preet Kaur",      "department": "Engineering",  "skills": {"backend": 0.87, "api": 0.84},                                     "load": 0.0, "status": "available"},
+            # Product & AI (Kavya)
+            {"email": "sofia.dsouza@technova.ai",  "full_name": "Sofia D'Souza",   "department": "Product & AI", "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.87},                  "load": 3.5, "status": "available"},
+            {"email": "rahul.joshi@technova.ai",   "full_name": "Rahul Joshi",     "department": "Product & AI", "skills": {"llm": 0.92, "prompting": 0.88, "modeling": 0.82},                 "load": 7.0, "status": "available"},
+            {"email": "meera.pillai@technova.ai",  "full_name": "Meera Pillai",    "department": "Product & AI", "skills": {"prompting": 0.95, "research": 0.90, "llm": 0.75},                 "load": 2.0, "status": "available"},
+            {"email": "vishal.nair@technova.ai",   "full_name": "Vishal Nair",     "department": "Product & AI", "skills": {"frontend": 0.89, "react": 0.87, "design-systems": 0.80},          "load": 5.5, "status": "available"},
+            {"email": "anita.singh@technova.ai",   "full_name": "Anita Singh",     "department": "Product & AI", "skills": {"architecture": 0.90, "delivery": 0.86},                           "load": 0.0, "status": "available"},
+            {"email": "karan.mehta@technova.ai",   "full_name": "Karan Mehta",     "department": "Product & AI", "skills": {"llm": 0.88, "modeling": 0.85, "research": 0.70},                  "load": 4.0, "status": "on-leave"},
+            # Operations (Aditya)
+            {"email": "pooja.sharma@technova.ai",  "full_name": "Pooja Sharma",    "department": "Operations",   "skills": {"project-management": 0.93},                                       "load": 3.0, "status": "available"},
+            {"email": "ravi.kumar@technova.ai",    "full_name": "Ravi Kumar",      "department": "Operations",   "skills": {"data": 0.91, "analytics": 0.88},                                  "load": 4.5, "status": "available"},
+            {"email": "sunita.rao@technova.ai",    "full_name": "Sunita Rao",      "department": "Operations",   "skills": {"client-success": 0.94, "reporting": 0.90},                        "load": 2.0, "status": "available"},
+            {"email": "nitesh.gupta@technova.ai",  "full_name": "Nitesh Gupta",    "department": "Operations",   "skills": {"devops": 0.85, "cloud": 0.82, "security": 0.78},                  "load": 6.5, "status": "available"},
+            {"email": "tanvi.singh@technova.ai",   "full_name": "Tanvi Singh",     "department": "Operations",   "skills": {"project-management": 0.87},                                       "load": 1.0, "status": "available"},
+            {"email": "deepak.jain@technova.ai",   "full_name": "Deepak Jain",     "department": "Operations",   "skills": {"data": 0.88, "analytics": 0.85, "reporting": 0.75},               "load": 3.0, "status": "available"},
+            # People & HR (Shruti)
+            {"email": "ashish.verma@technova.ai",  "full_name": "Ashish Verma",    "department": "People & HR",  "skills": {"client-success": 0.89, "reporting": 0.84},                        "load": 2.5, "status": "available"},
+            {"email": "lata.menon@technova.ai",    "full_name": "Lata Menon",      "department": "People & HR",  "skills": {"project-management": 0.91},                                       "load": 0.0, "status": "available"},
+            {"email": "mohan.tripathi@technova.ai","full_name": "Mohan Tripathi",  "department": "People & HR",  "skills": {"qa": 0.86, "testing": 0.83},                                      "load": 4.0, "status": "available"},
+            {"email": "priya2.patel@technova.ai",  "full_name": "Priya Patel",     "department": "People & HR",  "skills": {"architecture": 0.88, "delivery": 0.84},                           "load": 1.5, "status": "available"},
+            {"email": "rajesh.nair@technova.ai",   "full_name": "Rajesh Nair",     "department": "People & HR",  "skills": {"backend": 0.84, "api": 0.80},                                     "load": 3.5, "status": "available"},
+            {"email": "swati.joshi@technova.ai",   "full_name": "Swati Joshi",     "department": "People & HR",  "skills": {"frontend": 0.87, "react": 0.85},                                  "load": 5.0, "status": "available"},
+        ],
+        "clients": [
+            {"email": "contact@globalcorp.com",   "full_name": "Marcus Chen",   "company": "GlobalCorp Pte Ltd"},
+            {"email": "partner@fintech360.io",    "full_name": "Aisha Patel",   "company": "FinTech360 Inc"},
+        ],
+        "admin_employee_map": {
+            "rohan.mehta@technova.ai":  ["Engineering"],
+            "kavya.nair@technova.ai":   ["Product & AI"],
+            "aditya.singh@technova.ai": ["Operations"],
+            "shruti.bose@technova.ai":  ["People & HR"],
+        },
+    },
 
-EMPLOYEES_A = [
-    {"email": "amira.khan@orchestrateco.ai", "password": "team123456",
-     "full_name": "Amira Khan", "department": "Solutioning",
-     "skills": {"architecture": 0.95, "delivery": 0.82, "backend": 0.72}},
-    {"email": "arjun.rao@orchestrateco.ai", "password": "team123456",
-     "full_name": "Arjun Rao", "department": "AI Delivery",
-     "skills": {"llm": 0.95, "python": 0.88, "prompting": 0.82}},
-    {"email": "neha.gupta@orchestrateco.ai", "password": "team123456",
-     "full_name": "Neha Gupta", "department": "Engineering",
-     "skills": {"backend": 0.93, "python": 0.90, "api": 0.86}},
-    {"email": "yash.patel@orchestrateco.ai", "password": "team123456",
-     "full_name": "Yash Patel", "department": "Engineering",
-     "skills": {"frontend": 0.91, "react": 0.89, "design-systems": 0.74}},
-    {"email": "sofia.dsouza@orchestrateco.ai", "password": "team123456",
-     "full_name": "Sofia D'Souza", "department": "Quality",
-     "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.87}},
+    # ── 2. DataSphere Analytics ───────────────────────────────────────────────
+    {
+        "slug": "datasphere",
+        "name": "DataSphere Analytics",
+        "industry": "Data & Analytics",
+        "hq": "San Francisco, USA",
+        "plan_tier": "enterprise",
+        "totp_for_ceo": False,
+        "ceo": {
+            "email": "alex.turner@datasphere.io",
+            "password": "CEO_Secure#DS88",
+            "full_name": "Alex Turner",
+        },
+        "admins": [
+            {"email": "marcus.chen@datasphere.io",  "password": "Admin#Marc77", "full_name": "Marcus Chen",  "department": "Data Engineering"},
+            {"email": "zara.ahmed@datasphere.io",   "password": "Admin#Zara77", "full_name": "Zara Ahmed",   "department": "Analytics & BI"},
+            {"email": "ryan.park@datasphere.io",    "password": "Admin#Ryan77", "full_name": "Ryan Park",    "department": "Infrastructure"},
+            {"email": "hannah.lee@datasphere.io",   "password": "Admin#Hann77", "full_name": "Dr. Hannah Lee","department": "Research & AI"},
+        ],
+        "employees": [
+            # Data Engineering (Marcus)
+            {"email": "tom.brooks@datasphere.io",    "full_name": "Tom Brooks",      "department": "Data Engineering", "skills": {"devops": 0.91, "cloud": 0.87, "security": 0.79},          "load": 5.0, "status": "available"},
+            {"email": "maya.ramesh@datasphere.io",   "full_name": "Maya Ramesh",     "department": "Data Engineering", "skills": {"data": 0.93, "analytics": 0.88, "python": 0.85},         "load": 3.0, "status": "available"},
+            {"email": "david.kim@datasphere.io",     "full_name": "David Kim",       "department": "Data Engineering", "skills": {"backend": 0.88, "api": 0.85},                             "load": 6.0, "status": "available"},
+            {"email": "lucy.zhang@datasphere.io",    "full_name": "Lucy Zhang",      "department": "Data Engineering", "skills": {"data": 0.90, "analytics": 0.87, "reporting": 0.80},      "load": 2.0, "status": "available"},
+            {"email": "carlos.rivera@datasphere.io", "full_name": "Carlos Rivera",   "department": "Data Engineering", "skills": {"backend": 0.86, "api": 0.83},                             "load": 4.0, "status": "available"},
+            {"email": "preet.kang@datasphere.io",    "full_name": "Preet Kang",      "department": "Data Engineering", "skills": {"data": 0.89, "analytics": 0.86},                          "load": 0.0, "status": "available"},
+            # Analytics & BI (Zara)
+            {"email": "emma.wilson@datasphere.io",   "full_name": "Emma Wilson",     "department": "Analytics & BI",   "skills": {"data": 0.91, "analytics": 0.88, "reporting": 0.85},      "load": 3.5, "status": "available"},
+            {"email": "jason.lee@datasphere.io",     "full_name": "Jason Lee",       "department": "Analytics & BI",   "skills": {"client-success": 0.90, "reporting": 0.87},                "load": 2.0, "status": "available"},
+            {"email": "olivia.chen@datasphere.io",   "full_name": "Olivia Chen",     "department": "Analytics & BI",   "skills": {"data": 0.88, "analytics": 0.86},                          "load": 5.0, "status": "available"},
+            {"email": "nathan.brown@datasphere.io",  "full_name": "Nathan Brown",    "department": "Analytics & BI",   "skills": {"architecture": 0.87, "delivery": 0.84},                   "load": 1.0, "status": "available"},
+            {"email": "sophia.patel@datasphere.io",  "full_name": "Sophia Patel",    "department": "Analytics & BI",   "skills": {"project-management": 0.92},                               "load": 4.5, "status": "available"},
+            # Infrastructure (Ryan)
+            {"email": "aiden.smith@datasphere.io",   "full_name": "Aiden Smith",     "department": "Infrastructure",   "skills": {"devops": 0.93, "cloud": 0.90, "security": 0.85},          "load": 6.0, "status": "available"},
+            {"email": "isabella.m@datasphere.io",    "full_name": "Isabella Martinez","department": "Infrastructure",   "skills": {"backend": 0.87, "api": 0.84},                             "load": 3.0, "status": "on-leave"},
+            {"email": "tyler.johnson@datasphere.io", "full_name": "Tyler Johnson",   "department": "Infrastructure",   "skills": {"devops": 0.88, "cloud": 0.85},                            "load": 5.5, "status": "available"},
+            {"email": "grace.kim@datasphere.io",     "full_name": "Grace Kim",       "department": "Infrastructure",   "skills": {"frontend": 0.86, "react": 0.84},                          "load": 2.5, "status": "available"},
+            {"email": "logan.davis@datasphere.io",   "full_name": "Logan Davis",     "department": "Infrastructure",   "skills": {"backend": 0.85, "api": 0.82},                             "load": 4.0, "status": "available"},
+            # Research & AI (Hannah)
+            {"email": "charlotte.w@datasphere.io",   "full_name": "Charlotte White", "department": "Research & AI",    "skills": {"llm": 0.95, "modeling": 0.92},                            "load": 3.0, "status": "available"},
+            {"email": "ethan.moore@datasphere.io",   "full_name": "Ethan Moore",     "department": "Research & AI",    "skills": {"prompting": 0.93, "research": 0.90, "llm": 0.80},         "load": 5.0, "status": "available"},
+            {"email": "ava.jackson@datasphere.io",   "full_name": "Ava Jackson",     "department": "Research & AI",    "skills": {"llm": 0.91, "modeling": 0.88},                            "load": 2.0, "status": "available"},
+            {"email": "liam.harris@datasphere.io",   "full_name": "Liam Harris",     "department": "Research & AI",    "skills": {"architecture": 0.89, "delivery": 0.86},                   "load": 0.0, "status": "available"},
+            {"email": "mia.thompson@datasphere.io",  "full_name": "Mia Thompson",    "department": "Research & AI",    "skills": {"qa": 0.90, "testing": 0.88, "automation": 0.82},          "load": 4.0, "status": "available"},
+            {"email": "noah.garcia@datasphere.io",   "full_name": "Noah Garcia",     "department": "Research & AI",    "skills": {"data": 0.87, "analytics": 0.84, "research": 0.80},        "load": 3.5, "status": "available"},
+        ],
+        "clients": [
+            {"email": "cto@investedge.com",     "full_name": "Rachel Morgan",  "company": "InvestEdge Capital"},
+            {"email": "data@supplypro.co",      "full_name": "Vikram Sethi",   "company": "SupplyPro Logistics"},
+        ],
+        "admin_employee_map": {
+            "marcus.chen@datasphere.io": ["Data Engineering"],
+            "zara.ahmed@datasphere.io":  ["Analytics & BI"],
+            "ryan.park@datasphere.io":   ["Infrastructure"],
+            "hannah.lee@datasphere.io":  ["Research & AI"],
+        },
+    },
+
+    # ── 3. BuildRight Engineering ─────────────────────────────────────────────
+    {
+        "slug": "buildright",
+        "name": "BuildRight Engineering",
+        "industry": "Infrastructure Technology",
+        "hq": "London, UK",
+        "plan_tier": "pro",
+        "totp_for_ceo": False,
+        "ceo": {
+            "email": "james.obrien@buildright.co",
+            "password": "CEO_Secure#BR88",
+            "full_name": "James O'Brien",
+        },
+        "admins": [
+            {"email": "lisa.chen@buildright.co",   "password": "Admin#Lisa77", "full_name": "Lisa Chen",   "department": "Project Delivery"},
+            {"email": "sanjay.kumar@buildright.co","password": "Admin#Sanj77", "full_name": "Sanjay Kumar","department": "Engineering"},
+            {"email": "maya.torres@buildright.co", "password": "Admin#Maya77", "full_name": "Maya Torres", "department": "Quality Assurance"},
+            {"email": "derek.walsh@buildright.co", "password": "Admin#Dere77", "full_name": "Derek Walsh",  "department": "Finance & Ops"},
+        ],
+        "employees": [
+            # Project Delivery (Lisa)
+            {"email": "william.davies@buildright.co", "full_name": "William Davies",  "department": "Project Delivery",  "skills": {"project-management": 0.93},                               "load": 3.0, "status": "available"},
+            {"email": "eleanor.smith@buildright.co",  "full_name": "Eleanor Smith",   "department": "Project Delivery",  "skills": {"client-success": 0.91, "reporting": 0.88},                "load": 2.0, "status": "available"},
+            {"email": "oliver.brown@buildright.co",   "full_name": "Oliver Brown",    "department": "Project Delivery",  "skills": {"project-management": 0.88},                               "load": 4.5, "status": "available"},
+            {"email": "amelia.johnson@buildright.co", "full_name": "Amelia Johnson",  "department": "Project Delivery",  "skills": {"architecture": 0.90, "delivery": 0.87},                   "load": 1.0, "status": "available"},
+            {"email": "harry.williams@buildright.co", "full_name": "Harry Williams",  "department": "Project Delivery",  "skills": {"project-management": 0.85},                               "load": 5.0, "status": "available"},
+            # Engineering (Sanjay)
+            {"email": "george.wilson@buildright.co",  "full_name": "George Wilson",   "department": "Engineering",       "skills": {"backend": 0.90, "api": 0.87},                             "load": 3.5, "status": "available"},
+            {"email": "charlotte.t@buildright.co",    "full_name": "Charlotte Taylor","department": "Engineering",       "skills": {"frontend": 0.88, "react": 0.85},                          "load": 6.0, "status": "available"},
+            {"email": "alfie.anderson@buildright.co", "full_name": "Alfie Anderson",  "department": "Engineering",       "skills": {"backend": 0.86, "api": 0.83},                             "load": 2.0, "status": "available"},
+            {"email": "isla.thomas@buildright.co",    "full_name": "Isla Thomas",     "department": "Engineering",       "skills": {"devops": 0.89, "cloud": 0.86},                            "load": 4.0, "status": "available"},
+            {"email": "jack.martin@buildright.co",    "full_name": "Jack Martin",     "department": "Engineering",       "skills": {"backend": 0.84, "api": 0.81},                             "load": 0.0, "status": "available"},
+            # Quality Assurance (Maya)
+            {"email": "lily.jackson@buildright.co",   "full_name": "Lily Jackson",    "department": "Quality Assurance", "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.88},          "load": 3.0, "status": "available"},
+            {"email": "noah.thompson@buildright.co",  "full_name": "Noah Thompson",   "department": "Quality Assurance", "skills": {"qa": 0.90, "testing": 0.87},                              "load": 5.5, "status": "available"},
+            {"email": "emily.garcia@buildright.co",   "full_name": "Emily Garcia",    "department": "Quality Assurance", "skills": {"qa": 0.92, "testing": 0.89, "automation": 0.84},          "load": 2.5, "status": "available"},
+            {"email": "ben.robinson@buildright.co",   "full_name": "Benjamin Robinson","department": "Quality Assurance", "skills": {"architecture": 0.87, "delivery": 0.83},                  "load": 1.5, "status": "on-leave"},
+            {"email": "chloe.hall@buildright.co",     "full_name": "Chloe Hall",      "department": "Quality Assurance", "skills": {"project-management": 0.85},                               "load": 4.0, "status": "available"},
+            # Finance & Ops (Derek)
+            {"email": "daniel.lewis@buildright.co",   "full_name": "Daniel Lewis",    "department": "Finance & Ops",     "skills": {"data": 0.88, "analytics": 0.85, "reporting": 0.80},      "load": 3.0, "status": "available"},
+            {"email": "evie.lee@buildright.co",       "full_name": "Evie Lee",        "department": "Finance & Ops",     "skills": {"client-success": 0.90, "reporting": 0.87},                "load": 2.0, "status": "available"},
+            {"email": "joshua.walker@buildright.co",  "full_name": "Joshua Walker",   "department": "Finance & Ops",     "skills": {"project-management": 0.86},                               "load": 5.0, "status": "available"},
+            {"email": "ella.allen@buildright.co",     "full_name": "Ella Allen",      "department": "Finance & Ops",     "skills": {"frontend": 0.84, "react": 0.82},                          "load": 0.0, "status": "available"},
+            {"email": "samuel.clark@buildright.co",   "full_name": "Samuel Clark",    "department": "Finance & Ops",     "skills": {"backend": 0.83, "api": 0.80},                             "load": 4.5, "status": "available"},
+        ],
+        "clients": [
+            {"email": "ops@citygrid.co.uk",     "full_name": "Thomas Hughes",  "company": "CityGrid Infrastructure"},
+            {"email": "tech@thameswater.io",    "full_name": "Claire Dawson",  "company": "Thames Digital Water"},
+        ],
+        "admin_employee_map": {
+            "lisa.chen@buildright.co":   ["Project Delivery"],
+            "sanjay.kumar@buildright.co":["Engineering"],
+            "maya.torres@buildright.co": ["Quality Assurance"],
+            "derek.walsh@buildright.co": ["Finance & Ops"],
+        },
+    },
+
+    # ── 4. HealthSync Medical ─────────────────────────────────────────────────
+    {
+        "slug": "healthsync",
+        "name": "HealthSync Medical",
+        "industry": "Healthcare Technology",
+        "hq": "Singapore",
+        "plan_tier": "enterprise",
+        "totp_for_ceo": False,
+        "ceo": {
+            "email": "sarah.kim@healthsync.sg",
+            "password": "CEO_Secure#HS88",
+            "full_name": "Dr. Sarah Kim",
+        },
+        "admins": [
+            {"email": "tom.reddy@healthsync.sg",   "password": "Admin#TomR77", "full_name": "Tom Reddy",        "department": "Engineering"},
+            {"email": "ananya.menon@healthsync.sg","password": "Admin#Anan77", "full_name": "Ananya Menon",      "department": "Clinical Product"},
+            {"email": "chris.lawson@healthsync.sg","password": "Admin#Chri77", "full_name": "Chris Lawson",      "department": "Data & AI"},
+            {"email": "nina.patel@healthsync.sg",  "password": "Admin#Nina77", "full_name": "Nina Patel",        "department": "Operations"},
+        ],
+        "employees": [
+            # Engineering (Tom)
+            {"email": "wei.zhang@healthsync.sg",     "full_name": "Wei Zhang",       "department": "Engineering",     "skills": {"backend": 0.92, "api": 0.89},                             "load": 4.0, "status": "available"},
+            {"email": "priyanka.s@healthsync.sg",    "full_name": "Priyanka Singh",  "department": "Engineering",     "skills": {"frontend": 0.90, "react": 0.87},                          "load": 2.0, "status": "available"},
+            {"email": "raj.kumar@healthsync.sg",     "full_name": "Raj Kumar",       "department": "Engineering",     "skills": {"backend": 0.88, "api": 0.85},                             "load": 6.0, "status": "available"},
+            {"email": "lin.chen@healthsync.sg",      "full_name": "Lin Chen",        "department": "Engineering",     "skills": {"devops": 0.91, "cloud": 0.88, "security": 0.80},          "load": 3.0, "status": "available"},
+            {"email": "amir.hassan@healthsync.sg",   "full_name": "Amir Hassan",     "department": "Engineering",     "skills": {"backend": 0.86, "api": 0.83},                             "load": 5.0, "status": "available"},
+            {"email": "mei.ling@healthsync.sg",      "full_name": "Mei Ling",        "department": "Engineering",     "skills": {"frontend": 0.87, "react": 0.84},                          "load": 1.0, "status": "available"},
+            # Clinical Product (Ananya)
+            {"email": "james.park@healthsync.sg",    "full_name": "Dr. James Park",  "department": "Clinical Product","skills": {"architecture": 0.93, "delivery": 0.89},                   "load": 3.5, "status": "available"},
+            {"email": "fatima.a@healthsync.sg",      "full_name": "Fatima Al-Rashid","department": "Clinical Product","skills": {"client-success": 0.92, "reporting": 0.88},                "load": 2.0, "status": "available"},
+            {"email": "samuel.okafor@healthsync.sg", "full_name": "Samuel Okafor",   "department": "Clinical Product","skills": {"project-management": 0.90},                               "load": 4.0, "status": "available"},
+            {"email": "rebecca.tan@healthsync.sg",   "full_name": "Rebecca Tan",     "department": "Clinical Product","skills": {"qa": 0.93, "testing": 0.90, "automation": 0.85},          "load": 0.0, "status": "available"},
+            {"email": "ibrahim.n@healthsync.sg",     "full_name": "Ibrahim Ndiaye",  "department": "Clinical Product","skills": {"client-success": 0.88, "reporting": 0.85},                "load": 5.5, "status": "available"},
+            {"email": "chen.wei@healthsync.sg",      "full_name": "Chen Wei",        "department": "Clinical Product","skills": {"architecture": 0.89, "delivery": 0.85},                   "load": 3.0, "status": "on-leave"},
+            # Data & AI (Chris)
+            {"email": "ling.hua@healthsync.sg",      "full_name": "Ling Hua",        "department": "Data & AI",       "skills": {"data": 0.93, "analytics": 0.90},                          "load": 3.0, "status": "available"},
+            {"email": "seo.park@healthsync.sg",      "full_name": "Seo-Yeon Park",   "department": "Data & AI",       "skills": {"llm": 0.94, "modeling": 0.91},                            "load": 5.0, "status": "available"},
+            {"email": "tariq.h@healthsync.sg",       "full_name": "Tariq Al-Hassan", "department": "Data & AI",       "skills": {"data": 0.90, "analytics": 0.87},                          "load": 2.0, "status": "available"},
+            {"email": "yuki.tanaka@healthsync.sg",   "full_name": "Yuki Tanaka",     "department": "Data & AI",       "skills": {"prompting": 0.92, "research": 0.89, "llm": 0.78},         "load": 4.5, "status": "available"},
+            {"email": "amara.diallo@healthsync.sg",  "full_name": "Amara Diallo",    "department": "Data & AI",       "skills": {"llm": 0.91, "modeling": 0.88},                            "load": 1.0, "status": "available"},
+            {"email": "kwame.asante@healthsync.sg",  "full_name": "Kwame Asante",    "department": "Data & AI",       "skills": {"data": 0.88, "analytics": 0.85},                          "load": 6.0, "status": "available"},
+            # Operations (Nina)
+            {"email": "malia.fonoti@healthsync.sg",  "full_name": "Malia Fonoti",    "department": "Operations",      "skills": {"project-management": 0.91},                               "load": 2.5, "status": "available"},
+            {"email": "deepa.k@healthsync.sg",       "full_name": "Deepa Krishnan",  "department": "Operations",      "skills": {"client-success": 0.90, "reporting": 0.87},                "load": 3.0, "status": "available"},
+            {"email": "rafael.santos@healthsync.sg", "full_name": "Rafael Santos",   "department": "Operations",      "skills": {"devops": 0.88, "cloud": 0.85},                            "load": 4.0, "status": "available"},
+            {"email": "bao.nguyen@healthsync.sg",    "full_name": "Bao Nguyen",      "department": "Operations",      "skills": {"project-management": 0.87},                               "load": 1.5, "status": "available"},
+            {"email": "leila.ahmadi@healthsync.sg",  "full_name": "Leila Ahmadi",    "department": "Operations",      "skills": {"qa": 0.89, "testing": 0.86, "automation": 0.80},          "load": 5.0, "status": "available"},
+            {"email": "marco.rossi@healthsync.sg",   "full_name": "Marco Rossi",     "department": "Operations",      "skills": {"architecture": 0.88, "delivery": 0.84},                   "load": 0.0, "status": "available"},
+        ],
+        "clients": [
+            {"email": "digital@nuh.sg",         "full_name": "Dr. Amanda Koh",   "company": "NUH Digital Health"},
+            {"email": "tech@farmacare.sg",      "full_name": "Rohit Malhotra",   "company": "FarmaCare Asia"},
+        ],
+        "admin_employee_map": {
+            "tom.reddy@healthsync.sg":   ["Engineering"],
+            "ananya.menon@healthsync.sg":["Clinical Product"],
+            "chris.lawson@healthsync.sg":["Data & AI"],
+            "nina.patel@healthsync.sg":  ["Operations"],
+        },
+    },
 ]
 
-CLIENT_A = {
-    "email": "contact@globalcorp.com", "password": "client123456",
-    "full_name": "Marcus Chen", "role": "client", "company_name": "GlobalCorp",
-}
-
-TENANT_B_NAME = "GlobalTech Solutions"
-TENANT_B_SLUG = "globaltech"
-
-ADMIN_B = {
-    "email": "alex.turner@globaltech.io", "password": "Admin_Secure#66",
-    "full_name": "Alex Turner", "role": "admin",
-}
-
-EMPLOYEES_B = [
-    {"email": "maya.r@globaltech.io", "password": "team123456",
-     "full_name": "Maya Ramesh", "department": "Data",
-     "skills": {"data": 0.93, "python": 0.88, "analytics": 0.84}},
-    {"email": "tom.brooks@globaltech.io", "password": "team123456",
-     "full_name": "Tom Brooks", "department": "Platform",
-     "skills": {"devops": 0.91, "cloud": 0.87, "security": 0.79}},
-]
-
-CLIENT_B = {
-    "email": "partner@techventures.com", "password": "client123456",
-    "full_name": "Lisa Park", "role": "client", "company_name": "TechVentures",
-}
-
-# 12 agents that form the two agentic workflows
-# model_name matches what the deploy script sets as GEMINI_MODEL
-AGENT_DEFINITIONS = [
-    # Intake workflow (7 agents)
-    {"name": "IntakeAgent",                "role": "intake",        "capability": f"Parse project intake via {GEMINI_MODEL}"},
-    {"name": "PlanningAgent",              "role": "planning",      "capability": f"Generate execution plan via {GEMINI_MODEL}"},
-    {"name": "StaffingAgent",              "role": "staffing",      "capability": f"Score + assign team members via {GEMINI_MODEL}"},
-    {"name": "RiskAgent",                  "role": "risk",          "capability": f"Evaluate timeline/budget risk via {GEMINI_MODEL}"},
-    {"name": "ExecutionCoordinatorAgent",  "role": "coordination",  "capability": f"Finalise execution plan via {GEMINI_MODEL}"},
-    {"name": "CommunicationAgent",         "role": "communication", "capability": f"Draft client/admin emails via {GEMINI_MODEL}"},
-    {"name": "EscalationAgent",            "role": "escalation",    "capability": f"Escalate to humans when confidence < 0.6"},
-    # Live execution loop (5 agents)
-    {"name": "ProjectObserverAgent",       "role": "observation",   "capability": f"Monitor project health via {GEMINI_MODEL}"},
-    {"name": "DeliveryReviewAgent",        "role": "review",        "capability": f"Review deliverables via {GEMINI_MODEL}"},
-    {"name": "RebalanceAgent",             "role": "rebalance",     "capability": f"Rebalance assignments via {GEMINI_MODEL}"},
-    {"name": "LoopCommunicationAgent",     "role": "loop_comms",    "capability": f"Update stakeholder comms via {GEMINI_MODEL}"},
-    {"name": "LoopEscalationAgent",        "role": "loop_escalation","capability": "Escalate loop blockers to admin"},
-]
-
-# ── Stats counters ────────────────────────────────────────────────────────────
+# ── Stats ──────────────────────────────────────────────────────────────────────
 _created = 0
 _skipped = 0
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _upsert_tenant(db, name, slug, industry=None, hq=None):
+    global _created, _skipped
+    existing = db.query(Tenant).filter(Tenant.slug == slug).first()
+    if existing:
+        _skipped += 1
+        return existing, False
+    t = Tenant(name=name, slug=slug)
+    if industry:
+        t.industry = industry
+    if hq:
+        t.headquarters = hq
+    db.add(t)
+    db.flush()
+    _created += 1
+    return t, True
+
 
 def _upsert_user(db, email, password, full_name, role, tenant_id,
                  totp_secret=None, totp_enabled=False):
@@ -338,83 +453,123 @@ def _upsert_user(db, email, password, full_name, role, tenant_id,
     return u, True
 
 
-def _upsert_tenant(db, name, slug):
-    global _created, _skipped
-    existing = db.query(Tenant).filter(Tenant.slug == slug).first()
-    if existing:
-        _skipped += 1
-        return existing, False
-    t = Tenant(name=name, slug=slug)
-    db.add(t)
-    db.flush()
-    _created += 1
-    return t, True
-
-
 def _ensure_prefs(db, user_id, **kwargs):
-    if db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first():
+    existing = db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
+    if existing:
+        for k, v in kwargs.items():
+            setattr(existing, k, v)
+        db.flush()
         return
     db.add(UserPreferences(user_id=user_id, **kwargs))
     db.flush()
 
 
-def _ensure_employee(db, user, skills, department):
+def _ensure_employee(db, user, skills, department, load=0.0, status="available"):
     existing = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
     if existing:
         return existing
     p = EmployeeProfile(
-        tenant_id=user.tenant_id, user_id=user.id,
-        skills=skills, max_capacity=8.0, current_load=0.0,
-        department=department, availability_status="available",
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        skills=skills,
+        max_capacity=8.0,
+        current_load=load,
+        department=department,
+        availability_status=status,
+        duty_start_hour=0.0,   # 24/7 for demo — never "off-duty"
+        duty_end_hour=24.0,
     )
     db.add(p)
     db.flush()
+    # Vary metrics slightly per employee
+    import random
+    random.seed(user.id)
     db.add(EmployeeMetrics(
-        employee_id=p.id, efficiency_score=0.87, reliability_score=0.92,
-        avg_completion_time=0.0, total_tasks_completed=12,
-        total_tasks_failed=0, total_tasks_delayed=1,
+        employee_id=p.id,
+        efficiency_score=round(random.uniform(0.78, 0.97), 2),
+        reliability_score=round(random.uniform(0.82, 0.99), 2),
+        avg_completion_time=round(random.uniform(3.5, 8.0), 1),
+        total_tasks_completed=random.randint(6, 32),
+        total_tasks_failed=random.randint(0, 2),
+        total_tasks_delayed=random.randint(0, 3),
     ))
+    db.flush()
     return p
 
 
-def _ensure_client_profile(db, user, company_name):
-    existing = db.query(ClientProfile).filter(ClientProfile.user_id == user.id).first()
-    if existing:
-        return existing
-    cp = ClientProfile(
-        tenant_id=user.tenant_id, user_id=user.id,
-        company_name=company_name, contact_person=user.full_name,
-    )
-    db.add(cp)
-    db.flush()
-    return cp
+def _ensure_client(db, tenant_id, email, password, full_name, company):
+    u, created = _upsert_user(db, email, password, full_name, "client", tenant_id)
+    _ensure_prefs(db, u.id, timezone="UTC", onboarding_complete=True)
+    existing = db.query(ClientProfile).filter(ClientProfile.user_id == u.id).first()
+    if not existing:
+        cp = ClientProfile(
+            tenant_id=tenant_id, user_id=u.id,
+            company_name=company, contact_person=full_name,
+        )
+        db.add(cp)
+        db.flush()
+    return u
 
 
-def _ensure_tenant_settings(db, tenant_id, **kwargs):
+def _ensure_tenant_settings(db, tenant_id, plan_tier="pro"):
     if db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant_id).first():
         return
-    db.add(TenantSettings(tenant_id=tenant_id, **kwargs))
+    db.add(TenantSettings(
+        tenant_id=tenant_id,
+        plan_tier=plan_tier,
+        suspended=False,
+        stripe_customer_id=f"cus_seed_{tenant_id}",
+        stripe_subscription_id=f"sub_seed_{tenant_id}",
+        stripe_plan_id=f"price_{plan_tier}",
+        subscription_expires_at=datetime.utcnow() + timedelta(days=180),
+        next_billing_date=datetime.utcnow() + timedelta(days=30),
+        max_teams=-1, max_users=-1, max_projects=-1,
+        max_ai_calls_per_month=10000 if plan_tier == "enterprise" else 5000,
+    ))
     db.flush()
 
 
-def _make_task(db, tenant_id, project_id, description, status, required_skills,
-               estimated_time=4.0, urgency="medium", difficulty="medium"):
-    t = Task(
-        tenant_id=tenant_id, project_id=project_id,
-        description=description, status=status,
-        required_skills=required_skills, estimated_time=estimated_time,
-        urgency=urgency, difficulty=difficulty,
-        deadline=datetime.utcnow() + timedelta(days=14),
+def _ensure_dept_team(db, tenant_id, department, admin_user_id):
+    """Ensure one org-pool team per department (project_id=None)."""
+    existing = (
+        db.query(Team)
+        .filter(Team.tenant_id == tenant_id, Team.name == department, Team.project_id.is_(None))
+        .first()
     )
-    db.add(t)
+    if existing:
+        return existing
+    team = Team(
+        tenant_id=tenant_id,
+        project_id=None,
+        name=department,
+        created_by_user_id=admin_user_id,
+    )
+    db.add(team)
     db.flush()
-    return t
+    return team
 
 
-# ── Seed sections ─────────────────────────────────────────────────────────────
+def _add_team_member(db, team, user, employee_profile):
+    existing = db.query(TeamMember).filter(
+        TeamMember.team_id == team.id,
+        TeamMember.user_id == user.id,
+    ).first()
+    if existing:
+        return
+    db.add(TeamMember(
+        tenant_id=team.tenant_id,
+        team_id=team.id,
+        user_id=user.id,
+        employee_profile_id=employee_profile.id,
+        role_title=employee_profile.department,
+        status="active",
+    ))
+    db.flush()
+
+
+# ── Seed agents ───────────────────────────────────────────────────────────────
 
 def seed_agents(db):
-    """Seed the 12 agent definitions (Gemini 2.5 Flash via Vertex AI)."""
     for defn in AGENT_DEFINITIONS:
         existing = db.query(Agent).filter(Agent.name == defn["name"]).first()
         if not existing:
@@ -422,296 +577,135 @@ def seed_agents(db):
     db.flush()
 
 
+# ── Seed platform owner ───────────────────────────────────────────────────────
+
 def seed_platform_owner(db):
     platform_tenant, _ = _upsert_tenant(db, "Platform", "platform")
-    owner, created = _upsert_user(db, **PLATFORM_OWNER, tenant_id=platform_tenant.id)
-    if created:
-        _ensure_prefs(db, owner.id, timezone="Asia/Kolkata", theme="dark")
-    return owner, platform_tenant
+    owner, _ = _upsert_user(db, **PLATFORM_OWNER, tenant_id=platform_tenant.id)
+    _ensure_prefs(db, owner.id, timezone="Asia/Kolkata", theme="dark", onboarding_complete=True)
+    return owner
 
 
-def seed_tenant_a(db):
-    tenant, _ = _upsert_tenant(db, TENANT_A_NAME, TENANT_A_SLUG)
+# ── Seed one tenant ───────────────────────────────────────────────────────────
 
-    _ensure_tenant_settings(db, tenant.id,
-        plan_tier="pro", suspended=False,
-        stripe_customer_id="cus_seed_orchestrateco",
-        stripe_subscription_id="sub_seed_orchestrateco",
-        stripe_plan_id="price_pro_6month",
-        subscription_expires_at=datetime.utcnow() + timedelta(days=162),  # ~5.5 months left
-        next_billing_date=datetime.utcnow() + timedelta(days=162),
-        max_teams=-1, max_users=-1, max_projects=-1, max_ai_calls_per_month=5000,
+def seed_tenant(db, spec):
+    slug       = spec["slug"]
+    name       = spec["name"]
+    industry   = spec.get("industry")
+    hq         = spec.get("hq")
+    plan_tier  = spec.get("plan_tier", "pro")
+
+    print(f"  Seeding tenant: {name}")
+
+    tenant, _ = _upsert_tenant(db, name, slug, industry=industry, hq=hq)
+    _ensure_tenant_settings(db, tenant.id, plan_tier=plan_tier)
+
+    # CEO
+    totp_secret = pyotp.random_base32() if spec.get("totp_for_ceo") else None
+    ceo_data    = spec["ceo"]
+    ceo, _      = _upsert_user(
+        db,
+        email=ceo_data["email"],
+        password=ceo_data["password"],
+        full_name=ceo_data["full_name"],
+        role="ceo",
+        tenant_id=tenant.id,
+        totp_secret=totp_secret,
+        totp_enabled=bool(totp_secret),
     )
+    _ensure_prefs(db, ceo.id, timezone="Asia/Kolkata", theme="dark",
+                  ceo_mode=True, default_landing_page="ceo-dashboard", onboarding_complete=True)
 
-    ceo, ceo_created = _upsert_user(
-        db, **CEO, tenant_id=tenant.id,
-        totp_secret=CEO_TOTP_SECRET, totp_enabled=True,
-    )
-    if ceo_created:
-        _ensure_prefs(db, ceo.id,
-            timezone="Asia/Kolkata", theme="dark", ceo_mode=True,
-            default_landing_page="ceo-dashboard",
-            google_calendar_connected=True,
-            google_calendar_email="priya.sharma@gmail.com",
-            google_calendar_token={
-                "token": "ya29.mock_access_token",
-                "refresh_token": "1//mock_refresh_token",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "client_id": "mock_client_id.apps.googleusercontent.com",
-                "client_secret": "mock_secret",
-                "scopes": ["https://www.googleapis.com/auth/calendar.events"],
-            },
+    # Admins + their department teams
+    admin_objects = {}
+    for admin_spec in spec["admins"]:
+        admin, admin_created = _upsert_user(
+            db,
+            email=admin_spec["email"],
+            password=admin_spec["password"],
+            full_name=admin_spec["full_name"],
+            role="admin",
+            tenant_id=tenant.id,
+        )
+        _ensure_prefs(db, admin.id, timezone="UTC", theme="light", onboarding_complete=True)
+        if admin_created:
+            db.add(RefreshToken(
+                user_id=admin.id, token=generate_refresh_token(),
+                expires_at=datetime.utcnow() + timedelta(days=30), revoked=False,
+            ))
+
+        dept = admin_spec["department"]
+        admin_objects[admin.email] = (admin, dept)
+
+        # Create department team (org-pool, project_id=None)
+        _ensure_dept_team(db, tenant.id, dept, admin.id)
+
+    # Employees
+    emp_profile_map = {}  # email → EmployeeProfile
+    for emp_spec in spec["employees"]:
+        u, _ = _upsert_user(
+            db,
+            email=emp_spec["email"],
+            password="team123456",
+            full_name=emp_spec["full_name"],
+            role="employee",
+            tenant_id=tenant.id,
+        )
+        _ensure_prefs(db, u.id, timezone="UTC", onboarding_complete=True)
+        ep = _ensure_employee(
+            db, u,
+            skills=emp_spec["skills"],
+            department=emp_spec["department"],
+            load=emp_spec.get("load", 0.0),
+            status=emp_spec.get("status", "available"),
+        )
+        emp_profile_map[emp_spec["email"]] = (u, ep)
+
+    # Assign employees to their department team + admin as team member
+    dept_team_cache = {}
+    for emp_email, (u, ep) in emp_profile_map.items():
+        dept = ep.department
+        if dept not in dept_team_cache:
+            team = (
+                db.query(Team)
+                .filter(Team.tenant_id == tenant.id, Team.name == dept, Team.project_id.is_(None))
+                .first()
+            )
+            dept_team_cache[dept] = team
+        team = dept_team_cache[dept]
+        if team:
+            _add_team_member(db, team, u, ep)
+
+    # Also add each admin as a member of their own team
+    for admin_email, (admin, dept) in admin_objects.items():
+        team = dept_team_cache.get(dept)
+        if team:
+            existing = db.query(TeamMember).filter(
+                TeamMember.team_id == team.id,
+                TeamMember.user_id == admin.id,
+            ).first()
+            if not existing:
+                db.add(TeamMember(
+                    tenant_id=tenant.id,
+                    team_id=team.id,
+                    user_id=admin.id,
+                    employee_profile_id=None,
+                    role_title="Team Lead",
+                    status="active",
+                ))
+                db.flush()
+
+    # Clients
+    for client_spec in spec.get("clients", []):
+        _ensure_client(
+            db, tenant.id,
+            email=client_spec["email"],
+            password="client123456",
+            full_name=client_spec["full_name"],
+            company=client_spec["company"],
         )
 
-    admin, admin_created = _upsert_user(db, **ADMIN, tenant_id=tenant.id)
-    admin_rt = None
-    if admin_created:
-        _ensure_prefs(db, admin.id, timezone="Asia/Kolkata", theme="light")
-        raw_token = generate_refresh_token()
-        db.add(RefreshToken(
-            user_id=admin.id, token=raw_token,
-            expires_at=datetime.utcnow() + timedelta(days=30), revoked=False,
-        ))
-        admin_rt = raw_token
-
-    emp_profiles = []
-    for m in EMPLOYEES_A:
-        u, created = _upsert_user(
-            db, email=m["email"], password=m["password"],
-            full_name=m["full_name"], role="employee", tenant_id=tenant.id,
-        )
-        if created:
-            _ensure_prefs(db, u.id, timezone="Asia/Kolkata")
-        emp_profiles.append(_ensure_employee(db, u, m["skills"], m["department"]))
-
-    client_u, _ = _upsert_user(
-        db, email=CLIENT_A["email"], password=CLIENT_A["password"],
-        full_name=CLIENT_A["full_name"], role=CLIENT_A["role"], tenant_id=tenant.id,
-    )
-    _ensure_prefs(db, client_u.id, timezone="America/New_York")
-    client_cp = _ensure_client_profile(db, client_u, CLIENT_A["company_name"])
-
-    return tenant, ceo, admin, admin_rt, emp_profiles, client_cp
-
-
-def seed_tenant_b(db):
-    tenant, _ = _upsert_tenant(db, TENANT_B_NAME, TENANT_B_SLUG)
-    _ensure_tenant_settings(db, tenant.id,
-        plan_tier="starter", suspended=False,
-        stripe_customer_id="cus_seed_globaltech",
-        stripe_subscription_id="sub_seed_globaltech",
-        # Expired 2 days ago → in 7-day grace period (auto-suspend demo)
-        subscription_expires_at=datetime.utcnow() - timedelta(days=2),
-        grace_period_ends_at=datetime.utcnow() + timedelta(days=5),
-        next_billing_date=datetime.utcnow() + timedelta(days=5),
-        max_teams=10, max_users=25, max_projects=20, max_ai_calls_per_month=500,
-    )
-    admin, admin_created = _upsert_user(db, **ADMIN_B, tenant_id=tenant.id)
-    if admin_created:
-        _ensure_prefs(db, admin.id, timezone="Europe/London")
-    for m in EMPLOYEES_B:
-        u, created = _upsert_user(
-            db, email=m["email"], password=m["password"],
-            full_name=m["full_name"], role="employee", tenant_id=tenant.id,
-        )
-        if created:
-            _ensure_prefs(db, u.id, timezone="Europe/London")
-        _ensure_employee(db, u, m["skills"], m["department"])
-    client_u, _ = _upsert_user(
-        db, email=CLIENT_B["email"], password=CLIENT_B["password"],
-        full_name=CLIENT_B["full_name"], role=CLIENT_B["role"], tenant_id=tenant.id,
-    )
-    _ensure_client_profile(db, client_u, CLIENT_B["company_name"])
-    return tenant, admin
-
-
-def seed_projects_and_tasks(db, tenant, admin, emp_profiles, client_cp):
-    now = datetime.utcnow()
-
-    existing = db.query(Project).filter(
-        Project.tenant_id == tenant.id,
-        Project.name == "AI-Powered Analytics Platform",
-    ).first()
-    if existing:
-        print(f"  [skip] Projects already seeded for {tenant.name}")
-        return existing, None
-
-    p1 = Project(
-        tenant_id=tenant.id, name="AI-Powered Analytics Platform",
-        description="End-to-end AI analytics platform with real-time dashboards on GCP.",
-        admin_id=admin.id, client_id=client_cp.id,
-        status="in-progress", progress=58, budget=120000.0, spent=42000.0,
-        payment_status="partial", priority="high",
-        start_date=now - timedelta(days=30), deadline=now + timedelta(days=60),
-        custom_fields={
-            "health_score": 72,
-            "risk_flags": ["timeline risk"],
-            "ai_stack": f"Gemini {GEMINI_MODEL} via Vertex AI ({GCP_PROJECT}/{GCP_REGION})",
-        },
-    )
-    db.add(p1)
-    db.flush()
-
-    tasks_p1 = [
-        _make_task(db, tenant.id, p1.id, "Design data ingestion pipeline",
-                   "completed", {"architecture": 0.7, "backend": 0.6}, 8.0, "high"),
-        _make_task(db, tenant.id, p1.id, "Implement LLM summarisation service (Gemini 2.5)",
-                   "in_progress", {"llm": 0.8, "python": 0.7}, 12.0, "high"),
-        _make_task(db, tenant.id, p1.id, "Build REST API for dashboard queries",
-                   "in_progress", {"backend": 0.8, "api": 0.7}, 8.0, "medium"),
-        _make_task(db, tenant.id, p1.id, "Develop React dashboard frontend",
-                   "pending", {"frontend": 0.8, "react": 0.7}, 16.0, "medium"),
-        _make_task(db, tenant.id, p1.id, "Write E2E test suite",
-                   "pending", {"qa": 0.8, "testing": 0.7}, 10.0, "medium"),
-    ]
-
-    # Soft-deleted task — tests filter correctness
-    dt = _make_task(db, tenant.id, p1.id, "Old requirement — superseded by Gemini approach",
-                    "cancelled", {"llm": 0.5}, 4.0)
-    dt.deleted_at = now - timedelta(days=5)
-    db.add(dt)
-
-    for task, emp_idx in zip(tasks_p1, range(len(emp_profiles))):
-        db.add(TaskAssignment(
-            task_id=task.id, employee_id=emp_profiles[emp_idx].id,
-            status="assigned", assignment_confidence=0.88,
-        ))
-        emp_profiles[emp_idx].current_load = min(
-            emp_profiles[emp_idx].current_load + task.estimated_time, 8.0
-        )
-        db.add(emp_profiles[emp_idx])
-
-    p2 = Project(
-        tenant_id=tenant.id, name="E-Commerce Redesign",
-        description="Modernise e-commerce with AI-powered product recommendations via Vertex AI.",
-        admin_id=admin.id, client_id=client_cp.id,
-        status="planning", progress=0, budget=75000.0, spent=0.0,
-        priority="medium", deadline=now + timedelta(days=90),
-    )
-    db.add(p2)
-    db.flush()
-    _make_task(db, tenant.id, p2.id, "Stakeholder requirements workshop",
-               "pending", {"communication": 0.7, "architecture": 0.5}, 4.0)
-    _make_task(db, tenant.id, p2.id, "Define Gemini recommendation model spec",
-               "pending", {"llm": 0.7, "architecture": 0.6}, 6.0)
-
-    soft_p = Project(
-        tenant_id=tenant.id, name="Legacy CRM Integration (Cancelled)",
-        description="Cancelled — client moved budget to AI-first initiative.",
-        admin_id=admin.id, status="cancelled", progress=10,
-        budget=30000.0, spent=3000.0, deleted_at=now - timedelta(days=10),
-    )
-    db.add(soft_p)
-    db.flush()
-
-    return p1, p2
-
-
-def seed_workflow_and_agents(db, admin, project):
-    if db.query(WorkflowRun).filter(
-        WorkflowRun.project_id == project.id,
-        WorkflowRun.workflow_type == "intake",
-    ).first():
-        return
-
-    now = datetime.utcnow()
-    run = WorkflowRun(
-        workflow_type="intake", status="completed",
-        requested_by=admin.id, project_id=project.id,
-        input_payload={"project_name": project.name, "budget": project.budget,
-                       "model": GEMINI_MODEL, "gcp_project": GCP_PROJECT},
-        shared_context={"tenant_id": project.tenant_id, "vertex_ai": True},
-        final_output={"plan_approved": True, "risk_level": "medium",
-                      "model_used": GEMINI_MODEL},
-        created_at=now - timedelta(days=28),
-        completed_at=now - timedelta(days=28) + timedelta(minutes=4),
-    )
-    db.add(run)
-    db.flush()
-
-    for name, stage, confidence, reasoning in [
-        ("IntakeAgent",               "intake",        0.94, f"Parsed intake via {GEMINI_MODEL} — all fields extracted"),
-        ("PlanningAgent",             "planning",      0.89, f"Generated 6-milestone plan via {GEMINI_MODEL}"),
-        ("StaffingAgent",             "staffing",      0.91, f"Scored 5 candidates via assignment engine"),
-        ("RiskAgent",                 "risk_assessment",0.82, f"Identified timeline risk via {GEMINI_MODEL}"),
-        ("ExecutionCoordinatorAgent", "coordination",  0.88, "Finalised execution plan — no conflicts"),
-        ("CommunicationAgent",        "communication", 0.95, "Drafted admin + client briefs"),
-        ("EscalationAgent",           "escalation",    0.99, "No escalation required — confidence above threshold"),
-    ]:
-        db.add(AgentRun(
-            workflow_run_id=run.id, agent_name=name, role=stage, stage=stage,
-            status="completed", confidence=confidence,
-            reasoning=reasoning, input_payload={},
-            output_payload={"status": "ok", "model": GEMINI_MODEL},
-            started_at=run.created_at,
-            completed_at=run.created_at + timedelta(seconds=35),
-        ))
-
-    db.add(DecisionLog(
-        decision_type="assignment", entity_type="task", entity_id=project.id,
-        input_data={"agent": "StaffingAgent", "model": GEMINI_MODEL,
-                    "scoring_formula": "0.35×skill + 0.25×(1-load) + 0.20×efficiency + 0.20×reliability − 0.15×tz_penalty"},
-        decision_taken="Assigned Arjun Rao to LLM service task (score: 0.91)",
-        confidence=0.91,
-        reasoning="skill_match=0.95 (llm), workload=0.88, efficiency=0.87, reliability=0.92, tz_penalty=0.0",
-    ))
-    db.flush()
-
-
-def seed_scheduler_jobs(db, tenant):
-    if db.query(ScheduledAgentJob).filter(
-        ScheduledAgentJob.tenant_id == tenant.id
-    ).first():
-        return
-    now = datetime.utcnow()
-    for job_type, cron, tz, last_delta, next_delta in [
-        ("nightly_observer", "0 2 * * *",  "UTC",          timedelta(hours=22), timedelta(hours=2)),
-        ("weekly_digest",    "0 9 * * 1",  "Asia/Kolkata", timedelta(days=7),   timedelta(days=1)),
-        ("payment_check",    "0 10 * * *", "UTC",          timedelta(hours=14), timedelta(hours=10)),
-        ("archive_old_runs", "0 3 * * 0",  "UTC",          timedelta(days=7),   timedelta(days=1)),
-    ]:
-        db.add(ScheduledAgentJob(
-            tenant_id=tenant.id, job_type=job_type, cron_expr=cron,
-            timezone=tz, enabled=True,
-            last_run_at=now - last_delta,
-            next_run_at=now + next_delta,
-            last_status="success",
-        ))
-    db.flush()
-
-
-def seed_email_logs(db, tenant):
-    if db.query(EmailDeliveryLog).filter(EmailDeliveryLog.tenant_id == tenant.id).first():
-        return
-    now = datetime.utcnow()
-    for to_email, subject, template, status in [
-        (CEO["email"],   "Welcome to AI Workforce Orchestrator", "welcome",            "success"),
-        (ADMIN["email"], "Verify your email address",            "email_verification", "success"),
-        (CLIENT_A["email"], "Your project brief is ready",       "project_brief",      "success"),
-        (CEO["email"],   "Weekly digest — week of Apr 14",       "weekly_digest",      "success"),
-        (ADMIN["email"], "Task assignment: Build REST API",       "task_assignment",    "success"),
-        (ADMIN["email"], "Escalation alert: Blocked task",        "escalation_alert",  "failed"),
-    ]:
-        db.add(EmailDeliveryLog(
-            tenant_id=tenant.id, to_email=to_email,
-            subject=subject, template_name=template, status=status,
-            sendgrid_message_id=f"SG.mock_{template}" if status == "success" else None,
-            error_message="SendGrid API timeout" if status == "failed" else None,
-            sent_at=now - timedelta(hours=2) if status == "success" else None,
-        ))
-    db.flush()
-
-
-def seed_support_ticket(db, tenant, admin):
-    if db.query(SupportTicket).filter(SupportTicket.tenant_id == tenant.id).first():
-        return
-    db.add(SupportTicket(
-        tenant_id=tenant.id, user_id=admin.id,
-        subject="Request to increase project limit",
-        body="Hi Swaraj,\n\nWe need our project cap raised from 20 to 30 for new clients.\n\nThanks,\nRohan",
-        status="open", priority="medium",
-    ))
-    db.flush()
+    return tenant, ceo, totp_secret
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -720,58 +714,35 @@ def main():
     global _created, _skipped
 
     if _LOCAL_MODE:
-        # Local: always wipe + rebuild (safe — it's just a local SQLite file)
         print(f"\nLocal mode — resetting SQLite: {DATABASE_URL}")
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         ensure_runtime_schema(engine)
     elif args.reset:
         db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-        confirm = input(
-            f"\n⚠  --reset will DELETE ALL DATA in {db_host}\n"
-            "Type 'yes-delete-everything' to confirm: "
-        )
+        confirm = input(f"\n⚠  --reset will DELETE ALL DATA in {db_host}\nType 'yes-delete-everything': ")
         if confirm.strip() != "yes-delete-everything":
             print("Aborted.")
             sys.exit(0)
-        print("Dropping all tables...")
         Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         ensure_runtime_schema(engine)
-        print("Tables recreated.\n")
     else:
         Base.metadata.create_all(bind=engine)
         ensure_runtime_schema(engine)
 
     db = SessionLocal()
     try:
-        print("Seeding agents (12 × Gemini 2.5 Flash via Vertex AI)...")
+        print("Seeding 12 agent definitions...")
         seed_agents(db)
 
         print("Seeding platform owner...")
-        owner, _ = seed_platform_owner(db)
+        seed_platform_owner(db)
 
-        print("Seeding Tenant A: OrchestrateCo (Pro plan)...")
-        tenant_a, ceo, admin, admin_rt, emp_profiles, client_cp = seed_tenant_a(db)
-
-        print("Seeding Tenant B: GlobalTech (grace-period test)...")
-        tenant_b, admin_b = seed_tenant_b(db)
-
-        print("Seeding projects + tasks + assignments...")
-        p1, p2 = seed_projects_and_tasks(db, tenant_a, admin, emp_profiles, client_cp)
-
-        if p1:
-            print(f"Seeding WorkflowRun + 7 AgentRun records ({GEMINI_MODEL})...")
-            seed_workflow_and_agents(db, admin, p1)
-
-        print("Seeding scheduler jobs (4 types)...")
-        seed_scheduler_jobs(db, tenant_a)
-
-        print("Seeding email delivery logs...")
-        seed_email_logs(db, tenant_a)
-
-        print("Seeding support ticket...")
-        seed_support_ticket(db, tenant_a, admin)
+        seeded_tenants = []
+        for spec in TENANTS:
+            tenant, ceo, totp_secret = seed_tenant(db, spec)
+            seeded_tenants.append((spec, tenant.name, ceo.email, totp_secret))
 
         db.commit()
     except Exception:
@@ -781,56 +752,42 @@ def main():
         db.close()
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    totp = pyotp.TOTP(CEO_TOTP_SECRET)
-    db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-    mode_label = "Local Dev (SQLite)" if _LOCAL_MODE else "Production (Cloud SQL)"
+    print("\n" + "=" * 72)
+    print("  Seed Complete — AI Workforce Orchestrator")
+    print("=" * 72)
+    print(f"  Records: {_created} created   {_skipped} skipped")
+    print(f"  Database: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
+    print(f"  AI Model: {GEMINI_MODEL}")
+    print()
 
-    print("\n" + "=" * 68)
-    print(f"  Seed Complete [{mode_label}] — AI Workforce Orchestrator")
-    print("=" * 68)
-    print(f"\n  Mode         : {mode_label}")
-    print(f"  GCP Project  : {GCP_PROJECT}")
-    print(f"  Region       : {GCP_REGION}")
-    print(f"  AI Model     : {GEMINI_MODEL}{' (Vertex AI — LIVE)' if not _LOCAL_MODE else ' (fallback in local mode)'}")
-    print(f"  Database     : {db_host}")
-    print(f"  Records      : {_created} created   {_skipped} skipped (already existed)")
-
-    print("\n[ Platform Owner ]")
+    print("[ Platform Owner ]")
     print(f"  {PLATFORM_OWNER['email']}  /  {PLATFORM_OWNER['password']}")
+    print()
 
-    print("\n[ Tenant A: OrchestrateCo — Pro plan ]")
-    print(f"  CEO (2FA)  : {CEO['email']}  /  {CEO['password']}")
-    print(f"  TOTP secret: {CEO_TOTP_SECRET}")
-    print(f"  Live code  : {totp.now()}  (valid ~30 s — re-run for a fresh code)")
-    print(f"  2FA login  : Step 1 → POST /auth/login")
-    print(f"               Step 2 → POST /auth/2fa/verify-login {{mfa_session_token, totp_code}}")
-    print(f"  Admin      : {ADMIN['email']}  /  {ADMIN['password']}")
-    if admin_rt:
-        print(f"  Admin RT   : {admin_rt[:24]}...  (30-day refresh token)")
-    for m in EMPLOYEES_A:
-        print(f"  Employee   : {m['email']}  /  team123456")
-    print(f"  Client     : {CLIENT_A['email']}  /  client123456")
+    for spec, tenant_name, ceo_email, totp_secret in seeded_tenants:
+        print(f"[ {tenant_name} — {spec.get('plan_tier','pro').upper()} ]")
+        ceo_data = spec["ceo"]
+        line = f"  CEO  : {ceo_data['email']}  /  {ceo_data['password']}"
+        if totp_secret:
+            totp = pyotp.TOTP(totp_secret)
+            line += f"  (TOTP secret: {totp_secret} | code: {totp.now()})"
+        print(line)
+        for a in spec["admins"]:
+            print(f"  Admin: {a['email']}  /  {a['password']}")
+        for e in spec["employees"]:
+            print(f"  Emp  : {e['email']}  /  team123456  [{e['department']}]")
+        for c in spec.get("clients", []):
+            print(f"  Client: {c['email']}  /  client123456  [{c['company']}]")
+        print()
 
-    print("\n[ Tenant B: GlobalTech — Starter / grace period (3 days) ]")
-    print(f"  Admin      : {ADMIN_B['email']}  /  {ADMIN_B['password']}")
-    for m in EMPLOYEES_B:
-        print(f"  Employee   : {m['email']}  /  team123456")
-    print(f"  Client     : {CLIENT_B['email']}  /  client123456")
-
-    print("\n[ Agents seeded (12 × Vertex AI / Gemini 2.5 Flash) ]")
-    for a in AGENT_DEFINITIONS:
-        print(f"  {a['name']:35s}  role={a['role']}")
-
+    print("[ All Employees Password ]  team123456")
+    print("[ All Clients Password   ]  client123456")
+    print()
     if _LOCAL_MODE:
-        print("\n[ Local endpoints ]")
+        print("[ Local endpoints ]")
         print("  uvicorn app.main:app --reload --port 8001")
         print("  http://localhost:8001/docs")
         print("  http://localhost:5173  (frontend)")
-    else:
-        print("\n[ Cloud Run endpoints ]")
-        print("  https://backend-adk-974381609416.europe-west1.run.app/docs")
-        print("  https://frontend-974381609416.europe-west1.run.app")
-        print("  https://backend-adk-974381609416.europe-west1.run.app/healthz")
     print()
 
 
