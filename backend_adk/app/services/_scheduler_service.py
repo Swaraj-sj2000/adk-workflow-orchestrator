@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core._logging import get_logger
 from app.models._agent_run import AgentRun
+from app.models._audit_log import AuditLog
+from app.models._decision_log import DecisionLog
+from app.models._email_delivery_log import EmailDeliveryLog
+from app.models._platform_audit_log import PlatformAuditLog
 from app.models._project import Project
 from app.models._scheduled_agent_job import ScheduledAgentJob
 from app.models._tenant import Tenant
@@ -168,18 +172,66 @@ class SchedulerService:
 
     @classmethod
     def _archive_old_workflow_runs(cls, db: Session, retention_days: int = 90) -> None:
-        cutoff = cls._now_utc() - timedelta(days=retention_days)
+        """
+        Purge old log records to prevent unbounded DB growth.
+
+        Retention policy (conservative — keeps recent data for debugging):
+          workflow_runs + agent_runs  : 90 days  (completed/failed only)
+          decision_logs               : 90 days
+          audit_log                   : 90 days
+          email_delivery_logs         : 60 days  (sent/failed only)
+          platform_audit_logs         : 180 days (longer for compliance)
+        """
+        total_deleted = 0
+
+        # ── workflow_runs + their agent_runs (must delete children first) ──
+        wf_cutoff = cls._now_utc() - timedelta(days=retention_days)
         old_runs = (
             db.query(WorkflowRun)
-            .filter(WorkflowRun.created_at < cutoff, WorkflowRun.status.in_(["completed", "failed"]))
+            .filter(WorkflowRun.created_at < wf_cutoff, WorkflowRun.status.in_(["completed", "failed"]))
             .all()
         )
         run_ids = [r.id for r in old_runs]
         if run_ids:
-            db.query(AgentRun).filter(AgentRun.workflow_run_id.in_(run_ids)).delete(synchronize_session=False)
+            deleted = db.query(AgentRun).filter(AgentRun.workflow_run_id.in_(run_ids)).delete(synchronize_session=False)
             db.query(WorkflowRun).filter(WorkflowRun.id.in_(run_ids)).delete(synchronize_session=False)
-            db.commit()
-            logger.info("Archived %d old workflow runs (cutoff=%s)", len(run_ids), cutoff.date())
+            total_deleted += len(run_ids)
+            logger.info("Purged %d workflow runs + %d agent runs (cutoff=%s)", len(run_ids), deleted, wf_cutoff.date())
+
+        # ── decision_logs ──
+        dl_cutoff = cls._now_utc() - timedelta(days=retention_days)
+        deleted = db.query(DecisionLog).filter(DecisionLog.created_at < dl_cutoff).delete(synchronize_session=False)
+        if deleted:
+            total_deleted += deleted
+            logger.info("Purged %d decision_logs (cutoff=%s)", deleted, dl_cutoff.date())
+
+        # ── audit_log ──
+        al_cutoff = cls._now_utc() - timedelta(days=retention_days)
+        deleted = db.query(AuditLog).filter(AuditLog.timestamp < al_cutoff).delete(synchronize_session=False)
+        if deleted:
+            total_deleted += deleted
+            logger.info("Purged %d audit_log rows (cutoff=%s)", deleted, al_cutoff.date())
+
+        # ── email_delivery_logs (60 days, sent/failed only) ──
+        email_cutoff = cls._now_utc() - timedelta(days=60)
+        deleted = (
+            db.query(EmailDeliveryLog)
+            .filter(EmailDeliveryLog.created_at < email_cutoff, EmailDeliveryLog.status.in_(["sent", "failed", "delivered"]))
+            .delete(synchronize_session=False)
+        )
+        if deleted:
+            total_deleted += deleted
+            logger.info("Purged %d email_delivery_logs (cutoff=%s)", deleted, email_cutoff.date())
+
+        # ── platform_audit_logs (180 days) ──
+        pal_cutoff = cls._now_utc() - timedelta(days=180)
+        deleted = db.query(PlatformAuditLog).filter(PlatformAuditLog.timestamp < pal_cutoff).delete(synchronize_session=False)
+        if deleted:
+            total_deleted += deleted
+            logger.info("Purged %d platform_audit_logs (cutoff=%s)", deleted, pal_cutoff.date())
+
+        db.commit()
+        logger.info("Log purge complete — total rows removed: %d", total_deleted)
 
     @classmethod
     def seed_default_jobs_for_tenant(cls, db: Session, tenant_id: int) -> None:
