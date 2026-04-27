@@ -8,6 +8,7 @@ def _ts(engine) -> str:
 
 def _additive_columns(engine):
     ts = _ts(engine)
+    is_pg = engine.dialect.name == "postgresql"
     return {
         "tenants": {
             "logo_url": "TEXT",
