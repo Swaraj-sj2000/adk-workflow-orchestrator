@@ -12,6 +12,8 @@ export default function Projects({ role }) {
   const [inviteRoleTitle, setInviteRoleTitle] = useState('');
   const [actionKey, setActionKey] = useState('');
 
+  const [paymentForm, setPaymentForm] = useState({ payment_status: 'pending', note: '' });
+
   // New Project (AI intake) modal
   const [showNewProject, setShowNewProject] = useState(false);
   const [intakeBrief, setIntakeBrief] = useState('');
@@ -56,10 +58,34 @@ export default function Projects({ role }) {
     try {
       const res = await fetch(`${API}/projects/${projectId}/status`, { headers });
       if (res.ok) {
-        setSelectedProject(await res.json());
+        const data = await res.json();
+        setSelectedProject(data);
+        setPaymentForm({ payment_status: data.payment_status || 'pending', note: '' });
       }
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const handlePaymentUpdate = async (projectId) => {
+    if (actionKey) return;
+    setActionKey(`payment-${projectId}`);
+    try {
+      const res = await fetch(`${API}/projects/${projectId}/payment-status`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(paymentForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not update payment status');
+      setSelectedProject(data);
+      setPaymentForm((f) => ({ ...f, note: '' }));
+      setMessage('Payment status updated.');
+      fetchProjects();
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setActionKey('');
     }
   };
 
@@ -475,15 +501,27 @@ export default function Projects({ role }) {
                   <span>Client Responses</span>
                   <strong>{selectedProject.client_response_status}</strong>
                 </div>
-                <div className="info-pill">
-                  <span>Payment</span>
-                  <strong>{selectedProject.payment_status}</strong>
-                </div>
+                {role !== 'admin' && (
+                  <div className="info-pill">
+                    <span>Payment</span>
+                    <strong>{selectedProject.payment_status}</strong>
+                  </div>
+                )}
                 <div className="info-pill">
                   <span>Next Decision</span>
                   <strong>{selectedProject.next_decision}</strong>
                 </div>
               </div>
+
+              {role === 'admin' && (
+                <ProjectsPaymentEditor
+                  project={selectedProject}
+                  paymentForm={paymentForm}
+                  setPaymentForm={setPaymentForm}
+                  onSave={() => handlePaymentUpdate(selectedProject.project_id || selectedProject.id)}
+                  saving={actionKey === `payment-${selectedProject.project_id || selectedProject.id}`}
+                />
+              )}
 
               {role === 'admin' && selectedProject.approval_status === 'awaiting-admin-approval' && (
                 <>
@@ -666,6 +704,58 @@ export default function Projects({ role }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectsPaymentEditor({ project, paymentForm, setPaymentForm, onSave, saving }) {
+  return (
+    <div className="card payment-card">
+      <h3>Payment Status</h3>
+      <div className="project-create-form">
+        <div className="form-group">
+          <label>Status</label>
+          <select
+            value={paymentForm.payment_status}
+            onChange={(e) => setPaymentForm((f) => ({ ...f, payment_status: e.target.value }))}
+          >
+            <option value="pending">Pending</option>
+            <option value="partial">Partial</option>
+            <option value="client-confirmed">Client Confirmed</option>
+            <option value="admin-confirmed">Admin Confirmed</option>
+            <option value="completed">Completed</option>
+            <option value="disputed">Disputed</option>
+          </select>
+        </div>
+        <div className="form-group form-span-2">
+          <label>Note</label>
+          <textarea
+            rows="2"
+            value={paymentForm.note}
+            onChange={(e) => setPaymentForm((f) => ({ ...f, note: e.target.value }))}
+            placeholder="Add a short payment or confirmation note."
+          />
+        </div>
+        <div className="form-actions">
+          <button className="btn btn-primary" type="button" onClick={onSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Payment Update'}
+          </button>
+        </div>
+      </div>
+      <div className="list" style={{ marginTop: '14px' }}>
+        {(project.payment_updates || []).length > 0 ? project.payment_updates.map((update, i) => (
+          <div key={`${update.updated_at || i}-${update.status}`} className="list-item">
+            <div className="task-line">
+              <strong>{update.status}</strong>
+              <span className="status-badge status-approved">{update.actor_role}</span>
+            </div>
+            <p>{update.note || 'No note provided.'}</p>
+            <p className="id-line">{update.updated_by} | {update.updated_at}</p>
+          </div>
+        )) : (
+          <div className="list-item"><p>No payment updates yet.</p></div>
+        )}
       </div>
     </div>
   );
