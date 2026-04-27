@@ -656,3 +656,110 @@ button:disabled {
     margin: 20px;
   }
 }
+
+/* ── Dark theme: fix all hardcoded light backgrounds/text ─────────────── */
+.app.theme-dark .card,
+.app.theme-dark .summary-card,
+.app.theme-dark .project-shell,
+.app.theme-dark .project-card,
+.app.theme-dark .project-detail-card,
+.app.theme-dark .project-create-form input,
+.app.theme-dark .project-create-form textarea,
+.app.theme-dark .project-create-form select,
+.app.theme-dark .form-group input,
+.app.theme-dark .form-group textarea,
+.app.theme-dark .form-group select,
+.app.theme-dark .modal-box,
+.app.theme-dark .intake-success,
+.app.theme-dark .maw-root,
+.app.theme-dark .maw-agent-card,
+.app.theme-dark .maw-history-item,
+.app.theme-dark .maw-detail-panel,
+.app.theme-dark .maw-result-header,
+.app.theme-dark .maw-run-item {
+  background: var(--surface-soft) !important;
+  border-color: var(--border-soft) !important;
+  color: var(--text-primary) !important;
+}
+
+.app.theme-dark .card h2,
+.app.theme-dark .card h3,
+.app.theme-dark .summary-card h3,
+.app.theme-dark .project-shell h3,
+.app.theme-dark .maw-agent-card h4,
+.app.theme-dark .maw-card-label {
+  color: var(--text-primary) !important;
+}
+
+.app.theme-dark .card p,
+.app.theme-dark .summary-card p,
+.app.theme-dark .form-group label,
+.app.theme-dark .project-description,
+.app.theme-dark .detail-item,
+.app.theme-dark .progress-text,
+.app.theme-dark .eyebrow,
+.app.theme-dark .id-line,
+.app.theme-dark .empty-state,
+.app.theme-dark .maw-reasoning,
+.app.theme-dark .maw-conf-label,
+.app.theme-dark .maw-highlight-item {
+  color: var(--text-secondary) !important;
+}
+
+.app.theme-dark .metric {
+  color: var(--accent) !important;
+}
+
+/* Status badges — keep coloured backgrounds but ensure they stay legible */
+.app.theme-dark .status-pending,
+.app.theme-dark .status-planning { background: #1a3a2a; color: #6ee7b7; }
+.app.theme-dark .status-running,
+.app.theme-dark .status-in-progress { background: #1e2f4a; color: #93c5fd; }
+.app.theme-dark .status-completed,
+.app.theme-dark .status-done { background: #2e1f4a; color: #c4b5fd; }
+.app.theme-dark .status-on-hold,
+.app.theme-dark .status-blocked,
+.app.theme-dark .status-rejected { background: #3a1f1f; color: #fca5a5; }
+.app.theme-dark .status-available,
+.app.theme-dark .status-on-duty,
+.app.theme-dark .status-approved { background: #1a3a2a; color: #6ee7b7; }
+.app.theme-dark .status-busy,
+.app.theme-dark .status-medium { background: #3a2e10; color: #fcd34d; }
+.app.theme-dark .status-overloaded,
+.app.theme-dark .status-high,
+.app.theme-dark .status-critical { background: #3a1f1f; color: #fca5a5; }
+.app.theme-dark .status-on-leave { background: #252a35; color: #94a3b8; }
+
+/* Progress bars */
+.app.theme-dark .progress {
+  background: var(--border-soft) !important;
+}
+
+/* Intake stat boxes */
+.app.theme-dark .intake-stat {
+  background: var(--surface-pill) !important;
+  color: var(--text-primary) !important;
+}
+.app.theme-dark .intake-stat-label { color: var(--text-secondary) !important; }
+.app.theme-dark .intake-stat-value { color: var(--text-primary) !important; }
+
+/* Modal overlay inputs */
+.app.theme-dark .modal-box input,
+.app.theme-dark .modal-box textarea,
+.app.theme-dark .modal-box select {
+  background: var(--surface-pill) !important;
+  border-color: var(--border-soft) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Workbench tabs */
+.app.theme-dark .maw-tabs { border-color: var(--border-soft) !important; }
+.app.theme-dark .maw-tab { color: var(--text-secondary) !important; }
+.app.theme-dark .maw-tab.active { color: var(--accent) !important; border-color: var(--accent) !important; }
+.app.theme-dark .maw-textarea,
+.app.theme-dark .maw-input,
+.app.theme-dark .maw-select {
+  background: var(--surface-pill) !important;
+  border-color: var(--border-soft) !important;
+  color: var(--text-primary) !important;
+}
