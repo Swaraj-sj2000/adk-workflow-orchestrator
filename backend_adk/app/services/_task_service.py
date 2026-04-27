@@ -12,6 +12,7 @@ from app.models._task_assignment import TaskAssignment
 from app.models._task_progress import TaskProgress
 from app.models._user import User
 from app.schemas._task import TaskCreate, TaskStatus
+from app.services._skill_service import update_skill_confidence
 
 
 def _ensure_progress(db: Session, task: Task) -> TaskProgress:
@@ -123,6 +124,8 @@ def _sync_assignment_status(db: Session, task: Task) -> None:
                     employee.current_load = max(0.0, round((employee.current_load or 0.0) - hours, 1))
                     employee.availability_status = "busy" if employee.current_load > 0 else "available"
                     db.add(employee)
+                # Update demonstrated skills based on completed task
+                update_skill_confidence(db, task)
             assignment.status = "completed"
             assignment.completed_at = assignment.completed_at or datetime.now(timezone.utc)
         elif task.status in {"running", "blocked", "delayed"}:

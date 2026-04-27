@@ -247,6 +247,162 @@ def assistant_chat(
     )
 
 
+# ── Natural Language Query endpoint ──────────────────────────────────────────
+
+class NLQueryRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+
+
+class NLQueryResponse(BaseModel):
+    answer: str
+    data: dict
+    source: str  # "llm" | "structured"
+
+
+def _gather_live_data(db: Session, current_user: User, question: str) -> dict:
+    """Pull relevant DB facts based on question keywords."""
+    from app.models._employee_profile import EmployeeProfile
+    from app.models._project import Project
+    from app.models._task import Task
+    from app.models._task_assignment import TaskAssignment
+    from app.models._blocker import Blocker
+
+    lower = question.lower()
+    tid = current_user.tenant_id
+    data: dict = {}
+
+    if any(w in lower for w in ("capacity", "available", "free", "bandwidth", "load", "workload", "who")):
+        employees = db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == tid).all()
+        data["team"] = [
+            {
+                "name": (e.user.full_name or e.user.email) if e.user else str(e.id),
+                "current_load": e.current_load,
+                "max_capacity": e.max_capacity,
+                "free_hours": round(max(0.0, (e.max_capacity or 8) - (e.current_load or 0)), 1),
+                "status": e.availability_status,
+            }
+            for e in employees
+        ]
+
+    if any(w in lower for w in ("project", "risk", "behind", "overdue", "status", "progress", "at risk")):
+        projects = db.query(Project).filter(Project.tenant_id == tid).all()
+        data["projects"] = [
+            {
+                "name": p.name,
+                "status": p.status,
+                "progress": p.progress,
+                "priority": p.priority,
+                "budget": p.budget,
+                "spent": p.spent,
+            }
+            for p in projects
+        ]
+
+    if any(w in lower for w in ("task", "done", "complet", "pending", "blocked", "assign")):
+        tasks = db.query(Task).filter(Task.tenant_id == tid).all()
+        status_counts: dict = {}
+        for t in tasks:
+            status_counts[t.status] = status_counts.get(t.status, 0) + 1
+        data["task_summary"] = status_counts
+
+    if any(w in lower for w in ("block", "stuck", "impediment")):
+        blockers = db.query(Blocker).filter(Blocker.tenant_id == tid, Blocker.resolved == False).all()
+        data["active_blockers"] = len(blockers)
+
+    return data
+
+
+def _format_structured_answer(question: str, data: dict) -> str:
+    lower = question.lower()
+    parts = []
+
+    if "team" in data:
+        team = data["team"]
+        available = [e for e in team if e["free_hours"] > 0]
+        overloaded = [e for e in team if e["free_hours"] <= 0]
+        if any(w in lower for w in ("capacity", "available", "free", "bandwidth")):
+            if available:
+                parts.append(
+                    "**Available team members:**\n" +
+                    "\n".join(f"- {e['name']}: {e['free_hours']}h free ({e['status']})" for e in available)
+                )
+            else:
+                parts.append("No team members currently have free capacity.")
+        elif any(w in lower for w in ("load", "workload", "busy")):
+            if overloaded:
+                parts.append(
+                    "**Overloaded members:**\n" +
+                    "\n".join(f"- {e['name']}: {e['current_load']}h load / {e['max_capacity']}h capacity" for e in overloaded)
+                )
+            parts.append(
+                "**Team load overview:**\n" +
+                "\n".join(f"- {e['name']}: {e['current_load']}/{e['max_capacity']}h" for e in team)
+            )
+
+    if "projects" in data:
+        projects = data["projects"]
+        if any(w in lower for w in ("risk", "at risk")):
+            risky = [p for p in projects if p.get("status") in ("delayed", "at-risk") or (p.get("priority") == "critical" and p.get("progress", 100) < 50)]
+            parts.append(
+                f"**{len(risky)} project(s) may be at risk:**\n" +
+                ("\n".join(f"- {p['name']} ({p['status']}, {p['progress']}% complete)" for p in risky) if risky else "None flagged currently.")
+            )
+        else:
+            parts.append(
+                f"**{len(projects)} project(s):**\n" +
+                "\n".join(f"- {p['name']}: {p['status']} ({p['progress']}%)" for p in projects[:8])
+            )
+
+    if "task_summary" in data:
+        ts = data["task_summary"]
+        parts.append(
+            "**Task breakdown:** " +
+            ", ".join(f"{v} {k}" for k, v in ts.items())
+        )
+
+    if "active_blockers" in data:
+        parts.append(f"**Active blockers:** {data['active_blockers']}")
+
+    return "\n\n".join(parts) if parts else "I don't have enough live data to answer that question yet."
+
+
+@router.post("/nl-query", response_model=NLQueryResponse)
+def nl_query(
+    payload: NLQueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Answer a natural language question using live DB data. Admin/CEO only."""
+    if current_user.role not in ("admin", "ceo", "platform_owner"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Only admins and CEOs can run live queries")
+
+    question = payload.question.strip()
+    live_data = _gather_live_data(db, current_user, question)
+
+    # Try LLM with live data as context
+    try:
+        from app.services._llm_service import LLMService
+        llm = LLMService()
+        if llm.enabled:
+            context_str = f"Live platform data:\n{live_data}\n\nUser question: {question}"
+            answer = llm.answer_user_question(
+                message=context_str,
+                role=current_user.role,
+                user_name=current_user.full_name or current_user.email,
+                live_context="",
+                platform_overview=PLATFORM_OVERVIEW,
+            )
+            if answer:
+                return NLQueryResponse(answer=answer, data=live_data, source="llm")
+    except Exception:
+        pass
+
+    # Fallback: structured answer from data
+    answer = _format_structured_answer(question, live_data)
+    return NLQueryResponse(answer=answer, data=live_data, source="structured")
+
+
 @router.get("/onboarding-steps")
 def get_onboarding_steps(current_user: User = Depends(get_current_user)):
     """Return role-specific onboarding steps."""

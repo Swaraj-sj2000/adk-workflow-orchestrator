@@ -61,7 +61,7 @@ from app.models import (
     _platform_audit_log,
     _user_preferences, _tenant_settings, _support_ticket,
     _scheduled_agent_job, _email_delivery_log,
-    _refresh_token,
+    _refresh_token, _change_request,
 )
 
 
