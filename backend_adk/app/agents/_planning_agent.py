@@ -1,6 +1,6 @@
 # app/agents/_planning_agent.py
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from app.agents._base import AgentResult, BaseAgent
@@ -22,9 +22,11 @@ class PlanningAgent(BaseAgent):
         for index, raw_task in enumerate(raw_tasks):
             due_date = None
             if deadline and raw_tasks:
-                days_remaining = max(1, (deadline - datetime.utcnow()).days)
+                now = datetime.now(timezone.utc)
+                dl = deadline if deadline.tzinfo else deadline.replace(tzinfo=timezone.utc)
+                days_remaining = max(1, (dl - now).days)
                 slot = max(1, days_remaining // len(raw_tasks))
-                due_date = (datetime.utcnow() + timedelta(days=slot * (index + 1))).isoformat()
+                due_date = (now + timedelta(days=slot * (index + 1))).isoformat()
 
             task_blueprint = {
                 "sequence": index + 1,
