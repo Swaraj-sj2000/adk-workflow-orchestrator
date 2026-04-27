@@ -1,6 +1,6 @@
 # backend/app/schemas/_project.py
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from typing import Optional, Literal
+from typing import Any, Dict, Optional, Literal
 from datetime import datetime
 
 
@@ -57,6 +57,7 @@ class ProjectOut(BaseModel):
     created_at: datetime
     deadline: Optional[datetime]
     priority: str
+    custom_fields: Optional[Dict[str, Any]] = None
 
 
 class TeamApprovalAction(BaseModel):

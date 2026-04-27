@@ -213,28 +213,87 @@ class AssignmentEngine:
         
         return total_score
 
+    # Maps verbose / LLM-generated skill names → canonical profile skill keys
+    _SKILL_ALIASES: Dict[str, str] = {
+        "backend_development": "backend",
+        "backend_engineering": "backend",
+        "server_side": "backend",
+        "frontend_development": "frontend",
+        "frontend_engineering": "frontend",
+        "ui_development": "frontend",
+        "machine_learning": "llm",
+        "deep_learning": "modeling",
+        "neural_network": "modeling",
+        "model_training": "modeling",
+        "ai_model": "llm",
+        "natural_language_processing": "llm",
+        "nlp": "llm",
+        "computer_vision": "modeling",
+        "data_science": "data",
+        "data_engineering": "data",
+        "data_pipeline": "data",
+        "data_visualization": "analytics",
+        "database_design": "backend",
+        "sql": "backend",
+        "api_integration": "api",
+        "api_development": "api",
+        "rest_api": "api",
+        "cloud_infrastructure": "cloud",
+        "infrastructure": "devops",
+        "ci_cd": "devops",
+        "cicd": "devops",
+        "notification_systems": "backend",
+        "messaging": "backend",
+        "search": "backend",
+        "semantic_search": "llm",
+        "prompt_engineering": "llm",
+        "prompt_engineer": "llm",
+        "project_management": "project-management",
+        "design_systems": "design-systems",
+        "ui_ux": "design-systems",
+        "ux": "design-systems",
+        "business_analysis": "project-management",
+        "documentation": "communication",
+        "testing": "qa",
+        "automation_testing": "automation",
+        "security_review": "security",
+        "devops_engineering": "devops",
+        "cloud_computing": "cloud",
+        "reporting": "analytics",
+        "client_success": "client-success",
+        "client_management": "client-success",
+        "delivery": "delivery",
+        "delivery_management": "delivery",
+    }
+
+    def _normalise_skill(self, skill: str) -> str:
+        """Lowercase + underscore → look up alias, else return as-is."""
+        normalised = skill.lower().replace(" ", "_").replace("-", "_")
+        return self._SKILL_ALIASES.get(normalised, normalised)
+
     def _calculate_skill_match(self, employee: EmployeeProfile, task: Task) -> float:
         """
         Calculate how well employee's skills match task requirements.
-        Returns 0-1 score.
+        Returns 0-1 score. Applies alias normalisation so LLM-generated skill
+        names (e.g. 'machine_learning') resolve to profile keys (e.g. 'llm').
         """
         if not task.required_skills:
-            return 1.0  # No specific skills required
-        
+            return 1.0
+
         employee_skills = employee.skills or {}
-        
+
         matched_skills = []
         for required_skill, required_level in task.required_skills.items():
-            if required_skill in employee_skills:
-                employee_level = employee_skills[required_skill]
-                # Score is how close the employee's level matches requirement
-                skill_score = 1.0 - abs(employee_level - required_level)
-                matched_skills.append(skill_score)
-        
+            canonical = self._normalise_skill(required_skill)
+            # Try exact first, then canonical alias
+            employee_level = employee_skills.get(required_skill) or employee_skills.get(canonical)
+            if employee_level is not None:
+                skill_score = 1.0 - abs(float(employee_level) - float(required_level))
+                matched_skills.append(max(0.0, skill_score))
+
         if not matched_skills:
-            return 0.0  # No matching skills
-        
-        # Average of matched skills
+            return 0.0
+
         return sum(matched_skills) / len(matched_skills)
 
     def _calculate_workload_score(self, employee: EmployeeProfile) -> float:

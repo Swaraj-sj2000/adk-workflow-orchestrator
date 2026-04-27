@@ -3,6 +3,10 @@
 import asyncio
 import os
 import time
+
+# Load .env from the project root (backend_adk/) before any os.getenv() calls
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request

@@ -19,10 +19,12 @@ def route_create_task(task: TaskCreate, db: Session = Depends(get_db), current_u
 def route_get_tasks(
     skip: int = 0,
     limit: int = 50,
+    project_id: int = None,
+    agent_id: int = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    tasks = get_tasks(db, current_user)
+    tasks = get_tasks(db, current_user, project_id=project_id, agent_id=agent_id)
     items = tasks[skip : skip + limit]
     return {
         "items": items,

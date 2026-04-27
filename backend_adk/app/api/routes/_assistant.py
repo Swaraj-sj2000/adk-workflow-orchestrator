@@ -182,29 +182,16 @@ def _keyword_match(message: str, role: str = "") -> str | None:
 def _llm_answer(message: str, role: str, user_name: str, live_context: str) -> str | None:
     try:
         from app.services._llm_service import LLMService
-        from langchain_core.messages import HumanMessage, SystemMessage
-
         llm = LLMService()
         if not llm.enabled:
             return None
-
-        system = (
-            f"You are the intelligent assistant embedded inside AI Workforce Orchestrator, "
-            f"a B2B SaaS platform for AI-powered workforce management.\n\n"
-            f"User: {user_name} | Role: {role}\n\n"
-            f"Your job is to help this user understand the platform, navigate it, interpret their own data, "
-            f"and take the right actions. You have access to their live account data below — use it to give "
-            f"specific, accurate answers about their actual projects, tasks, team, and billing status.\n\n"
-            f"Rules:\n"
-            f"- Only discuss things relevant to this platform or the user's account data\n"
-            f"- Never reveal data from other tenants or users outside this user's access scope\n"
-            f"- Be concise and direct (3-5 sentences). Use bullet points for lists\n"
-            f"- If asked something unrelated to the platform, politely redirect\n\n"
-            f"PLATFORM KNOWLEDGE (features, navigation, roles):\n{PLATFORM_OVERVIEW}\n\n"
-            f"LIVE ACCOUNT DATA (scoped to this user's access):\n{live_context}"
+        return llm.answer_user_question(
+            message=message,
+            role=role,
+            user_name=user_name,
+            live_context=live_context,
+            platform_overview=PLATFORM_OVERVIEW,
         )
-        messages = [SystemMessage(content=system), HumanMessage(content=message)]
-        return llm._invoke_text(messages)
     except Exception:
         return None
 

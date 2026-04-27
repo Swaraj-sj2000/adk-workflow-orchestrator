@@ -45,6 +45,8 @@ class MultiAgentOrchestrator:
     def __init__(self, db: Session):
         self.db = db
         self.assignment_engine = AssignmentEngine(db)
+        from app.services._llm_service import LLMService
+        self.llm_service = LLMService()
 
     def run_intake_workflow(
         self,
@@ -85,6 +87,7 @@ class MultiAgentOrchestrator:
             "deadline": deadline,
             "persist_project": persist_project,
             "workflow_run_id": workflow.id,
+            "llm_service": self.llm_service,
         }
 
         intake_result = IntakeAgent().run(shared_context)
@@ -288,6 +291,7 @@ class MultiAgentOrchestrator:
             "project_id": project_id,
             "persist_followup_messages": persist_followup_messages,
             "workflow_run_id": workflow.id,
+            "llm_service": self.llm_service,
         }
 
         observer_result = ProjectObserverAgent(self.db).run(shared_context)
@@ -601,7 +605,7 @@ class MultiAgentOrchestrator:
             .all()
         )
         seq_to_task_id = {idx + 1: task.id for idx, task in enumerate(tasks_ordered)}
-        task_id_to_title = {task.id: task.title for task in tasks_ordered}
+        task_id_to_title = {task.id: task.description for task in tasks_ordered}
 
         task_role_map: dict = {}
         role_task_groups: dict = {}  # role_title -> [task_title]
@@ -851,7 +855,14 @@ class MultiAgentOrchestrator:
         if isinstance(value, datetime):
             return value.isoformat()
         if isinstance(value, dict):
-            return {key: self._json_safe(val) for key, val in value.items()}
+            return {key: self._json_safe(val) for key, val in value.items() if key != "llm_service"}
         if isinstance(value, list):
             return [self._json_safe(item) for item in value]
-        return value
+        if isinstance(value, (str, int, float, bool, type(None))):
+            return value
+        try:
+            import json as _json
+            _json.dumps(value)
+            return value
+        except (TypeError, ValueError):
+            return None

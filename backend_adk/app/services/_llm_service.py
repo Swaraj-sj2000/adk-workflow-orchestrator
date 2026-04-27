@@ -8,22 +8,25 @@ from app.core._logging import get_logger
 
 logger = get_logger(__name__)
 
+from dataclasses import dataclass
+
+@dataclass
+class HumanMessage:
+    content: str
+
+@dataclass
+class SystemMessage:
+    content: str
+
+@dataclass
+class _LLMResponse:
+    content: str
+
+
+# ── Gemini / Vertex AI backend ────────────────────────────────────────────────
 try:
-    from dataclasses import dataclass
     from google import genai
-    from google.genai import types
-
-    @dataclass
-    class HumanMessage:
-        content: str
-
-    @dataclass
-    class SystemMessage:
-        content: str
-
-    @dataclass
-    class _VertexResponse:
-        content: str
+    from google.genai import types as _genai_types
 
     class _VertexChatModel:
         def __init__(
@@ -41,12 +44,11 @@ try:
             self._max_output_tokens = max_output_tokens
             self._timeout = timeout
             if api_key:
-                # API-key mode (AI Studio / local dev) — no project required
                 self._client = genai.Client(api_key=api_key)
             else:
                 self._client = genai.Client(vertexai=True, project=project, location=location)
 
-        def invoke(self, messages: List[Any]) -> _VertexResponse:
+        def invoke(self, messages: List[Any]) -> _LLMResponse:
             system_parts: List[str] = []
             user_parts: List[str] = []
             for message in messages:
@@ -59,7 +61,7 @@ try:
                     user_parts.append(text)
 
             prompt = "\n\n".join([*system_parts, *user_parts]).strip()
-            config = types.GenerateContentConfig(
+            config = _genai_types.GenerateContentConfig(
                 temperature=self._temperature,
                 max_output_tokens=self._max_output_tokens,
             )
@@ -68,85 +70,147 @@ try:
                 contents=prompt,
                 config=config,
             )
-            return _VertexResponse(content=(getattr(response, "text", "") or "").strip())
+            return _LLMResponse(content=(getattr(response, "text", "") or "").strip())
 
     VERTEX_AVAILABLE = True
     logger.info("Google Vertex AI dependencies loaded successfully")
 except ImportError:
     VERTEX_AVAILABLE = False
-    types = None
-    logger.warning("Google Vertex AI dependencies not available - fallback mode will be used")
+    _genai_types = None
+    logger.warning("Google Vertex AI (google-genai) not available")
+
+
+# ── HuggingFace backend (via InferenceClient chat completions) ────────────────
+try:
+    from huggingface_hub import InferenceClient
+    HF_AVAILABLE = True
+    logger.info("HuggingFace InferenceClient loaded successfully")
+except ImportError:
+    HF_AVAILABLE = False
+    InferenceClient = None
+    logger.warning("huggingface-hub not available")
+
+
+class _HFChatModel:
+    """Uses HF InferenceClient chat_completion — works with all instruct/chat models."""
+
+    def __init__(self, repo_id: str, token: str, temperature: float, max_new_tokens: int):
+        self._client = InferenceClient(model=repo_id, token=token)
+        self._temperature = temperature
+        self._max_new_tokens = max_new_tokens
+
+    def invoke(self, messages: List[Any]) -> _LLMResponse:
+        hf_messages = []
+        for message in messages:
+            text = str(getattr(message, "content", "")).strip()
+            if not text:
+                continue
+            role = "system" if isinstance(message, SystemMessage) else "user"
+            hf_messages.append({"role": role, "content": text})
+
+        response = self._client.chat_completion(
+            messages=hf_messages,
+            max_tokens=self._max_new_tokens,
+            temperature=self._temperature,
+        )
+        content = response.choices[0].message.content or ""
+        return _LLMResponse(content=content.strip())
 
 
 class LLMService:
     """
-    Vertex AI Gemini service with deterministic fallback.
+    Multi-backend LLM service.
 
-    Notes:
-    - Uses Gemini via Vertex AI when available.
-    - Keeps the system usable without an HF token for local/product demos.
+    Priority order:
+      1. Gemini via Vertex AI  (GOOGLE_CLOUD_PROJECT + GOOGLE_GENAI_USE_VERTEXAI=true)
+      2. Gemini via API key    (GOOGLE_API_KEY)
+      3. HuggingFace endpoint  (HUGGINGFACEHUB_API_TOKEN) — local dev
+      4. Deterministic fallback
+
+    For Cloud Run / production: set GOOGLE_CLOUD_PROJECT and let Workload Identity handle auth.
+    For local dev: set HUGGINGFACEHUB_API_TOKEN (and optionally HF_MODEL_ID).
     """
 
     def __init__(self):
-        self.model_id = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        self.api_key = os.getenv("GOOGLE_API_KEY", "")
-        self.location = os.getenv("GOOGLE_CLOUD_LOCATION", os.getenv("VERTEXAI_LOCATION", "us-central1"))
-        self.timeout = int(os.getenv("ADK_TIMEOUT", "60"))
         self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
-        self.max_new_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "900"))
-        self.use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true"
-
-        # Enable if: Vertex AI project configured  OR  bare API key provided (local/AI Studio mode)
-        vertex_ok = bool(self.project_id and self.use_vertex and VERTEX_AVAILABLE)
-        apikey_ok  = bool(self.api_key and VERTEX_AVAILABLE)
-        self.enabled = vertex_ok or apikey_ok
+        self.max_new_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "2048"))
+        self.timeout = int(os.getenv("ADK_TIMEOUT", "60"))
         self.chat_model = None
-        self.init_error = None
+        self.enabled = False
+        self.backend = "none"
 
-        mode = "Vertex AI" if vertex_ok else ("API key" if apikey_ok else "disabled")
-        logger.info(
-            f"Initializing LLM service: model={self.model_id}, mode={mode}, "
-            f"temperature={self.temperature}, max_tokens={self.max_new_tokens}, "
-            f"timeout={self.timeout}s, enabled={self.enabled}"
-        )
-
-        if self.enabled:
+        # ── Priority 1: Vertex AI (production / Cloud Run) ────────────────────
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true"
+        if project_id and use_vertex and VERTEX_AVAILABLE:
             try:
+                model_id = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                location = os.getenv("GOOGLE_CLOUD_LOCATION", os.getenv("VERTEXAI_LOCATION", "us-central1"))
                 self.chat_model = _VertexChatModel(
-                    model=self.model_id,
-                    project=self.project_id,
-                    location=self.location,
-                    temperature=self.temperature,
-                    max_output_tokens=self.max_new_tokens,
+                    model=model_id, project=project_id, location=location,
+                    temperature=self.temperature, max_output_tokens=self.max_new_tokens,
                     timeout=self.timeout,
-                    api_key=self.api_key if apikey_ok and not vertex_ok else None,
                 )
-                logger.info(f"LLM service initialized: model={self.model_id}, mode={mode}")
+                self.enabled = True
+                self.backend = f"gemini-vertex ({model_id})"
+                logger.info(f"LLM backend: Vertex AI — {model_id} @ {project_id}/{location}")
             except Exception as exc:
-                self.chat_model = None
-                self.enabled = False
-                self.init_error = str(exc)
-                logger.error(f"Failed to initialize LLM service: {exc}", exc_info=True)
-        else:
+                logger.error(f"Vertex AI init failed: {exc}", exc_info=True)
+
+        # ── Priority 2: Gemini via API key (AI Studio / local) ────────────────
+        if not self.enabled:
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+            if api_key and VERTEX_AVAILABLE:
+                try:
+                    model_id = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                    self.chat_model = _VertexChatModel(
+                        model=model_id, project=None, location="us-central1",
+                        temperature=self.temperature, max_output_tokens=self.max_new_tokens,
+                        timeout=self.timeout, api_key=api_key,
+                    )
+                    self.enabled = True
+                    self.backend = f"gemini-apikey ({model_id})"
+                    logger.info(f"LLM backend: Gemini API key — {model_id}")
+                except Exception as exc:
+                    logger.error(f"Gemini API key init failed: {exc}", exc_info=True)
+
+        # ── Priority 3: HuggingFace endpoint (local dev) ──────────────────────
+        if not self.enabled:
+            hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
+            if hf_token and HF_AVAILABLE:
+                try:
+                    hf_model = os.getenv("HF_MODEL_ID", "Qwen/Qwen2.5-72B-Instruct")
+                    self.chat_model = _HFChatModel(
+                        repo_id=hf_model, token=hf_token,
+                        temperature=self.temperature, max_new_tokens=self.max_new_tokens,
+                    )
+                    self.enabled = True
+                    self.backend = f"huggingface ({hf_model})"
+                    logger.info(f"LLM backend: HuggingFace — {hf_model}")
+                except Exception as exc:
+                    logger.error(f"HuggingFace init failed: {exc}", exc_info=True)
+
+        if not self.enabled:
             logger.warning(
-                "LLM service disabled. Set GOOGLE_CLOUD_PROJECT (Vertex AI) or "
-                "GOOGLE_API_KEY (AI Studio) to enable."
+                "LLM service running in fallback mode — no backend configured. "
+                "Set HUGGINGFACEHUB_API_TOKEN for local dev, "
+                "or GOOGLE_CLOUD_PROJECT for Vertex AI / Cloud Run."
+            )
+
+    def _require_llm(self) -> None:
+        if not self.enabled:
+            raise RuntimeError(
+                "LLM service is not configured. "
+                "Set GOOGLE_CLOUD_PROJECT (Vertex AI / Cloud Run) or "
+                "HUGGINGFACEHUB_API_TOKEN (local dev) before starting the service."
             )
 
     def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
+        self._require_llm()
         logger.info(f"Parsing project intake request (length={len(request_text)} chars)")
-        
-        if not self.enabled:
-            logger.warning("LLM disabled - using fallback project parser")
-            return self._fallback_project_parse(request_text)
 
         messages = [
-            SystemMessage(
-                content=(
-                    "You are an autonomous delivery planning agent."
-                )
-            ),
+            SystemMessage(content="You are an autonomous delivery planning agent."),
             HumanMessage(
                 content=(
                     "Convert the project request into this exact format:\n"
@@ -174,7 +238,7 @@ class LLMService:
                     "- each task must name the primary role best suited for it\n"
                     "- each subtask must be concrete enough that an engineer knows which module, script, service, or document to create\n"
                     "- project structure should mention likely folders, scripts, services, or integration modules\n"
-                    "- avoid generic labels like implementation setup unless the project truly needs that exact phase\n"
+                    "- avoid generic labels unless the project truly needs that exact phase\n"
                     "- keep required_skills values between 0 and 1\n"
                     "- estimated_time is in hours\n"
                     "- project_complexity must be between 0 and 1\n"
@@ -185,15 +249,15 @@ class LLMService:
         ]
 
         parsed = self._parse_project_plan_text(self._invoke_text(messages))
-        if not parsed or "tasks" not in parsed:
-            return self._fallback_project_parse(request_text)
-
+        if not parsed or len(parsed.get("tasks", [])) < 4:
+            raise RuntimeError(
+                f"LLM returned an unparseable project plan for request: {request_text[:80]!r}. "
+                "Check LLM connectivity and prompt output in logs."
+            )
         return self._normalize_project_payload(parsed, request_text)
 
     def generate_client_update(self, context: Dict[str, Any]) -> str:
-        if not self.enabled:
-            return self._fallback_client_update(context)
-
+        self._require_llm()
         messages = [
             SystemMessage(
                 content=(
@@ -209,12 +273,13 @@ class LLMService:
                 )
             ),
         ]
-        return self._invoke_text(messages) or self._fallback_client_update(context)
+        result = self._invoke_text(messages)
+        if not result:
+            raise RuntimeError("LLM returned empty response for client update generation.")
+        return result
 
     def generate_stage_brief(self, stage: str, audience: str, context: Dict[str, Any]) -> str:
-        if not self.enabled:
-            return self._fallback_stage_brief(stage, audience, context)
-
+        self._require_llm()
         messages = [
             SystemMessage(
                 content=(
@@ -235,12 +300,13 @@ class LLMService:
                 )
             ),
         ]
-        return self._invoke_text(messages) or self._fallback_stage_brief(stage, audience, context)
+        result = self._invoke_text(messages)
+        if not result:
+            raise RuntimeError("LLM returned empty response for stage brief generation.")
+        return result
 
     def generate_decision_support(self, decision_type: str, audience: str, context: Dict[str, Any]) -> str:
-        if not self.enabled:
-            return self._fallback_decision_support(decision_type, audience, context)
-
+        self._require_llm()
         messages = [
             SystemMessage(
                 content=(
@@ -260,12 +326,13 @@ class LLMService:
                 )
             ),
         ]
-        return self._invoke_text(messages) or self._fallback_decision_support(decision_type, audience, context)
+        result = self._invoke_text(messages)
+        if not result:
+            raise RuntimeError("LLM returned empty response for decision support generation.")
+        return result
 
     def generate_execution_package(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.enabled:
-            return self._fallback_execution_package(context)
-
+        self._require_llm()
         messages = [
             SystemMessage(
                 content=(
@@ -294,10 +361,8 @@ class LLMService:
                     "- create exactly 6 checkpoints\n"
                     "- each checkpoint must be specific enough that the contributor knows what to build or test\n"
                     "- include file names, function names, or test scenarios where relevant\n"
-                    "- break down each major task area into smaller, traceable steps\n"
                     "- first checkpoint should clarify assumptions and dependencies\n"
-                    "- last checkpoint should include validation and handoff readiness\n"
-                    "- make checkpoints sequential and interdependent when possible\n\n"
+                    "- last checkpoint should include validation and handoff readiness\n\n"
                     f"Context JSON:\n{json.dumps(context)}"
                 )
             ),
@@ -305,19 +370,13 @@ class LLMService:
         text = self._invoke_text(messages)
         payload = self._parse_execution_package(text)
         if not payload or "checkpoints" not in payload:
-            return self._fallback_execution_package(context)
+            raise RuntimeError("LLM returned an unparseable execution package. Check logs for raw output.")
         return payload
 
     def generate_concern_response(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.enabled:
-            return self._fallback_concern_response(context)
-
+        self._require_llm()
         messages = [
-            SystemMessage(
-                content=(
-                    "You are an AI delivery lead helping employees resolve concerns before escalating to admin."
-                )
-            ),
+            SystemMessage(content="You are an AI delivery lead helping employees resolve concerns before escalating to admin."),
             HumanMessage(
                 content=(
                     "Return this exact format:\n"
@@ -331,16 +390,12 @@ class LLMService:
         ]
         text = self._invoke_text(messages)
         payload = self._parse_concern_response(text)
-        return payload or self._fallback_concern_response(context)
+        if not payload:
+            raise RuntimeError("LLM returned an unparseable concern response. Check logs for raw output.")
+        return payload
 
     def suggest_blocker_resolution(self, blocker_context: Dict[str, Any]) -> str:
-        if not self.enabled:
-            return (
-                "1. Re-scope the blocked task into a smaller deliverable.\n"
-                "2. Add a backup owner with complementary skills.\n"
-                "3. Move the deadline after the root blocker is cleared and inform the client early."
-            )
-
+        self._require_llm()
         messages = [
             SystemMessage(
                 content=(
@@ -356,11 +411,295 @@ class LLMService:
                 )
             ),
         ]
-        return self._invoke_text(messages) or (
-            "1. Break the task into a smaller next step.\n"
-            "2. Reassign or add a backup owner with the missing skill.\n"
-            "3. Update the deadline and notify the admin/client before the slip grows."
+        result = self._invoke_text(messages)
+        if not result:
+            raise RuntimeError("LLM returned empty response for blocker resolution.")
+        return result
+
+    def answer_user_question(
+        self,
+        message: str,
+        role: str,
+        user_name: str,
+        live_context: str,
+        platform_overview: str = "",
+    ) -> str:
+        self._require_llm()
+        system = (
+            f"You are the intelligent assistant embedded inside AI Workforce Orchestrator, "
+            f"a B2B SaaS platform for AI-powered workforce management.\n\n"
+            f"User: {user_name} | Role: {role}\n\n"
+            f"Your job is to help this user understand the platform, navigate it, interpret their own data, "
+            f"and take the right actions. You have access to their live account data below — use it to give "
+            f"specific, accurate answers about their actual projects, tasks, team, and billing status.\n\n"
+            f"Rules:\n"
+            f"- Only discuss things relevant to this platform or the user's account data\n"
+            f"- Never reveal data from other tenants or users outside this user's access scope\n"
+            f"- Be concise and direct (3-5 sentences). Use bullet points for lists\n"
+            f"- If asked something unrelated to the platform, politely redirect\n\n"
         )
+        if platform_overview:
+            system += f"PLATFORM KNOWLEDGE (features, navigation, roles):\n{platform_overview}\n\n"
+        system += f"LIVE ACCOUNT DATA (scoped to this user's access):\n{live_context}"
+        messages_list = [SystemMessage(content=system), HumanMessage(content=message)]
+        result = self._invoke_text(messages_list)
+        if not result:
+            raise RuntimeError("LLM returned empty response for assistant chat.")
+        return result
+
+    def analyze_project_risks(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_llm()
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are an intelligent risk analysis agent for a software project delivery platform. "
+                    "Analyze the project plan, staffing, and complexity to identify real risks. "
+                    "Think critically — don't just check thresholds, reason about the actual situation."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    "Analyze this project context and return this exact format:\n"
+                    "RISK_LEVEL: low|medium|high\n"
+                    "NARRATIVE: <2-3 sentence paragraph explaining the overall risk picture>\n"
+                    "RISK 1 TYPE: <category like staffing_gap, complexity, timeline, dependency, capacity>\n"
+                    "RISK 1 SEVERITY: low|medium|high\n"
+                    "RISK 1 REASON: <specific actionable reason>\n"
+                    "RISK 2 TYPE: ...\n"
+                    "RISK 2 SEVERITY: ...\n"
+                    "RISK 2 REASON: ...\n"
+                    "(up to 5 risks)\n\n"
+                    "Rules:\n"
+                    "- RISK_LEVEL should reflect the highest severity risk present\n"
+                    "- Identify actual project-specific risks, not just generic ones\n"
+                    "- If the team is overloaded, flag it as capacity risk with specific resolution hints\n"
+                    "- If tasks have unclear skills or no available employees, flag as staffing risk\n"
+                    "- Only include risks you can actually justify from the data\n\n"
+                    f"Project context:\n{json.dumps(context, default=str)}"
+                )
+            ),
+        ]
+        text = self._invoke_text(messages)
+        return self._parse_risk_analysis(text)
+
+    def analyze_escalation(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_llm()
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are an intelligent escalation agent for an autonomous project management system. "
+                    "Your goal is to minimize unnecessary human involvement while ensuring humans are "
+                    "notified when the situation truly requires their judgment. The system's value comes "
+                    "from running autonomously — only escalate when the AI cannot safely proceed alone."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    "Given this project state, decide whether to escalate to humans or continue autonomously.\n"
+                    "Return this exact format:\n"
+                    "DECISION: continue_autonomously|human_review_required\n"
+                    "CONFIDENCE: <0.0 to 1.0>\n"
+                    "NARRATIVE: <2-3 sentence reasoning for the decision>\n"
+                    "REASON 1: <specific reason if escalating, or why it's safe to proceed if continuing>\n"
+                    "REASON 2: ...\n"
+                    "(up to 4 reasons)\n\n"
+                    "Rules:\n"
+                    "- Escalate only when: high risk + no clear mitigation, critical staffing gaps, "
+                    "or execution cannot proceed safely without human input\n"
+                    "- If all tasks have assigned owners with >65% confidence, prefer autonomous\n"
+                    "- Weigh the cost of bothering a human vs the risk of proceeding alone\n"
+                    "- Be specific about what the human needs to decide, not just that they should 'review'\n\n"
+                    f"Project state:\n{json.dumps(context, default=str)}"
+                )
+            ),
+        ]
+        text = self._invoke_text(messages)
+        return self._parse_escalation_analysis(text)
+
+    def review_delivery_health(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_llm()
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are an intelligent delivery review agent. Your job is to look at the current "
+                    "project health, identify the most critical blockers, and recommend specific actions "
+                    "that resolve them without requiring human intervention where possible."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    "Review this delivery health snapshot and return this exact format:\n"
+                    "HEALTH_STATUS: on_track|at_risk|critical\n"
+                    "NARRATIVE: <2-3 sentence paragraph on what's happening in this project right now>\n"
+                    "PRIORITY ACTION 1: <the single most important action to unblock progress>\n"
+                    "PRIORITY ACTION 2: <second most important action>\n"
+                    "PRIORITY ACTION 3: <third action>\n"
+                    "REQUIRES_HUMAN: yes|no\n"
+                    "HUMAN_REASON: <if yes, explain exactly what needs human judgment>\n\n"
+                    "Rules:\n"
+                    "- Each priority action must be specific and executable (who does what)\n"
+                    "- If employees are overloaded, suggest specific task redistribution\n"
+                    "- If deadlines are at risk, suggest a specific adjustment\n"
+                    "- Only mark REQUIRES_HUMAN=yes if no AI action can unblock the situation\n\n"
+                    f"Delivery context:\n{json.dumps(context, default=str)}"
+                )
+            ),
+        ]
+        text = self._invoke_text(messages)
+        return self._parse_delivery_review(text)
+
+    def suggest_workload_rebalance(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        self._require_llm()
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are an intelligent workload rebalancing agent. The platform's core promise is "
+                    "zero micromanagement — tasks flow smoothly, no employee burns out, deadlines are met. "
+                    "When the workload is unbalanced or capacity is exceeded, you must propose concrete "
+                    "redistribution strategies. The goal: maximum throughput, minimum stress, no project slippage."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    "Analyze this workload situation and return this exact format:\n"
+                    "REBALANCE_NEEDED: yes|no\n"
+                    "SEVERITY: low|medium|high|critical\n"
+                    "NARRATIVE: <2-3 sentences on what the workload problem is and why it matters>\n"
+                    "ACTION 1: <specific rebalancing action — e.g. reassign task X from employee A to B>\n"
+                    "ACTION 2: <another action — e.g. split task Y into parallel subtasks>\n"
+                    "ACTION 3: <another action — e.g. extend deadline by N days for task Z>\n"
+                    "ACTION 4: <if applicable — e.g. flag that team needs 1 additional hire for skill X>\n"
+                    "ADMIN_ALERT: yes|no\n"
+                    "ADMIN_MESSAGE: <if yes, specific message to send the admin explaining what needs their decision>\n\n"
+                    "Rules:\n"
+                    "- If any employee is at 100%+ load, ALWAYS suggest specific redistribution\n"
+                    "- Propose deadline extensions only when no redistribution is possible\n"
+                    "- If the team lacks skills to complete tasks, recommend a specific hire or contractor\n"
+                    "- Actions must be concrete: name employees and tasks, not generic advice\n"
+                    "- The admin should only be contacted when the AI cannot self-resolve the imbalance\n\n"
+                    f"Workload context:\n{json.dumps(context, default=str)}"
+                )
+            ),
+        ]
+        text = self._invoke_text(messages)
+        return self._parse_rebalance_analysis(text)
+
+    def generate_coordinator_actions(self, context: Dict[str, Any]) -> List[str]:
+        self._require_llm()
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are an execution coordinator agent. Given the project's execution queue, "
+                    "staffing assignments, and risk level, generate the precise next actions the "
+                    "system should take to move the project forward autonomously."
+                )
+            ),
+            HumanMessage(
+                content=(
+                    "Generate a prioritized list of 4-6 specific next actions. Return one action per line, "
+                    "each starting with ACTION: prefix.\n\n"
+                    "Rules:\n"
+                    "- Each action must be specific and executable (not generic platitudes)\n"
+                    "- Order by priority (most critical first)\n"
+                    "- Include which role (system/admin/employee) should take each action\n"
+                    "- If high risk, first action must address the risk before any execution begins\n"
+                    "- Mention specific task names or employee names from the context where relevant\n\n"
+                    f"Execution context:\n{json.dumps(context, default=str)}"
+                )
+            ),
+        ]
+        text = self._invoke_text(messages)
+        actions = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.lower().startswith("action:"):
+                actions.append(line[7:].strip())
+            elif line and not line.lower().startswith(("rule", "note", "context")):
+                if len(line) > 10:
+                    actions.append(line)
+        return actions[:6] if actions else []
+
+    def _parse_risk_analysis(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        risk_level_m = re.search(r"RISK_LEVEL:\s*(low|medium|high)", text, re.IGNORECASE)
+        narrative_m = re.search(r"NARRATIVE:\s*(.+?)(?:\nRISK \d+ TYPE:|$)", text, re.DOTALL | re.IGNORECASE)
+        risks = []
+        for i in range(1, 6):
+            type_m = re.search(rf"RISK {i} TYPE:\s*(.+?)(?:\nRISK {i} SEVERITY:|$)", text, re.DOTALL | re.IGNORECASE)
+            sev_m = re.search(rf"RISK {i} SEVERITY:\s*(low|medium|high)", text, re.IGNORECASE)
+            reason_m = re.search(rf"RISK {i} REASON:\s*(.+?)(?:\nRISK {i+1} TYPE:|$)", text, re.DOTALL | re.IGNORECASE)
+            if type_m and sev_m and reason_m:
+                risks.append({
+                    "type": type_m.group(1).strip(),
+                    "severity": sev_m.group(1).strip().lower(),
+                    "reason": reason_m.group(1).strip(),
+                })
+        return {
+            "risk_level": risk_level_m.group(1).strip().lower() if risk_level_m else "",
+            "narrative": narrative_m.group(1).strip() if narrative_m else "",
+            "risks": risks,
+        }
+
+    def _parse_escalation_analysis(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        decision_m = re.search(r"DECISION:\s*(continue_autonomously|human_review_required)", text, re.IGNORECASE)
+        confidence_m = re.search(r"CONFIDENCE:\s*([0-9]*\.?[0-9]+)", text, re.IGNORECASE)
+        narrative_m = re.search(r"NARRATIVE:\s*(.+?)(?:\nREASON \d+:|$)", text, re.DOTALL | re.IGNORECASE)
+        reasons = []
+        for i in range(1, 5):
+            reason_m = re.search(rf"REASON {i}:\s*(.+?)(?:\nREASON {i+1}:|$)", text, re.DOTALL | re.IGNORECASE)
+            if reason_m:
+                reasons.append(reason_m.group(1).strip())
+        return {
+            "decision": decision_m.group(1).strip().lower() if decision_m else "",
+            "confidence": float(confidence_m.group(1)) if confidence_m else 0.7,
+            "narrative": narrative_m.group(1).strip() if narrative_m else "",
+            "reasons": reasons,
+        }
+
+    def _parse_delivery_review(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        status_m = re.search(r"HEALTH_STATUS:\s*(on_track|at_risk|critical)", text, re.IGNORECASE)
+        narrative_m = re.search(r"NARRATIVE:\s*(.+?)(?:\nPRIORITY ACTION \d+:|$)", text, re.DOTALL | re.IGNORECASE)
+        actions = []
+        for i in range(1, 4):
+            action_m = re.search(rf"PRIORITY ACTION {i}:\s*(.+?)(?:\nPRIORITY ACTION {i+1}:|REQUIRES_HUMAN:|$)", text, re.DOTALL | re.IGNORECASE)
+            if action_m:
+                actions.append(action_m.group(1).strip())
+        req_human_m = re.search(r"REQUIRES_HUMAN:\s*(yes|no)", text, re.IGNORECASE)
+        human_reason_m = re.search(r"HUMAN_REASON:\s*(.+?)$", text, re.DOTALL | re.IGNORECASE)
+        return {
+            "health_status": status_m.group(1).strip().lower() if status_m else "",
+            "narrative": narrative_m.group(1).strip() if narrative_m else "",
+            "priority_actions": actions,
+            "requires_human": req_human_m.group(1).lower() == "yes" if req_human_m else False,
+            "human_reason": human_reason_m.group(1).strip() if human_reason_m else "",
+        }
+
+    def _parse_rebalance_analysis(self, text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        needed_m = re.search(r"REBALANCE_NEEDED:\s*(yes|no)", text, re.IGNORECASE)
+        severity_m = re.search(r"SEVERITY:\s*(low|medium|high|critical)", text, re.IGNORECASE)
+        narrative_m = re.search(r"NARRATIVE:\s*(.+?)(?:\nACTION \d+:|$)", text, re.DOTALL | re.IGNORECASE)
+        actions = []
+        for i in range(1, 5):
+            action_m = re.search(rf"ACTION {i}:\s*(.+?)(?:\nACTION {i+1}:|ADMIN_ALERT:|$)", text, re.DOTALL | re.IGNORECASE)
+            if action_m:
+                actions.append(action_m.group(1).strip())
+        alert_m = re.search(r"ADMIN_ALERT:\s*(yes|no)", text, re.IGNORECASE)
+        admin_msg_m = re.search(r"ADMIN_MESSAGE:\s*(.+?)$", text, re.DOTALL | re.IGNORECASE)
+        return {
+            "rebalance_needed": needed_m.group(1).lower() == "yes" if needed_m else False,
+            "severity": severity_m.group(1).strip().lower() if severity_m else "low",
+            "narrative": narrative_m.group(1).strip() if narrative_m else "",
+            "actions": actions,
+            "admin_alert": alert_m.group(1).lower() == "yes" if alert_m else False,
+            "admin_message": admin_msg_m.group(1).strip() if admin_msg_m else "",
+        }
 
     def _invoke_text(self, messages: List[Any]) -> str:
         try:
@@ -420,7 +759,10 @@ class LLMService:
             )
 
         if len(tasks) < 4:
-            return self._fallback_project_parse(request_text)
+            raise RuntimeError(
+                f"LLM returned fewer than 4 tasks for request: {request_text[:80]!r}. "
+                "Check LLM output in logs."
+            )
 
         complexity = payload.get("project_complexity", 0.7)
         try:
@@ -448,531 +790,6 @@ class LLMService:
     def _enum_value(self, value: Any, allowed: set, default: str) -> str:
         candidate = str(value or default).strip().lower()
         return candidate if candidate in allowed else default
-
-    def _fallback_project_parse(self, request_text: str) -> Dict[str, Any]:
-        lower_text = (request_text or "").lower()
-        if any(keyword in lower_text for keyword in {"cctv", "fire", "yolo", "camera", "alarm"}):
-            return {
-                "project_title": "CCTV Fire Detection and Alert Pipeline",
-                "project_summary": (
-                    "Build a camera-ingestion and fire-alert platform that captures CCTV streams, stores footage, "
-                    "detects fire events, maps camera IDs to rooms, notifies responsible stakeholders by email, and triggers alarms."
-                ),
-                "project_complexity": 0.86,
-                "project_structure": (
-                    "Use services for stream_ingestion, detection, alerting, room_mapping, and monitoring. "
-                    "Create scripts for model bootstrap, camera registration, email notification testing, and alarm simulation."
-                ),
-                "tasks": [
-                    {
-                        "title": "CCTV Stream Ingestion and Retention Service",
-                        "description": "Create the pipeline that connects to local IP cameras, validates stream health, and stores footage for later retrieval.",
-                        "difficulty": "hard",
-                        "urgency": "high",
-                        "estimated_time": 12,
-                        "required_role": "Backend Engineer",
-                        "required_skills": {"backend": 0.9, "python": 0.86, "api": 0.72},
-                        "output": "Operational ingestion service with retention-ready storage hooks",
-                        "subtasks": [
-                            {
-                                "title": "Stream connector service",
-                                "details": "Create a `services/stream_ingestion.py` module to open local IP CCTV streams and validate reconnect logic.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.88, "python": 0.84},
-                            },
-                            {
-                                "title": "Video retention script",
-                                "details": "Write a `scripts/save_camera_feed.py` or equivalent worker to persist rolling footage for future review.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.82, "python": 0.8},
-                            },
-                            {
-                                "title": "Camera registry API",
-                                "details": "Define API endpoints and models for camera ID, room number, stream URL, and responsible contacts.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.88, "api": 0.84},
-                            },
-                            {
-                                "title": "Stream health logging",
-                                "details": "Add structured logs and failure handling for dropped streams, invalid URLs, and storage failures.",
-                                "estimated_time": 2,
-                                "required_skills": {"backend": 0.72, "security": 0.58},
-                            },
-                        ],
-                    },
-                    {
-                        "title": "Fire Detection Model Integration",
-                        "description": "Integrate a YOLO-based fire detector, model-loading path, and inference pipeline for live frames.",
-                        "difficulty": "hard",
-                        "urgency": "high",
-                        "estimated_time": 14,
-                        "required_role": "AI Engineer",
-                        "required_skills": {"llm": 0.55, "python": 0.84, "modeling": 0.92},
-                        "output": "Fire detection inference service with confidence-based alert trigger",
-                        "subtasks": [
-                            {
-                                "title": "Model bootstrap script",
-                                "details": "Create `scripts/load_fire_model.py` to load the YOLO weights, warm the runtime, and validate inference inputs.",
-                                "estimated_time": 3,
-                                "required_skills": {"modeling": 0.9, "python": 0.82},
-                            },
-                            {
-                                "title": "Inference service",
-                                "details": "Build `services/fire_detection.py` to sample frames, run inference, and return structured fire-event payloads.",
-                                "estimated_time": 4,
-                                "required_skills": {"modeling": 0.94, "python": 0.84},
-                            },
-                            {
-                                "title": "Threshold and false-positive tuning",
-                                "details": "Define configuration for thresholds, debounce logic, and confidence filtering to reduce noisy alerts.",
-                                "estimated_time": 3,
-                                "required_skills": {"modeling": 0.84, "analytics": 0.68},
-                            },
-                            {
-                                "title": "Detection event schema",
-                                "details": "Document the fire-event payload fields needed by backend alerting and audit storage layers.",
-                                "estimated_time": 2,
-                                "required_skills": {"communication": 0.65, "backend": 0.62},
-                            },
-                        ],
-                    },
-                    {
-                        "title": "Alerting, Alarm, and Responsible Contact Flow",
-                        "description": "Trigger alerts by room and responsible person, send email notifications, and activate the alarm signal.",
-                        "difficulty": "hard",
-                        "urgency": "critical",
-                        "estimated_time": 12,
-                        "required_role": "Backend Engineer",
-                        "required_skills": {"backend": 0.88, "api": 0.84, "communication": 0.62},
-                        "output": "End-to-end alert workflow from detection event to email and alarm activation",
-                        "subtasks": [
-                            {
-                                "title": "Room-to-owner lookup service",
-                                "details": "Create a lookup module joining camera IDs, room numbers, and responsible emails from the management database.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.86, "api": 0.8},
-                            },
-                            {
-                                "title": "Email alert integration",
-                                "details": "Implement `services/email_alerts.py` with templated alert messages and failure retries.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.78, "communication": 0.74},
-                            },
-                            {
-                                "title": "Alarm trigger adapter",
-                                "details": "Add a hardware or simulated alarm trigger interface that can be called from validated fire events.",
-                                "estimated_time": 3,
-                                "required_skills": {"backend": 0.76, "security": 0.62},
-                            },
-                            {
-                                "title": "Alert audit trail",
-                                "details": "Store sent alerts, alarm activations, timestamps, and acknowledgement states for later review.",
-                                "estimated_time": 2,
-                                "required_skills": {"backend": 0.74, "data": 0.58},
-                            },
-                        ],
-                    },
-                    {
-                        "title": "System Architecture and Integration Guardrails",
-                        "description": "Define the end-to-end service boundaries, repo structure, integration contracts, and delivery checkpoints.",
-                        "difficulty": "hard",
-                        "urgency": "high",
-                        "estimated_time": 8,
-                        "required_role": "Solution Architect",
-                        "required_skills": {"architecture": 0.94, "delivery": 0.84, "backend": 0.68},
-                        "output": "Approved solution architecture and implementation guardrails",
-                        "subtasks": [
-                            {
-                                "title": "Service boundary map",
-                                "details": "Describe modules for ingestion, inference, alerting, admin operations, and client reporting.",
-                                "estimated_time": 2,
-                                "required_skills": {"architecture": 0.92, "delivery": 0.78},
-                            },
-                            {
-                                "title": "Repo and folder blueprint",
-                                "details": "Recommend the backend service layout, scripts folder, test layout, and integration config ownership.",
-                                "estimated_time": 2,
-                                "required_skills": {"architecture": 0.86, "backend": 0.7},
-                            },
-                            {
-                                "title": "Acceptance checkpoints",
-                                "details": "Define review gates for stream ingestion, model detection, alerting, and fail-safe behavior.",
-                                "estimated_time": 2,
-                                "required_skills": {"delivery": 0.84, "communication": 0.66},
-                            },
-                            {
-                                "title": "Risk and fallback plan",
-                                "details": "Document what happens if the model underperforms, streams fail, or alerting infrastructure becomes unavailable.",
-                                "estimated_time": 1,
-                                "required_skills": {"architecture": 0.8, "security": 0.62},
-                            },
-                        ],
-                    },
-                    {
-                        "title": "Admin and Operations Dashboard Flow",
-                        "description": "Expose the fire system status, camera health, alert state, and project delivery visibility in the admin experience.",
-                        "difficulty": "medium",
-                        "urgency": "medium",
-                        "estimated_time": 10,
-                        "required_role": "Frontend Engineer",
-                        "required_skills": {"frontend": 0.9, "react": 0.88, "design-systems": 0.68},
-                        "output": "Operational dashboard views for setup, monitoring, and alert review",
-                        "subtasks": [
-                            {
-                                "title": "Camera health UI",
-                                "details": "Build dashboard sections for camera status, room mapping, and stream health indicators.",
-                                "estimated_time": 3,
-                                "required_skills": {"frontend": 0.88, "react": 0.84},
-                            },
-                            {
-                                "title": "Alert event panel",
-                                "details": "Create views for live fire alerts, email dispatch state, and alarm activation history.",
-                                "estimated_time": 3,
-                                "required_skills": {"frontend": 0.86, "react": 0.84},
-                            },
-                            {
-                                "title": "Configuration form flow",
-                                "details": "Add forms for camera registration, room mapping, and responsible-party contact updates.",
-                                "estimated_time": 2,
-                                "required_skills": {"frontend": 0.84, "react": 0.8},
-                            },
-                            {
-                                "title": "Status abstraction copy",
-                                "details": "Write clear business-facing labels for setup, testing, monitoring, and alert readiness states.",
-                                "estimated_time": 1,
-                                "required_skills": {"communication": 0.7, "frontend": 0.58},
-                            },
-                        ],
-                    },
-                    {
-                        "title": "Validation, Simulation, and Rollout Readiness",
-                        "description": "Test the end-to-end fire detection flow and validate safe rollout behavior before handoff.",
-                        "difficulty": "medium",
-                        "urgency": "high",
-                        "estimated_time": 9,
-                        "required_role": "QA Automation Engineer",
-                        "required_skills": {"qa": 0.92, "testing": 0.9, "automation": 0.82},
-                        "output": "Verified detection-to-alert workflow with rollout checklist",
-                        "subtasks": [
-                            {
-                                "title": "Detection simulation scenarios",
-                                "details": "Write tests or simulation scripts for fire/no-fire cases, noisy frames, and broken stream conditions.",
-                                "estimated_time": 3,
-                                "required_skills": {"qa": 0.9, "automation": 0.82},
-                            },
-                            {
-                                "title": "Alert delivery validation",
-                                "details": "Verify that the correct room owners receive email alerts and that alarm triggers fire only on valid detections.",
-                                "estimated_time": 2,
-                                "required_skills": {"testing": 0.86, "communication": 0.62},
-                            },
-                            {
-                                "title": "Failure-mode checklist",
-                                "details": "Capture fail-safe expectations for stream outage, email delivery failure, and alarm adapter errors.",
-                                "estimated_time": 2,
-                                "required_skills": {"qa": 0.84, "security": 0.62},
-                            },
-                            {
-                                "title": "Go-live readiness summary",
-                                "details": "Prepare the final validation summary, open risks, and sign-off notes for rollout approval.",
-                                "estimated_time": 1,
-                                "required_skills": {"communication": 0.78, "testing": 0.7},
-                            },
-                        ],
-                    },
-                ],
-            }
-
-        base_tasks: List[Dict[str, Any]] = [
-            {
-                "title": "Requirements and Scope",
-                "description": "Clarify business goals, constraints, users, and acceptance criteria.",
-                "difficulty": "medium",
-                "urgency": "high",
-                "estimated_time": 8,
-                "required_role": "Delivery Lead",
-                "required_skills": {"project-management": 0.8, "communication": 0.7},
-                "output": "Signed-off scope brief",
-                "subtasks": [
-                    {
-                        "title": "Requirement intake notes",
-                        "details": "Capture the business objective, users, success metrics, and hard constraints in a kickoff brief.",
-                        "estimated_time": 2,
-                        "required_skills": {"project-management": 0.8, "communication": 0.7},
-                    },
-                    {
-                        "title": "Acceptance criteria draft",
-                        "details": "Write the first acceptance checklist and unresolved assumptions list.",
-                        "estimated_time": 2,
-                        "required_skills": {"communication": 0.72, "delivery": 0.62},
-                    },
-                ],
-            },
-            {
-                "title": "Solution Design",
-                "description": "Define the architecture, workflow, review points, and delivery approach.",
-                "difficulty": "hard",
-                "urgency": "high",
-                "estimated_time": 12,
-                "required_role": "Solution Architect",
-                "required_skills": {"architecture": 0.8, "backend": 0.6},
-                "output": "Architecture blueprint",
-                "subtasks": [
-                    {
-                        "title": "Architecture map",
-                        "details": "Describe service boundaries, data flow, and integration points.",
-                        "estimated_time": 3,
-                        "required_skills": {"architecture": 0.8, "backend": 0.6},
-                    },
-                    {
-                        "title": "Risk and dependency review",
-                        "details": "List critical dependencies, fallback design decisions, and review gates.",
-                        "estimated_time": 2,
-                        "required_skills": {"delivery": 0.68, "architecture": 0.72},
-                    },
-                ],
-            },
-            {
-                "title": "Implementation Setup",
-                "description": "Prepare the product foundation, services, integrations, and environments.",
-                "difficulty": "hard",
-                "urgency": "medium",
-                "estimated_time": 16,
-                "required_role": "Backend Engineer",
-                "required_skills": {"python": 0.8, "backend": 0.8, "devops": 0.6},
-                "output": "Implementation-ready service foundation",
-                "subtasks": [
-                    {
-                        "title": "Core service scaffolding",
-                        "details": "Create the base modules, settings, and service entrypoints.",
-                        "estimated_time": 3,
-                        "required_skills": {"backend": 0.8, "python": 0.8},
-                    },
-                    {
-                        "title": "Environment and integration setup",
-                        "details": "Prepare environment config, dependency wiring, and integration placeholders.",
-                        "estimated_time": 3,
-                        "required_skills": {"backend": 0.72, "devops": 0.6},
-                    },
-                ],
-            },
-            {
-                "title": "Workflow and UI Delivery",
-                "description": "Build the user-facing flows and the key dashboard or operational controls.",
-                "difficulty": "medium",
-                "urgency": "medium",
-                "estimated_time": 14,
-                "required_role": "Frontend Engineer",
-                "required_skills": {"frontend": 0.8, "react": 0.8, "design-systems": 0.6},
-                "output": "Usable dashboard and workflow UI",
-                "subtasks": [
-                    {
-                        "title": "Primary workflow screens",
-                        "details": "Implement the main UI paths and state transitions for the relevant user roles.",
-                        "estimated_time": 3,
-                        "required_skills": {"frontend": 0.8, "react": 0.8},
-                    },
-                    {
-                        "title": "Status and action components",
-                        "details": "Add the key action panels, progress indicators, and status abstractions.",
-                        "estimated_time": 2,
-                        "required_skills": {"frontend": 0.74, "design-systems": 0.62},
-                    },
-                ],
-            },
-            {
-                "title": "Validation and Rollout Readiness",
-                "description": "Test the flow, capture risks, and prepare for stakeholder review.",
-                "difficulty": "medium",
-                "urgency": "high",
-                "estimated_time": 10,
-                "required_role": "QA Automation Engineer",
-                "required_skills": {"qa": 0.7, "communication": 0.6},
-                "output": "Validation report and rollout checklist",
-                "subtasks": [
-                    {
-                        "title": "Workflow test pass",
-                        "details": "Run targeted checks across the most important user journeys and integrations.",
-                        "estimated_time": 3,
-                        "required_skills": {"qa": 0.7, "testing": 0.68},
-                    },
-                    {
-                        "title": "Rollout checklist",
-                        "details": "Prepare go-live risks, rollback notes, and final stakeholder readiness summary.",
-                        "estimated_time": 2,
-                        "required_skills": {"communication": 0.6, "qa": 0.62},
-                    },
-                ],
-            },
-        ]
-
-        return {
-            "project_title": request_text[:80] if request_text else "Autonomous Project",
-            "project_summary": request_text,
-            "project_complexity": 0.7,
-            "project_structure": "Use role-owned service modules, scripts, UI flows, and validation packs.",
-            "tasks": base_tasks,
-        }
-
-    def _fallback_client_update(self, context: Dict[str, Any]) -> str:
-        return (
-            f"Project update for '{context.get('project_name', 'Project')}': "
-            f"{context.get('completed_tasks', 0)} tasks are complete, "
-            f"{context.get('in_progress_tasks', 0)} are currently active, and "
-            f"{context.get('blocked_tasks', 0)} are blocked. "
-            "The team is tracking the next checkpoint closely and we will share the next concrete milestone update soon."
-        )
-
-    def _fallback_stage_brief(self, stage: str, audience: str, context: Dict[str, Any]) -> str:
-        project_name = context.get("project_name", "the project")
-        if audience == "admin":
-            return (
-                f"Stage: {stage}. Objective: move {project_name} forward with minimal manual coordination. "
-                "Recommendation: review the suggested team and approve if the scope, urgency, and client setup look correct. "
-                "Fallback: if approval is delayed, follow up on missing dependencies and keep the project in planning. "
-                "Next step: confirm the decision and monitor the first assigned tasks."
-            )
-        if audience == "employee":
-            return (
-                f"Stage: {stage}. Objective: understand your likely ownership area and expected kickoff readiness for {project_name}. "
-                "Recommendation: review the task fit, confirm blockers early, and be ready to accept or request clarification. "
-                "Fallback: if the plan is rejected or stalled, wait for the revised brief instead of starting unsupported work. "
-                "Next step: check the task summary and the immediate delivery priority."
-            )
-        if audience == "client":
-            return (
-                f"Stage: {stage}. Objective: keep you informed while {project_name} moves from intake into execution. "
-                "Recommendation: confirm any pending project details quickly so the team can begin with fewer revisions. "
-                "Fallback: if a decision is delayed, the system will hold execution and surface the next required input. "
-                "Next step: watch for the next status update and clarify any open requirements."
-            )
-        return (
-            f"Stage: {stage}. Objective: keep {project_name} moving through the next delivery checkpoint. "
-            "Recommendation: follow the current plan and surface blockers early. "
-            "Fallback: if execution slips, re-evaluate staffing and deadlines. "
-            "Next step: review the next decision and current task ownership."
-        )
-
-    def _fallback_decision_support(self, decision_type: str, audience: str, context: Dict[str, Any]) -> str:
-        project_name = context.get("project_name", "the project")
-        if decision_type == "team_approval" and audience == "admin":
-            return (
-                f"Recommendation: approve the kickoff plan for {project_name} if the team mix covers solutioning, build, and reporting. "
-                "Why: the system has already prepared the first execution packet and can start without further PM handholding. "
-                "Watch next: early task ownership, client response speed, and any overload signal."
-            )
-        if decision_type == "team_approval" and audience == "employee":
-            return (
-                f"Recommendation: accept the project plan for {project_name} if the scope matches your specialty and no hidden blocker exists. "
-                "Why: early clarity reduces rework later. "
-                "Watch next: concrete task expectations and the first technical checkpoint."
-            )
-        return (
-            f"Recommendation: take the next decision for {project_name} based on scope fit, response timing, and current workload. "
-            "Why: the system is optimized to reduce coordination overhead once the decision gate is cleared. "
-            "Watch next: the next phase owner, deadline risk, and communication status."
-        )
-
-    def _fallback_execution_package(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Generate a detailed execution package with 6+ actionable checkpoints.
-        Each checkpoint should be specific and traceable.
-        """
-        task_name = context.get("task_name", "the assigned task")
-        role = context.get("role", "the assigned owner")
-        project_structure = context.get("project_structure", "")
-        subtask_hints = context.get("subtask_hints") or []
-        
-        # Build checkpoints with more granular detail
-        checkpoints = []
-        
-        # 1. Dependency & Assumption Clarification
-        checkpoints.append({
-            "title": "Clarify dependencies and assumptions",
-            "notes": (
-                "Before starting implementation: confirm environment access, required libraries/APIs, "
-                "data dependencies, and any integration points. Document blockers if any exist."
-            )
-        })
-        
-        # 2-4. Expand subtask hints into specific implementation steps
-        for idx, hint in enumerate(subtask_hints[:3], start=1):
-            hint_title = hint.get("title", f"Core work {idx}")
-            hint_notes = hint.get("notes", f"Complete {hint_title}")
-            
-            checkpoints.append({
-                "title": f"Implement {hint_title}",
-                "notes": hint_notes
-            })
-        
-        # 5. Testing & Validation
-        if len(subtask_hints) > 3:
-            hint = subtask_hints[3]
-            checkpoints.append({
-                "title": f"Test {hint.get('title', 'core functionality')}",
-                "notes": hint.get("notes", "Validate all functionality works as expected with basic test cases.")
-            })
-        else:
-            checkpoints.append({
-                "title": "Test and validate implementation",
-                "notes": (
-                    "Write unit tests or integration tests. Verify error handling. Test edge cases and failure scenarios. "
-                    "Document test results."
-                )
-            })
-        
-        # 6. Documentation & Handoff
-        checkpoints.append({
-            "title": "Document and prepare for handoff",
-            "notes": (
-                "Update code comments, create deployment notes, document any workarounds or known issues, "
-                "update configuration or setup files, and verify the code is review-ready."
-            )
-        })
-        
-        return {
-            "summary": (
-                f"You own {task_name} as {role}. Start by validating assumptions and dependencies, "
-                f"then complete the implementation in sequence, test thoroughly, and prepare for handoff. "
-                f"{project_structure if project_structure else ''}"
-            ),
-            "checkpoints": checkpoints,
-        }
-
-    def _fallback_concern_response(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        severity = str(context.get("severity", "medium")).lower()
-        concern_text = str(context.get("description", "")).lower()
-        should_escalate = severity in {"high", "critical"}
-        
-        # Provide more specific guidance for common concerns
-        if any(keyword in concern_text for keyword in ["email", "test", "real", "production"]):
-            return {
-                "response": (
-                    "Always start with test infrastructure first. Set up a test email account or use a sandbox SMTP service. "
-                    "This prevents sending alerts to real users before validation is complete."
-                ),
-                "action": (
-                    "1. Set up test email with dummy SMTP endpoint or mailtrap.io\n"
-                    "2. Implement and test email sending locally\n"
-                    "3. Validate templates and retry logic\n"
-                    "4. Only integrate real email addresses after testing is complete and approved."
-                ),
-                "escalate": False,
-                "meeting": False,
-            }
-        
-        return {
-            "response": (
-                "Review the concern against the current task scope. If it requires a dependency or external decision, "
-                "document it clearly and try the recommended next step first before escalating."
-            ),
-            "action": (
-                "Clarify the missing dependency or assumption, update task notes with your finding, "
-                "then ask for escalation only if it genuinely blocks your work."
-            ),
-            "escalate": should_escalate,
-            "meeting": should_escalate,
-        }
 
     def _parse_execution_package(self, text: str) -> Dict[str, Any]:
         if not text:
