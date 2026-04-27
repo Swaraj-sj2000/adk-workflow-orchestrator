@@ -1,6 +1,6 @@
 # AI Workforce Orchestrator — Complete Project Guide
 > Single source of truth for architecture, usage, deployment, and development.
-> Last updated: 2026-04-23 | Branch: feature/secure-multitenant-refactor | Latest commit: c2982de (phase-11)
+> Last updated: 2026-04-27 | Branch: main | Latest commit: 72cb644 (phase-12)
 
 ---
 
@@ -1210,6 +1210,21 @@ Minimum accepted score: 0.5
 Overload threshold: current_load ≥ 0.9 × max_capacity → excluded
 ```
 
+### Skill Match — Declared vs Demonstrated Blending
+```
+skill_match per skill = 1 − |blended_level − required_level|
+
+blended_level:
+  - If both declared and demonstrated exist: 0.70 × declared + 0.30 × demonstrated
+  - If only demonstrated: demonstrated score
+  - If only declared: declared score
+
+Demonstrated skill update (on task completion):
+  new_score = 0.80 × old_score + 0.20 × (task_required_level + difficulty_boost)
+  difficulty_boost: easy=0.0, medium=0.05, hard=0.10
+  Stored in employee_profiles.demonstrated_skills (JSON)
+```
+
 ---
 
 ## 10. Frontend Components
@@ -1449,7 +1464,7 @@ All API calls for that tenant → 402 Payment Required
 | `nightly_observer` | `0 2 * * *` (2am UTC) | Runs execution loop per project, emails if health=red |
 | `weekly_digest` | `0 9 * * 1` (Mon 9am UTC) | Compiles CEO/admin digest, sends via email |
 | `payment_check` | `0 0 * * *` (midnight UTC) | Enforces grace period expirations |
-| `archive_old_runs` | `0 3 * * 0` (Sun 3am UTC) | Purges completed WorkflowRun/AgentRun records older than 90 days |
+| `archive_old_runs` | `0 3 * * 0` (Sun 3am UTC) | Purges all log tables: workflow_runs/agent_runs (90d), decision_logs/audit_log (90d), email_delivery_logs (60d), platform_audit_logs (180d) |
 
 Jobs are seeded at startup (`seed_default_jobs_for_existing_tenants`) and when a new admin registers (`seed_default_jobs_for_tenant`). One `nightly_observer` job is created per project at project creation.
 
@@ -1652,55 +1667,81 @@ Monday 9am UTC (scheduler job "weekly_digest"):
 
 ## 17. Deployment Guide
 
-### Backend (Cloud Run)
+### Live URLs (production)
+```
+Frontend:   https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
+Backend:    Cloud Run service agentic-orchestrator-backend (europe-west1)
+API Docs:   {backend-url}/docs
+GCP project: havoc-ai-prod
+Billing:    01E336-987ED9-6B9D22
+Artifact Registry: europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/
+```
+
+### Deploy from Cloud Shell (manual)
 ```bash
+# Clone if needed
+git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
+cd agentic_orchestrator && git pull origin main
+
+# Backend
 cd backend_adk
-bash deploy_cloud_run.sh
+gcloud builds submit \
+  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
+  --project havoc-ai-prod
+gcloud run deploy agentic-orchestrator-backend \
+  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
+  --region europe-west1 --project havoc-ai-prod
+
+# Frontend
+cd ../frontend
+gcloud builds submit \
+  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
+  --project havoc-ai-prod
+gcloud run deploy agentic-orchestrator-frontend \
+  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
+  --region europe-west1 --project havoc-ai-prod --allow-unauthenticated
 ```
 
-The script builds the Docker image, pushes to Artifact Registry, and deploys to Cloud Run. It uses the `Dockerfile` in `backend_adk/`.
+### Schema migrations
+No manual steps. On startup:
+- `ensure_runtime_schema(engine)` adds missing columns (additive, dialect-aware)
+- `Base.metadata.create_all(engine)` creates any missing tables
+Both are safe to run on every deploy against an existing database.
 
-**Cloud Run env vars to set (via Console or gcloud):**
+### Cloud Run env vars (backend)
 ```
-SECRET_KEY=<strong-random-64-char-key>
-DATABASE_URL=postgresql://orchestrator_user:<pwd>@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql
-ENVIRONMENT=production
-SENDGRID_API_KEY=<your-sendgrid-key>
-EMAIL_FROM=no-reply@yourdomain.com
-EMAIL_FROM_NAME=AI Workforce Orchestrator
-FRONTEND_URL=https://frontend-974381609416.europe-west1.run.app
-PLATFORM_OWNER_EMAIL=<your-email>
-STRIPE_SECRET_KEY=<your-stripe-secret>
-STRIPE_WEBHOOK_SECRET=<your-webhook-secret>
-STRIPE_STARTER_PRICE_ID=<price_id>
-STRIPE_GROWTH_PRICE_ID=<price_id>
-STRIPE_ENTERPRISE_PRICE_ID=<price_id>
-ALLOWED_ORIGINS=https://frontend-974381609416.europe-west1.run.app
-HUGGINGFACEHUB_API_TOKEN=<your-hf-token>
-GRACE_PERIOD_DAYS=7
-REDIS_URL=redis://<host>:6379/0
-GOOGLE_CLIENT_ID=<oauth-client-id>
-GOOGLE_CLIENT_SECRET=<oauth-client-secret>
-GOOGLE_REDIRECT_URI=https://frontend-974381609416.europe-west1.run.app/integrations/google/callback
-```
-
-### Frontend (Cloud Run)
-```bash
-cd frontend
-bash deploy_cloud_run_frontend.sh
-# Builds with VITE_API_URL=https://backend-adk-974381609416.europe-west1.run.app
+SECRET_KEY                   <64-char random key — stored in Secret Manager>
+DATABASE_URL                 postgresql://orchestrator_user:<pwd>@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql
+ENVIRONMENT                  production
+SENDGRID_API_KEY             <sendgrid key>
+EMAIL_FROM                   no-reply@yourdomain.com
+EMAIL_FROM_NAME              AI Workforce Orchestrator
+FRONTEND_URL                 https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
+PLATFORM_OWNER_EMAIL         <owner email>
+STRIPE_SECRET_KEY            <stripe secret>
+STRIPE_WEBHOOK_SECRET        <webhook secret>
+STRIPE_STARTER_PRICE_ID      <price_id>
+STRIPE_GROWTH_PRICE_ID       <price_id>
+STRIPE_ENTERPRISE_PRICE_ID   <price_id>
+ALLOWED_ORIGINS              https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
+GOOGLE_CLOUD_PROJECT         havoc-ai-prod
+GOOGLE_CLOUD_LOCATION        us-central1
+GOOGLE_GENAI_USE_VERTEXAI    true
+GRACE_PERIOD_DAYS            7
+GOOGLE_CLIENT_ID             <oauth client id>
+GOOGLE_CLIENT_SECRET         <oauth client secret>
+GOOGLE_REDIRECT_URI          https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app/integrations/google/callback
 ```
 
 ### Docker Images
 ```
-Backend Dockerfile: python:3.11-slim → pip install → uvicorn on port 8080
-Frontend Dockerfile: node:18 build → nginx:alpine serve on port 8080
+Backend:  python:3.11-slim → pip install requirements.txt → uvicorn on port 8080
+Frontend: node:18 → npm run build → nginx:alpine serve on port 8080
 ```
 
-### Stripe Webhook Registration
-After deploying backend, register webhook in Stripe Dashboard:
+### Stripe Webhook
 ```
-URL: https://backend-adk-974381609416.europe-west1.run.app/billing/webhook
+URL: {backend-url}/billing/webhook
 Events: invoice.paid, invoice.payment_failed, customer.subscription.deleted
 ```
 
@@ -1970,6 +2011,21 @@ The TOTP secret and current 6-digit code are printed at the end of every seed ru
 | Email template | `send_verification_email` added; sent on registration instead of welcome |
 | Test suite | `conftest.py` with in-memory SQLite; `test_auth`, `test_billing`, `test_assignment` covering 20+ scenarios |
 | Schema migrations | All new columns added via `ensure_runtime_schema` (backward compat for existing DBs) |
+
+### Phase 12 — Platform Intelligence Suite (`67f63b4`→`72cb644`)
+
+| Feature | What was built |
+|---------|---------------|
+| Skill Growth Tracking | `demonstrated_skills` JSON on `EmployeeProfile`; `_skill_service.py` applies EMA on task completion; `AssignmentEngine` blends declared (70%) + demonstrated (30%) skills |
+| Natural Language Queries | `POST /assistant/nl-query` — admin/CEO asks live DB questions; gathers team capacity, project status, task counts, blockers; LLM answer with structured fallback |
+| Proof of Work | `proof_note` + `proof_url` columns on `task_progress` (additive migration); `PUT /task-progress/{id}/proof` for employees; `DeliveryReviewAgent` reads proof items in assessment |
+| Client Change Requests | `ChangeRequest` model + `change_requests` table; `POST/GET/PATCH /projects/{id}/change-requests`; clients raise requests, admins approve/reject/implement |
+| Predictive Delivery Forecast | `GET /projects/{id}/delivery-forecast` — velocity (tasks/day), ETA, budget burn %, risk score 0–100 with specific risk reasons + LLM narrative |
+| Scope Change Handling | `POST /projects/{id}/scope-change` — LLM diffs new brief vs existing tasks, generates change order document, saved as `ChangeRequest` with `change_order_doc` |
+| Markdown rendering | `Markdown.jsx` zero-dependency component; all LLM text in Dashboard, Projects, MultiAgentWorkbench now renders as formatted bullets/headings instead of raw `**markdown**` |
+| Extended log purge | `archive_old_runs` now covers all 5 log tables: workflow_runs (90d), decision_logs (90d), audit_log (90d), email_delivery_logs (60d), platform_audit_logs (180d) |
+| PostgreSQL schema fix | `ensure_runtime_schema` is fully dialect-aware: TIMESTAMP vs DATETIME, BOOLEAN vs INTEGER, `information_schema` vs PRAGMA for NOT NULL drops |
+| Cloud Run deployment | Deployed to `europe-west1` via Cloud Build; billing switched to account `01E336-987ED9-6B9D22`; Artifact Registry repository created |
 
 ---
 
