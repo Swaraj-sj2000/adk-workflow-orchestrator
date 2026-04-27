@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './Projects.css';
 import { API_BASE_URL as API } from '../config';
+import Markdown from './Markdown';
 
 export default function Projects({ role }) {
   const [projects, setProjects] = useState([]);
@@ -297,7 +298,7 @@ export default function Projects({ role }) {
                 <div className="intake-success">
                   <div className="intake-success-icon">✓</div>
                   <h3>{intakeResult.final_output?.execution_plan?.project_title || 'Project created'}</h3>
-                  <p>{intakeResult.final_output?.execution_plan?.project_summary || ''}</p>
+                  <Markdown text={intakeResult.final_output?.execution_plan?.project_summary || ''} />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', margin: '1rem 0' }}>
                   <div className="intake-stat">
@@ -320,13 +321,13 @@ export default function Projects({ role }) {
                 {intakeResult.final_output?.risk?.narrative && (
                   <div className="info-pill">
                     <span>AI Risk Analysis</span>
-                    <strong>{intakeResult.final_output.risk.narrative}</strong>
+                    <Markdown text={intakeResult.final_output.risk.narrative} />
                   </div>
                 )}
                 {intakeResult.final_output?.escalation?.narrative && (
                   <div className="info-pill">
                     <span>AI Escalation Decision</span>
-                    <strong>{intakeResult.final_output.escalation.narrative}</strong>
+                    <Markdown text={intakeResult.final_output.escalation.narrative} />
                   </div>
                 )}
                 <div className="modal-footer">
@@ -395,12 +396,12 @@ export default function Projects({ role }) {
 
                   <div className="info-pill">
                     <span>Manager Brief</span>
-                    <strong>{project.viewer_guidance || 'No stage brief available yet.'}</strong>
+                    <Markdown text={project.viewer_guidance || 'No stage brief available yet.'} />
                   </div>
                   {project.today_status && (
                     <div className="info-pill">
                       <span>Today's Status</span>
-                      <strong>{project.today_status}</strong>
+                      <Markdown text={project.today_status} />
                     </div>
                   )}
 
@@ -503,22 +504,22 @@ export default function Projects({ role }) {
               <div className="project-mini-grid">
                 <div className="info-pill">
                   <span>Manager Brief</span>
-                  <strong>{selectedProject.viewer_guidance || 'No stage brief available yet.'}</strong>
+                  <Markdown text={selectedProject.viewer_guidance || 'No stage brief available yet.'} />
                 </div>
                 <div className="info-pill">
                   <span>Decision Support</span>
-                  <strong>{selectedProject.decision_support || 'No decision memo available yet.'}</strong>
+                  <Markdown text={selectedProject.decision_support || 'No decision memo available yet.'} />
                 </div>
                 {selectedProject.today_status && (
                   <div className="info-pill">
                     <span>Today's Status</span>
-                    <strong>{selectedProject.today_status}</strong>
+                    <Markdown text={selectedProject.today_status} />
                   </div>
                 )}
                 {selectedProject.report_text && (
                   <div className="info-pill">
                     <span>Project Report</span>
-                    <strong>{selectedProject.report_text}</strong>
+                    <Markdown text={selectedProject.report_text} />
                   </div>
                 )}
               </div>

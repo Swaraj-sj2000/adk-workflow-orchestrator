@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import './MultiAgentWorkbench.css';
 import { API_BASE_URL as API } from '../config';
+import Markdown from './Markdown';
 
 // ── Agent card ────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ function AgentHighlights({ name, payload }) {
       return (
         <div className="maw-highlights">
           <div className="maw-hl-row"><span>Risk level</span><RiskBadge level={payload.risk_level} /></div>
-          {payload.narrative && <p className="maw-narrative">{payload.narrative}</p>}
+          {payload.narrative && <div className="maw-narrative"><Markdown text={payload.narrative} /></div>}
           {(payload.risks || []).map((r, i) => (
             <div key={i} className="maw-risk-row">
               <RiskBadge level={r.severity} />
@@ -128,7 +129,7 @@ function AgentHighlights({ name, payload }) {
       return (
         <div className="maw-highlights">
           <div className="maw-hl-row"><span>Decision</span><DecisionBadge decision={payload.decision} /></div>
-          {payload.narrative && <p className="maw-narrative">{payload.narrative}</p>}
+          {payload.narrative && <div className="maw-narrative"><Markdown text={payload.narrative} /></div>}
           {(payload.reasons || []).map((r, i) => <div key={i} className="maw-action-row">· {r}</div>)}
         </div>
       );
@@ -152,7 +153,7 @@ function AgentHighlights({ name, payload }) {
       return (
         <div className="maw-highlights">
           {payload.llm_health_status && <div className="maw-hl-row"><span>Health</span><RiskBadge level={payload.llm_health_status === 'on_track' ? 'low' : payload.llm_health_status === 'at_risk' ? 'medium' : 'high'} /></div>}
-          {payload.llm_narrative && <p className="maw-narrative">{payload.llm_narrative}</p>}
+          {payload.llm_narrative && <div className="maw-narrative"><Markdown text={payload.llm_narrative} /></div>}
           {(payload.priority_actions || []).map((a, i) => <div key={i} className="maw-action-row">→ {a}</div>)}
           {(payload.delivery_blockers || []).length > 0 && <div className="maw-hl-row"><span>Blockers</span><strong style={{ color: '#dc2626' }}>{payload.delivery_blockers.length}</strong></div>}
         </div>
@@ -165,7 +166,7 @@ function AgentHighlights({ name, payload }) {
           <div className="maw-hl-row"><span>Rebalance needed</span><strong style={{ color: payload.rebalance_needed ? '#dc2626' : '#16a34a' }}>{payload.rebalance_needed ? 'Yes' : 'No'}</strong></div>
           {cap.overloaded_count > 0 && <div className="maw-hl-row"><span>Overloaded employees</span><strong style={{ color: '#dc2626' }}>{cap.overloaded_count}</strong></div>}
           {cap.deficit_hours > 0 && <div className="maw-hl-row"><span>Capacity deficit</span><strong style={{ color: '#d97706' }}>{cap.deficit_hours}h</strong></div>}
-          {payload.llm_narrative && <p className="maw-narrative">{payload.llm_narrative}</p>}
+          {payload.llm_narrative && <div className="maw-narrative"><Markdown text={payload.llm_narrative} /></div>}
           {(payload.llm_actions || []).map((a, i) => <div key={i} className="maw-action-row">→ {a}</div>)}
           {payload.admin_alert && payload.admin_message && (
             <div className="maw-alert-box">⚠ Admin notified: {payload.admin_message}</div>
@@ -205,7 +206,7 @@ function AgentCard({ run }) {
           {run.requires_human_review && <span className="maw-badge" style={{ background: '#fee2e2', color: '#991b1b', marginTop: 4 }}>Needs review</span>}
         </div>
       </div>
-      {run.reasoning && <p className="maw-reasoning">{run.reasoning}</p>}
+      {run.reasoning && <div className="maw-reasoning"><Markdown text={run.reasoning} /></div>}
       <AgentHighlights name={run.agent_name} payload={run.output_payload} />
     </div>
   );
@@ -233,7 +234,7 @@ function WorkflowResultView({ workflow, onApprove, approving }) {
       {isIntake && fo.execution_plan && (
         <div className="maw-result-summary">
           <strong>{fo.execution_plan.project_title}</strong>
-          <p>{fo.execution_plan.project_summary}</p>
+          <Markdown text={fo.execution_plan.project_summary} />
           <div className="maw-result-stats">
             <div className="maw-stat"><span>Tasks</span><strong>{(fo.execution_plan.tasks || []).length}</strong></div>
             <div className="maw-stat"><span>Risk</span><RiskBadge level={fo.risk?.risk_level} /></div>

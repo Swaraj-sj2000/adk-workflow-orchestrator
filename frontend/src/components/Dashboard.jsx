@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import './Dashboard.css';
 import { API_BASE_URL as API } from '../config';
 import { AdminAnalytics } from './Analytics';
+import Markdown from './Markdown';
 
 const initialForm = {
   name: '',
@@ -415,16 +416,16 @@ export default function Dashboard({ role }) {
             <>
               <div className="info-pill">
                 <span>Guidance</span>
-                <strong>{project.viewer_guidance || 'No guidance available yet.'}</strong>
+                <Markdown text={project.viewer_guidance || 'No guidance available yet.'} />
               </div>
               <div className="info-pill">
                 <span>Decision Support</span>
-                <strong>{project.decision_support || 'No decision support available yet.'}</strong>
+                <Markdown text={project.decision_support || 'No decision support available yet.'} />
               </div>
               {project.report_text && (
                 <div className="info-pill">
                   <span>Latest Report</span>
-                  <strong>{project.report_text}</strong>
+                  <Markdown text={project.report_text} />
                 </div>
               )}
             </>
@@ -439,7 +440,7 @@ export default function Dashboard({ role }) {
           renderExtra={(project) => (
             <div className="info-pill">
               <span>Final Report</span>
-              <strong>{project.report_text || 'Final report will appear here after project completion.'}</strong>
+              <Markdown text={project.report_text || 'Final report will appear here after project completion.'} />
             </div>
           )}
         />
@@ -490,19 +491,19 @@ export default function Dashboard({ role }) {
               </div>
               <div className="info-pill">
                 <span>Business Plan</span>
-                <strong>{project.plan_brief}</strong>
+                <Markdown text={project.plan_brief} />
               </div>
               <div className="info-pill">
                 <span>USP</span>
-                <strong>{project.usp}</strong>
+                <Markdown text={project.usp} />
               </div>
               <div className="info-pill">
                 <span>Feature Highlights</span>
-                <strong>{(project.feature_highlights || []).join(', ') || 'Feature list is being refined.'}</strong>
+                <Markdown text={(project.feature_highlights || []).join('\n- ') || 'Feature list is being refined.'} />
               </div>
               <div className="info-pill">
                 <span>Latest Status</span>
-                <strong>{project.viewer_guidance || project.business_summary}</strong>
+                <Markdown text={project.viewer_guidance || project.business_summary} />
               </div>
               <PaymentEditor
                 project={project}
@@ -523,7 +524,7 @@ export default function Dashboard({ role }) {
             <>
               <div className="info-pill">
                 <span>Final Report</span>
-                <strong>{project.final_report?.full_text || project.final_report?.executive_summary || 'Final report pending.'}</strong>
+                <Markdown text={project.final_report?.full_text || project.final_report?.executive_summary || 'Final report pending.'} />
               </div>
               <div className="info-pill">
                 <span>Payment Timeline</span>
@@ -862,11 +863,11 @@ export default function Dashboard({ role }) {
             </div>
             <div className="info-pill">
               <span>Manager Brief</span>
-              <strong>{project.viewer_guidance || 'No stage brief available yet.'}</strong>
+              <Markdown text={project.viewer_guidance || 'No stage brief available yet.'} />
             </div>
             <div className="info-pill">
               <span>Feature Highlights</span>
-              <strong>{(project.feature_highlights || []).join(', ') || 'Feature outline is being prepared.'}</strong>
+              <Markdown text={(project.feature_highlights || []).join('\n- ') || 'Feature outline is being prepared.'} />
             </div>
           </>
         )}
@@ -923,11 +924,11 @@ export default function Dashboard({ role }) {
           <div className="project-mini-grid">
             <div className="info-pill">
               <span>Business Plan</span>
-              <strong>{projectStatus.client_plan_brief}</strong>
+              <Markdown text={projectStatus.client_plan_brief} />
             </div>
             <div className="info-pill">
               <span>USP</span>
-              <strong>{projectStatus.usp}</strong>
+              <Markdown text={projectStatus.usp} />
             </div>
           </div>
 
@@ -1156,7 +1157,7 @@ export default function Dashboard({ role }) {
                   <td>#{project.client_id}</td>
                   <td>{project.client_name}</td>
                   <td>{project.payment_status}</td>
-                  <td className="report-preview">{project.final_report?.full_text || project.report_text || 'Final report pending'}</td>
+                  <td className="report-preview"><Markdown text={project.final_report?.full_text || project.report_text || 'Final report pending'} /></td>
                 </tr>
               ))}
             </tbody>
@@ -1372,13 +1373,13 @@ function ReportPanel({ report, fallbackText }) {
           </div>
           <div className="info-pill">
             <span>Detailed Report</span>
-            <strong>{report.full_text}</strong>
+            <div className="detail-card-value"><Markdown text={report.full_text} /></div>
           </div>
         </>
       ) : (
         <div className="info-pill">
           <span>Detailed Report</span>
-          <strong>{fallbackText}</strong>
+          <div className="detail-card-value"><Markdown text={fallbackText} /></div>
         </div>
       )}
     </div>
@@ -1398,7 +1399,9 @@ function DetailCard({ title, value }) {
   return (
     <div className="health-item">
       <h4>{title}</h4>
-      <div className="detail-card-value">{value || 'Not available'}</div>
+      <div className="detail-card-value">
+        {value ? <Markdown text={value} /> : 'Not available'}
+      </div>
     </div>
   );
 }
@@ -1407,7 +1410,9 @@ function InfoPill({ label, value }) {
   return (
     <div className="info-pill">
       <span>{label}</span>
-      <strong>{value || 'Not available'}</strong>
+      <div className="detail-card-value" style={{fontWeight:600}}>
+        {value ? <Markdown text={value} /> : 'Not available'}
+      </div>
     </div>
   );
 }
