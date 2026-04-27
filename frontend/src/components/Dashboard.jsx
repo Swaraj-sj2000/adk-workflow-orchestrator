@@ -42,6 +42,15 @@ export default function Dashboard({ role }) {
   const [draftReplacementSelections, setDraftReplacementSelections] = useState({});
   const [taskReplacementSelections, setTaskReplacementSelections] = useState({});
 
+  // AI New Project modal (same pipeline as Projects page + Workbench)
+  const [showAICreate, setShowAICreate] = useState(false);
+  const [aiIntakeBrief, setAiIntakeBrief] = useState('');
+  const [aiIntakeBudget, setAiIntakeBudget] = useState('');
+  const [aiIntakePriority, setAiIntakePriority] = useState('medium');
+  const [aiIntakeDeadline, setAiIntakeDeadline] = useState('');
+  const [aiIntakeRunning, setAiIntakeRunning] = useState(false);
+  const [aiIntakeResult, setAiIntakeResult] = useState(null);
+
   useEffect(() => {
     fetchDashboard();
   }, [role]);
@@ -306,6 +315,43 @@ export default function Dashboard({ role }) {
     }
   };
 
+  const createProjectWithAI = async () => {
+    if (!aiIntakeBrief.trim() || aiIntakeRunning) return;
+    setAiIntakeRunning(true);
+    setAiIntakeResult(null);
+    try {
+      const body = {
+        request_text: aiIntakeBrief.trim(),
+        budget: parseFloat(aiIntakeBudget) || 0,
+        priority: aiIntakePriority,
+        persist_project: true,
+      };
+      if (aiIntakeDeadline) body.deadline = new Date(aiIntakeDeadline).toISOString();
+      const res = await fetch(`${API}/multi-agent/workflows/intake`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'AI intake failed');
+      setAiIntakeResult(data);
+      fetchDashboard();
+    } catch (err) {
+      setAiIntakeResult({ error: err.message });
+    }
+    setAiIntakeRunning(false);
+  };
+
+  const closeAICreate = () => {
+    setShowAICreate(false);
+    setAiIntakeBrief('');
+    setAiIntakeBudget('');
+    setAiIntakePriority('medium');
+    setAiIntakeDeadline('');
+    setAiIntakeResult(null);
+    setAiIntakeRunning(false);
+  };
+
   if (loading) return <div className="loading"><div className="spinner"></div></div>;
 
   const notifications = dashboard?.notifications || [];
@@ -535,11 +581,99 @@ export default function Dashboard({ role }) {
           <button className="btn btn-secondary" onClick={() => { setShowAnalytics((v) => !v); setShowCreate(false); }}>
             {showAnalytics ? 'Close Analytics' : 'Team Analytics'}
           </button>
-          <button className="btn btn-primary" onClick={() => { setShowCreate((current) => !current); setShowAnalytics(false); }}>
-            {showCreate ? 'Close New Project Form' : 'New Project'}
+          <button className="btn btn-secondary" onClick={() => { setShowCreate((current) => !current); setShowAnalytics(false); setShowAICreate(false); }}>
+            {showCreate ? 'Close Manual Form' : 'New Project (Manual)'}
+          </button>
+          <button className="btn btn-primary" onClick={() => { setShowAICreate(true); setShowCreate(false); setShowAnalytics(false); }}>
+            + New Project
           </button>
         </div>
       </div>
+
+      {showAICreate && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && closeAICreate()}>
+          <div className="modal-box" style={{ maxWidth: 600 }}>
+            <div className="modal-header">
+              <h2>New Project</h2>
+              <button className="modal-close" onClick={closeAICreate}>✕</button>
+            </div>
+            {!aiIntakeResult ? (
+              <div className="modal-body">
+                <p className="modal-subtitle">
+                  Describe what you want to build. The AI agents will plan tasks, staff your team, assess risks, and create the project.
+                </p>
+                <div className="form-group">
+                  <label>Project Brief *</label>
+                  <textarea
+                    rows={5}
+                    placeholder="e.g. Build an AI-powered customer support platform with live chat, ticket routing, sentiment analysis, and SLA dashboards"
+                    value={aiIntakeBrief}
+                    onChange={(e) => setAiIntakeBrief(e.target.value)}
+                    disabled={aiIntakeRunning}
+                    style={{ width: '100%', resize: 'vertical' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label>Budget (₹)</label>
+                    <input type="number" placeholder="250000" value={aiIntakeBudget} onChange={(e) => setAiIntakeBudget(e.target.value)} disabled={aiIntakeRunning} />
+                  </div>
+                  <div className="form-group">
+                    <label>Priority</label>
+                    <select value={aiIntakePriority} onChange={(e) => setAiIntakePriority(e.target.value)} disabled={aiIntakeRunning}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Deadline (optional)</label>
+                  <input type="date" value={aiIntakeDeadline} onChange={(e) => setAiIntakeDeadline(e.target.value)} disabled={aiIntakeRunning} />
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={closeAICreate} disabled={aiIntakeRunning}>Cancel</button>
+                  <button className="btn btn-primary" onClick={createProjectWithAI} disabled={!aiIntakeBrief.trim() || aiIntakeRunning}>
+                    {aiIntakeRunning ? 'AI agents running…' : 'Create with AI'}
+                  </button>
+                </div>
+                {aiIntakeRunning && <p className="modal-hint">Intake → Planning → Staffing → Risk → Execution pipeline. Takes 30–90 seconds.</p>}
+              </div>
+            ) : aiIntakeResult.error ? (
+              <div className="modal-body">
+                <p style={{ color: '#dc2626', background: '#fee2e2', padding: '10px', borderRadius: 8, fontSize: '0.875rem' }}>{aiIntakeResult.error}</p>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary" onClick={() => setAiIntakeResult(null)}>Try again</button>
+                  <button className="btn btn-primary" onClick={closeAICreate}>Close</button>
+                </div>
+              </div>
+            ) : (
+              <div className="modal-body">
+                <div className="intake-success">
+                  <div className="intake-success-icon">✓</div>
+                  <h3>{aiIntakeResult.final_output?.execution_plan?.project_title || 'Project created'}</h3>
+                  <p>{aiIntakeResult.final_output?.execution_plan?.project_summary || ''}</p>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', margin: '1rem 0' }}>
+                  <div className="intake-stat"><span className="intake-stat-label">Tasks</span><span className="intake-stat-value">{(aiIntakeResult.final_output?.execution_plan?.tasks || []).length}</span></div>
+                  <div className="intake-stat"><span className="intake-stat-label">Risk</span><span className={`intake-stat-value risk-${aiIntakeResult.final_output?.risk?.risk_level || 'low'}`}>{aiIntakeResult.final_output?.risk?.risk_level || '—'}</span></div>
+                  <div className="intake-stat"><span className="intake-stat-label">Mode</span><span className="intake-stat-value" style={{ fontSize: '0.7rem' }}>{aiIntakeResult.final_output?.escalation?.decision === 'continue_autonomously' ? 'Autonomous' : 'Needs review'}</span></div>
+                </div>
+                {aiIntakeResult.final_output?.risk?.narrative && (
+                  <div className="info-pill"><span>AI Risk Analysis</span><strong>{aiIntakeResult.final_output.risk.narrative}</strong></div>
+                )}
+                {aiIntakeResult.final_output?.escalation?.narrative && (
+                  <div className="info-pill"><span>AI Escalation Decision</span><strong>{aiIntakeResult.final_output.escalation.narrative}</strong></div>
+                )}
+                <div className="modal-footer">
+                  <button className="btn btn-primary" onClick={closeAICreate}>Done — view projects</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showAnalytics && (
         <div className="card full-width">

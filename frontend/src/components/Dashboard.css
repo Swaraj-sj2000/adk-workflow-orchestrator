@@ -452,3 +452,75 @@ details[open] > .project-collapse-summary::before {
     align-items: stretch;
   }
 }
+
+/* ── Shared modal + intake styles (used by Dashboard and Projects) ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-box {
+  background: var(--card-bg, #fff);
+  border-radius: 16px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.modal-header h2 { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--text-muted, #6b7280);
+  line-height: 1;
+  padding: 0.25rem;
+}
+.modal-body { padding: 1.5rem; }
+.modal-subtitle { color: var(--text-muted, #6b7280); margin-bottom: 1.25rem; line-height: 1.5; }
+.modal-footer { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
+.modal-hint { font-size: 0.8rem; color: var(--text-muted, #6b7280); margin-top: 0.75rem; text-align: center; }
+.modal-body .form-group { margin-bottom: 1rem; }
+.modal-body .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+.modal-body .form-group input,
+.modal-body .form-group select,
+.modal-body .form-group textarea {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--input-bg, #fafafa);
+  color: var(--text, #111);
+  box-sizing: border-box;
+}
+.intake-success { text-align: center; padding: 0.5rem 0 1rem; }
+.intake-success-icon {
+  width: 48px; height: 48px;
+  background: #e7f6ee; color: #1d5f45;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem;
+  margin: 0 auto 0.75rem;
+}
+.intake-success h3 { font-size: 1.1rem; margin: 0 0 0.4rem; }
+.intake-success p { color: var(--text-muted, #6b7280); font-size: 0.875rem; line-height: 1.5; }
+.intake-stat { background: var(--surface, #f9fafb); border-radius: 10px; padding: 0.75rem; text-align: center; }
+.intake-stat-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted, #6b7280); margin-bottom: 0.25rem; }
+.intake-stat-value { font-size: 1.1rem; font-weight: 700; color: var(--text, #111); }
+.intake-stat-value.risk-high { color: #dc2626; }
+.intake-stat-value.risk-medium { color: #d97706; }
+.intake-stat-value.risk-low { color: #16a34a; }

@@ -1,107 +1,599 @@
-.multi-agent-workbench {
-  align-items: start;
+/* ── Page shell ─────────────────────────────────────────────────────────── */
+.maw-root {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 0 60px;
 }
 
-.multi-agent-form {
-  display: grid;
+.maw-page-header {
+  margin-bottom: 24px;
+}
+
+.maw-page-header h1 {
+  font-size: 30px;
+  color: var(--text, #0f172a);
+  margin: 4px 0 6px;
+}
+
+.maw-page-sub {
+  color: var(--text-muted, #64748b);
+  font-size: 0.9rem;
+}
+
+/* ── Message bar ────────────────────────────────────────────────────────── */
+.maw-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  margin-bottom: 16px;
 }
 
-.multi-agent-form textarea,
-.multi-agent-form input,
-.multi-agent-form select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #d6d6d6;
-  border-radius: 6px;
+.maw-message.success { background: #dcfce7; color: #166534; }
+.maw-message.error   { background: #fee2e2; color: #991b1b; }
+
+.maw-message-close {
+  background: none;
+  border: none;
+  cursor: pointer;
   font-size: 14px;
-  background: #fff;
+  opacity: 0.6;
+  line-height: 1;
 }
 
-.multi-agent-form-grid {
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+.maw-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border, #e5e7eb);
+  margin-bottom: 24px;
+}
+
+.maw-tab {
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 4px 4px 0 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.maw-tab:hover { color: var(--text, #0f172a); }
+.maw-tab.active {
+  color: var(--primary, #0f766e);
+  border-bottom-color: var(--primary, #0f766e);
+}
+
+/* ── Panel ──────────────────────────────────────────────────────────────── */
+.maw-panel {
+  display: grid;
+  gap: 24px;
+}
+
+.maw-panel-body {
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 24px;
+}
+
+/* ── Form section ───────────────────────────────────────────────────────── */
+.maw-form-section h2 {
+  font-size: 1.1rem;
+  margin: 0 0 6px;
+  color: var(--text, #0f172a);
+}
+
+.maw-form-hint {
+  color: var(--text-muted, #64748b);
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.maw-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  background: var(--input-bg, #fafafa);
+  color: var(--text, #111);
+  resize: vertical;
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  font-family: inherit;
+}
+
+.maw-form-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
-  align-items: center;
+  margin-bottom: 16px;
 }
 
-.multi-agent-loop-box {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #e5e7eb;
-  display: grid;
-  gap: 12px;
+.maw-form-field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text, #111);
 }
 
-.multi-agent-loop-box h3 {
-  font-size: 16px;
-  color: #0f172a;
+.maw-form-field input,
+.maw-form-field select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: var(--input-bg, #fafafa);
+  color: var(--text, #111);
+  box-sizing: border-box;
 }
 
-.multi-agent-checkbox {
+/* ── Persist toggle ─────────────────────────────────────────────────────── */
+.maw-persist-toggle {
+  margin-bottom: 18px;
+}
+
+.maw-toggle {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
-  color: #475569;
-}
-
-.multi-agent-checkbox input {
-  width: auto;
-}
-
-.multi-agent-detail {
-  display: grid;
-  gap: 20px;
-}
-
-.multi-agent-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 15px;
-}
-
-.multi-agent-panels {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 20px;
-}
-
-.multi-agent-actions {
-  list-style: none;
-  margin-top: 10px;
-  padding: 0;
-}
-
-.multi-agent-actions li {
-  padding: 5px 0;
-  font-size: 13px;
-}
-
-.workflow-pre {
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 6px;
-  background: #0f172a;
-  color: #dbeafe;
-  font-size: 12px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-}
-
-details summary {
   cursor: pointer;
-  color: #0f172a;
-  font-weight: 600;
-  margin-top: 12px;
+  user-select: none;
 }
 
-@media (max-width: 960px) {
-  .multi-agent-panels {
-    grid-template-columns: 1fr;
-  }
+.maw-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
 
-  .multi-agent-form-grid {
-    grid-template-columns: 1fr;
-  }
+.maw-toggle-track {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: #d1d5db;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.maw-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.maw-toggle.on .maw-toggle-track { background: var(--primary, #0f766e); }
+.maw-toggle.on .maw-toggle-track::after { transform: translateX(18px); }
+
+.maw-toggle-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text, #0f172a);
+}
+
+.maw-toggle-hint {
+  margin: 5px 0 0 50px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+/* ── Run button ─────────────────────────────────────────────────────────── */
+.maw-run-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.maw-running-hint {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748b);
+}
+
+/* ── Spinner ────────────────────────────────────────────────────────────── */
+.maw-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: maw-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.maw-spinner.large {
+  width: 32px;
+  height: 32px;
+  border-color: var(--border, #e5e7eb);
+  border-top-color: var(--primary, #0f766e);
+}
+
+@keyframes maw-spin { to { transform: rotate(360deg); } }
+
+/* ── Result view ────────────────────────────────────────────────────────── */
+.maw-result {
+  display: grid;
+  gap: 20px;
+}
+
+.maw-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+}
+
+.maw-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.maw-result-id {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.maw-result-type {
+  font-size: 0.78rem;
+  background: var(--surface, #f1f5f9);
+  color: var(--text-muted, #64748b);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.maw-result-summary {
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 18px 20px;
+}
+
+.maw-result-summary strong {
+  font-size: 1.05rem;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.maw-result-summary p {
+  color: var(--text-muted, #64748b);
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+
+.maw-result-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.maw-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.maw-stat span {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #64748b);
+}
+
+.maw-stat strong {
+  font-size: 1rem;
+}
+
+/* ── Approve bar ────────────────────────────────────────────────────────── */
+.maw-approve-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #fef3c7;
+  border-radius: 12px;
+  border: 1px solid #fcd34d;
+}
+
+.maw-approve-bar p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #92400e;
+}
+
+/* ── Agent cards grid ───────────────────────────────────────────────────── */
+.maw-agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+/* ── Agent card ─────────────────────────────────────────────────────────── */
+.maw-agent-card {
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-top: 3px solid #6366f1;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.maw-agent-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.maw-agent-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.maw-agent-icon { font-size: 1.3rem; line-height: 1; margin-top: 2px; }
+
+.maw-agent-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text, #0f172a);
+}
+
+.maw-agent-role {
+  font-size: 0.75rem;
+  color: var(--text-muted, #64748b);
+  margin-top: 2px;
+}
+
+.maw-agent-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Confidence bar ─────────────────────────────────────────────────────── */
+.maw-conf-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100px;
+}
+
+.maw-conf-fill {
+  height: 6px;
+  border-radius: 3px;
+  flex: 1;
+  min-width: 0;
+  transition: width 0.4s;
+}
+
+.maw-conf-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  width: 28px;
+  text-align: right;
+}
+
+/* ── Reasoning ──────────────────────────────────────────────────────────── */
+.maw-reasoning {
+  font-size: 0.8rem;
+  color: var(--text-muted, #475569);
+  line-height: 1.5;
+  margin: 0;
+  font-style: italic;
+}
+
+/* ── Highlights ─────────────────────────────────────────────────────────── */
+.maw-highlights {
+  display: grid;
+  gap: 6px;
+}
+
+.maw-hl-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.maw-hl-row span { color: var(--text-muted, #64748b); }
+.maw-hl-row strong { font-weight: 700; }
+
+.maw-narrative {
+  font-size: 0.82rem;
+  color: var(--text, #334155);
+  line-height: 1.5;
+  margin: 2px 0;
+  background: var(--surface, #f8fafc);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.maw-task-list { display: grid; gap: 4px; margin-top: 4px; }
+
+.maw-task-row {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 6px;
+  font-size: 0.78rem;
+  align-items: baseline;
+}
+
+.maw-task-seq {
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  font-size: 0.72rem;
+}
+
+.maw-task-title {
+  color: var(--text, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maw-task-meta { color: var(--text-muted, #94a3b8); font-size: 0.72rem; }
+
+.maw-risk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text, #334155);
+}
+
+.maw-action-list { display: grid; gap: 3px; }
+
+.maw-action-row {
+  font-size: 0.78rem;
+  color: var(--text, #334155);
+  background: var(--surface, #f8fafc);
+  padding: 5px 8px;
+  border-radius: 6px;
+}
+
+.maw-alert-box {
+  font-size: 0.78rem;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+/* ── Badge ──────────────────────────────────────────────────────────────── */
+.maw-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* ── History layout ─────────────────────────────────────────────────────── */
+.maw-history-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.maw-history-list {
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  overflow: hidden;
+}
+
+.maw-history-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+
+.maw-history-list-header h2 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.maw-history-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #f1f5f9);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.maw-history-item:hover { background: var(--surface, #f8fafc); }
+.maw-history-item.selected { background: var(--surface, #f0fdf4); border-left: 3px solid var(--primary, #0f766e); }
+
+.maw-history-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.82rem;
+}
+
+.maw-history-item-sub {
+  font-size: 0.74rem;
+  color: var(--text-muted, #64748b);
+}
+
+.maw-history-detail {
+  min-height: 200px;
+}
+
+/* ── Empty / loading states ─────────────────────────────────────────────── */
+.maw-empty {
+  padding: 20px 16px;
+  color: var(--text-muted, #64748b);
+  font-size: 0.85rem;
+}
+
+.maw-empty-detail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--text-muted, #64748b);
+  font-size: 0.875rem;
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+  border: 1px solid var(--border, #e5e7eb);
+}
+
+.maw-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .maw-form-row { grid-template-columns: 1fr 1fr; }
+  .maw-history-layout { grid-template-columns: 1fr; }
+  .maw-agents-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .maw-form-row { grid-template-columns: 1fr; }
 }
