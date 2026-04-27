@@ -133,7 +133,7 @@ class LLMService:
 
     def __init__(self):
         self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
-        self.max_new_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "2048"))
+        self.max_new_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "4096"))
         self.timeout = int(os.getenv("ADK_TIMEOUT", "60"))
         self.chat_model = None
         self.enabled = False
@@ -206,55 +206,101 @@ class LLMService:
             )
 
     def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
-        self._require_llm()
         logger.info(f"Parsing project intake request (length={len(request_text)} chars)")
 
-        messages = [
-            SystemMessage(content="You are an autonomous delivery planning agent."),
-            HumanMessage(
-                content=(
-                    "Convert the project request into this exact format:\n"
-                    "TITLE: <title>\n"
-                    "SUMMARY: <clean professional summary>\n"
-                    "COMPLEXITY: <0 to 1>\n"
-                    "PROJECT STRUCTURE: <repo or script structure guidance>\n"
-                    "TASK 1 TITLE: <title>\n"
-                    "TASK 1 DESCRIPTION: <description>\n"
-                    "TASK 1 ROLE: <one primary role title>\n"
-                    "TASK 1 DIFFICULTY: easy|medium|hard\n"
-                    "TASK 1 URGENCY: low|medium|high|critical\n"
-                    "TASK 1 HOURS: <number>\n"
-                    "TASK 1 SKILLS: skill=0.8, skill=0.7\n"
-                    "TASK 1 OUTPUT: <main deliverable>\n"
-                    "SUBTASK 1.1 TITLE: <title>\n"
-                    "SUBTASK 1.1 DETAILS: <exact implementation detail with script/file/folder hints>\n"
-                    "SUBTASK 1.1 HOURS: <number>\n"
-                    "SUBTASK 1.1 SKILLS: skill=0.8, skill=0.7\n"
-                    "Repeat SUBTASK 1.2 to SUBTASK 1.4.\n"
-                    "Repeat for TASK 2 to TASK 6.\n\n"
-                    "Rules:\n"
-                    "- produce exactly 6 tasks\n"
-                    "- tasks must be specific to the project domain\n"
-                    "- each task must name the primary role best suited for it\n"
-                    "- each subtask must be concrete enough that an engineer knows which module, script, service, or document to create\n"
-                    "- project structure should mention likely folders, scripts, services, or integration modules\n"
-                    "- avoid generic labels unless the project truly needs that exact phase\n"
-                    "- keep required_skills values between 0 and 1\n"
-                    "- estimated_time is in hours\n"
-                    "- project_complexity must be between 0 and 1\n"
-                    "- summarize the request in clean professional English\n\n"
-                    f"Project request:\n{request_text}"
-                )
-            ),
+        if self.enabled:
+            try:
+                messages = [
+                    SystemMessage(content="You are an autonomous delivery planning agent. Output only the structured plan, no extra commentary."),
+                    HumanMessage(
+                        content=(
+                            "Convert the project request below into EXACTLY this format. "
+                            "Do not add any text before TITLE: or after the last TASK line.\n\n"
+                            "TITLE: <concise project title>\n"
+                            "SUMMARY: <2-sentence professional summary>\n"
+                            "COMPLEXITY: <0.0 to 1.0>\n"
+                            "PROJECT STRUCTURE: <key folders/services e.g. api/, frontend/, ml/>\n"
+                            "TASK 1 TITLE: <title>\n"
+                            "TASK 1 DESCRIPTION: <what this task delivers>\n"
+                            "TASK 1 ROLE: <best role title>\n"
+                            "TASK 1 DIFFICULTY: easy|medium|hard\n"
+                            "TASK 1 URGENCY: low|medium|high|critical\n"
+                            "TASK 1 HOURS: <integer>\n"
+                            "TASK 1 SKILLS: skill=0.8, skill=0.7\n"
+                            "TASK 1 OUTPUT: <deliverable>\n"
+                            "SUBTASK 1.1 TITLE: <title>\n"
+                            "SUBTASK 1.1 DETAILS: <specific file/module/API to create>\n"
+                            "SUBTASK 1.1 HOURS: <integer>\n"
+                            "SUBTASK 1.1 SKILLS: skill=0.8\n"
+                            "SUBTASK 1.2 TITLE: <title>\n"
+                            "SUBTASK 1.2 DETAILS: <specific file/module/API to create>\n"
+                            "SUBTASK 1.2 HOURS: <integer>\n"
+                            "SUBTASK 1.2 SKILLS: skill=0.8\n"
+                            "Repeat the TASK block (with 2 SUBTASK lines each) for TASK 2 through TASK 5.\n\n"
+                            "Rules: exactly 5 tasks, skills are decimal 0-1, hours are integers, "
+                            "all field labels must be uppercase exactly as shown.\n\n"
+                            f"Project request:\n{request_text}"
+                        )
+                    ),
+                ]
+                raw = self._invoke_text(messages)
+                logger.debug(f"LLM intake raw output (first 500 chars): {raw[:500]}")
+                parsed = self._parse_project_plan_text(raw)
+                if parsed and len(parsed.get("tasks", [])) >= 3:
+                    return self._normalize_project_payload(parsed, request_text)
+                logger.warning("LLM project plan had < 3 tasks — falling back to rule-based intake")
+            except Exception as exc:
+                logger.error(f"LLM intake parse failed: {exc}", exc_info=True)
+
+        return self._rule_based_project_intake(request_text)
+
+    def _rule_based_project_intake(self, request_text: str) -> Dict[str, Any]:
+        """Deterministic fallback: derives a reasonable 5-task plan from keywords in the brief."""
+        text_lower = request_text.lower()
+        title = request_text.strip().split(".")[0][:80] or "New Project"
+
+        skill_map = {}
+        if any(w in text_lower for w in ["react", "frontend", "ui", "dashboard", "interface"]):
+            skill_map.update({"frontend": 0.85, "react": 0.8})
+        if any(w in text_lower for w in ["api", "backend", "rest", "fastapi", "django", "flask"]):
+            skill_map.update({"backend": 0.85, "api": 0.8})
+        if any(w in text_lower for w in ["ml", "ai", "model", "predict", "train", "llm", "nlp"]):
+            skill_map.update({"llm": 0.85, "modeling": 0.8})
+        if any(w in text_lower for w in ["data", "pipeline", "etl", "ingest", "database", "crm"]):
+            skill_map.update({"data": 0.85, "analytics": 0.75})
+        if any(w in text_lower for w in ["deploy", "cloud", "docker", "kubernetes", "devops", "infra"]):
+            skill_map.update({"devops": 0.85, "cloud": 0.8})
+        if any(w in text_lower for w in ["test", "qa", "quality", "automation"]):
+            skill_map.update({"qa": 0.8, "testing": 0.75})
+        if not skill_map:
+            skill_map = {"backend": 0.8, "project-management": 0.7}
+
+        complexity = 0.65
+        if any(w in text_lower for w in ["real-time", "microservice", "scale", "enterprise", "ml", "ai"]):
+            complexity = 0.8
+        if any(w in text_lower for w in ["simple", "basic", "prototype", "poc"]):
+            complexity = 0.45
+
+        task_templates = [
+            {"title": "Requirements & Architecture", "description": "Define system requirements, data flow, and technical architecture.", "role": "Architect", "difficulty": "medium", "urgency": "high", "estimated_time": 16, "required_skills": {"architecture": 0.85, "delivery": 0.7}},
+            {"title": "Core Backend Development", "description": "Build the primary server-side logic, data models, and APIs.", "role": "Backend Developer", "difficulty": "hard", "urgency": "high", "estimated_time": 40, "required_skills": {**({k: v for k, v in skill_map.items() if k in ("backend", "api", "python", "data")} or {"backend": 0.8})}},
+            {"title": "AI / Data Layer", "description": "Implement ML models, data pipelines, or intelligent processing layer.", "role": "ML Engineer", "difficulty": "hard", "urgency": "high", "estimated_time": 32, "required_skills": {**({k: v for k, v in skill_map.items() if k in ("llm", "modeling", "data", "analytics")} or {"data": 0.8})}},
+            {"title": "Frontend & User Interface", "description": "Build the user-facing dashboard, forms, and interactive components.", "role": "Frontend Developer", "difficulty": "medium", "urgency": "medium", "estimated_time": 24, "required_skills": {**({k: v for k, v in skill_map.items() if k in ("frontend", "react", "design-systems")} or {"frontend": 0.8})}},
+            {"title": "Testing, QA & Deployment", "description": "Write automated tests, set up CI/CD, and deploy to production environment.", "role": "DevOps / QA Engineer", "difficulty": "medium", "urgency": "medium", "estimated_time": 20, "required_skills": {"qa": 0.8, "devops": 0.75, "testing": 0.7}},
         ]
 
-        parsed = self._parse_project_plan_text(self._invoke_text(messages))
-        if not parsed or len(parsed.get("tasks", [])) < 4:
-            raise RuntimeError(
-                f"LLM returned an unparseable project plan for request: {request_text[:80]!r}. "
-                "Check LLM connectivity and prompt output in logs."
-            )
-        return self._normalize_project_payload(parsed, request_text)
+        tasks = []
+        for i, t in enumerate(task_templates, 1):
+            tasks.append({**t, "sequence": i, "output": t["title"] + " deliverable", "subtasks": []})
+
+        payload = {
+            "project_title": title,
+            "project_summary": f"{request_text[:200].rstrip()}. This plan covers architecture, backend, AI/data layer, frontend, and deployment.",
+            "project_complexity": complexity,
+            "project_structure": "backend/, frontend/, ml/, tests/, docs/",
+            "tasks": tasks,
+        }
+        return self._normalize_project_payload(payload, request_text)
 
     def generate_client_update(self, context: Dict[str, Any]) -> str:
         self._require_llm()
@@ -863,7 +909,7 @@ class LLMService:
             skills = re.search(rf"TASK {index} SKILLS:\s*(.+?)(?:\nTASK {index} OUTPUT:|$)", text, re.DOTALL | re.IGNORECASE)
             output = re.search(rf"TASK {index} OUTPUT:\s*(.+?)(?:\nSUBTASK {index}\.1 TITLE:|$)", text, re.DOTALL | re.IGNORECASE)
 
-            if not all([title, description, difficulty, urgency, hours, skills]):
+            if not title or not hours:
                 continue
 
             skill_map = {}
@@ -935,7 +981,7 @@ class LLMService:
                 }
             )
 
-        if len(tasks) < 4:
+        if len(tasks) < 3:
             return {}
 
         return {

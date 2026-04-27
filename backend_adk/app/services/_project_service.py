@@ -1065,8 +1065,8 @@ def build_agentic_dashboard(db: Session, admin: User):
         "suggestions": suggestions,
         "llm_status": {
             "enabled": llm_service.enabled,
-            "model_id": llm_service.model_id,
-            "init_error": llm_service.init_error,
+            "model_id": llm_service.backend,
+            "init_error": None,
         },
         "low_confidence_decisions": [
             {

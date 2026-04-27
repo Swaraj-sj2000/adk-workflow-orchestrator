@@ -48,6 +48,7 @@ export default function Dashboard({ role }) {
   const [aiIntakeBudget, setAiIntakeBudget] = useState('');
   const [aiIntakePriority, setAiIntakePriority] = useState('medium');
   const [aiIntakeDeadline, setAiIntakeDeadline] = useState('');
+  const [aiIntakeClientId, setAiIntakeClientId] = useState('');
   const [aiIntakeRunning, setAiIntakeRunning] = useState(false);
   const [aiIntakeResult, setAiIntakeResult] = useState(null);
 
@@ -327,6 +328,7 @@ export default function Dashboard({ role }) {
         persist_project: true,
       };
       if (aiIntakeDeadline) body.deadline = new Date(aiIntakeDeadline).toISOString();
+      if (aiIntakeClientId) body.client_id = parseInt(aiIntakeClientId);
       const res = await fetch(`${API}/multi-agent/workflows/intake`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -348,6 +350,7 @@ export default function Dashboard({ role }) {
     setAiIntakeBudget('');
     setAiIntakePriority('medium');
     setAiIntakeDeadline('');
+    setAiIntakeClientId('');
     setAiIntakeResult(null);
     setAiIntakeRunning(false);
   };
@@ -628,9 +631,20 @@ export default function Dashboard({ role }) {
                     </select>
                   </div>
                 </div>
-                <div className="form-group">
-                  <label>Deadline (optional)</label>
-                  <input type="date" value={aiIntakeDeadline} onChange={(e) => setAiIntakeDeadline(e.target.value)} disabled={aiIntakeRunning} />
+                <div className="intake-row">
+                  <div className="form-group">
+                    <label>Deadline (optional)</label>
+                    <input type="date" value={aiIntakeDeadline} onChange={(e) => setAiIntakeDeadline(e.target.value)} disabled={aiIntakeRunning} />
+                  </div>
+                  <div className="form-group">
+                    <label>Client (optional)</label>
+                    <select value={aiIntakeClientId} onChange={(e) => setAiIntakeClientId(e.target.value)} disabled={aiIntakeRunning}>
+                      <option value="">— No client —</option>
+                      {(dashboard?.clients || []).map(c => (
+                        <option key={c.id} value={c.id}>{c.full_name}{c.company_name ? ` (${c.company_name})` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button className="btn btn-secondary" onClick={closeAICreate} disabled={aiIntakeRunning}>Cancel</button>

@@ -524,3 +524,4 @@ details[open] > .project-collapse-summary::before {
 .intake-stat-value.risk-high { color: #dc2626; }
 .intake-stat-value.risk-medium { color: #d97706; }
 .intake-stat-value.risk-low { color: #16a34a; }
+.intake-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

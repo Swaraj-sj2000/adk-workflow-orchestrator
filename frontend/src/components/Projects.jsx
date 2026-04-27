@@ -17,15 +17,25 @@ export default function Projects({ role }) {
   const [intakeBudget, setIntakeBudget] = useState('');
   const [intakePriority, setIntakePriority] = useState('medium');
   const [intakeDeadline, setIntakeDeadline] = useState('');
+  const [intakeClientId, setIntakeClientId] = useState('');
   const [intakeRunning, setIntakeRunning] = useState(false);
   const [intakeResult, setIntakeResult] = useState(null);
+  const [clients, setClients] = useState([]);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
     fetchProjects();
+    if (role === 'admin') fetchClients();
   }, []);
+
+  const fetchClients = async () => {
+    try {
+      const res = await fetch(`${API}/projects/clients`, { headers });
+      if (res.ok) setClients(await res.json());
+    } catch (_) {}
+  };
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -148,6 +158,7 @@ export default function Projects({ role }) {
         persist_project: true,
       };
       if (intakeDeadline) body.deadline = new Date(intakeDeadline).toISOString();
+      if (intakeClientId) body.client_id = parseInt(intakeClientId);
 
       const res = await fetch(`${API}/multi-agent/workflows/intake`, {
         method: 'POST',
@@ -171,6 +182,7 @@ export default function Projects({ role }) {
     setIntakeBudget('');
     setIntakePriority('medium');
     setIntakeDeadline('');
+    setIntakeClientId('');
     setIntakeResult(null);
     setIntakeRunning(false);
   };
@@ -236,14 +248,25 @@ export default function Projects({ role }) {
                     </select>
                   </div>
                 </div>
-                <div className="form-group">
-                  <label>Deadline (optional)</label>
-                  <input
-                    type="date"
-                    value={intakeDeadline}
-                    onChange={(e) => setIntakeDeadline(e.target.value)}
-                    disabled={intakeRunning}
-                  />
+                <div className="intake-row">
+                  <div className="form-group">
+                    <label>Deadline (optional)</label>
+                    <input
+                      type="date"
+                      value={intakeDeadline}
+                      onChange={(e) => setIntakeDeadline(e.target.value)}
+                      disabled={intakeRunning}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Client (optional)</label>
+                    <select value={intakeClientId} onChange={(e) => setIntakeClientId(e.target.value)} disabled={intakeRunning}>
+                      <option value="">— No client —</option>
+                      {clients.map(c => (
+                        <option key={c.id} value={c.id}>{c.full_name}{c.company ? ` (${c.company})` : ''}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button className="btn btn-secondary" onClick={closeNewProject} disabled={intakeRunning}>Cancel</button>

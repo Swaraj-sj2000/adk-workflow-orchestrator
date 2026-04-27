@@ -56,6 +56,7 @@ class MultiAgentOrchestrator:
         priority: str = "medium",
         deadline: Optional[datetime] = None,
         persist_project: bool = False,
+        client_id: Optional[int] = None,
     ) -> WorkflowRun:
         logger.info(
             f"Starting intake workflow for user_id={requested_by}, "
@@ -72,6 +73,7 @@ class MultiAgentOrchestrator:
                 "priority": priority,
                 "deadline": deadline.isoformat() if deadline else None,
                 "persist_project": persist_project,
+                "client_id": client_id,
             },
             shared_context={"stages": ["intake", "planning", "staffing", "risk"]},
         )
@@ -86,6 +88,7 @@ class MultiAgentOrchestrator:
             "priority": priority,
             "deadline": deadline,
             "persist_project": persist_project,
+            "client_id": client_id,
             "workflow_run_id": workflow.id,
             "llm_service": self.llm_service,
         }
@@ -115,6 +118,7 @@ class MultiAgentOrchestrator:
                 priority=priority,
                 deadline=deadline,
                 tenant_id=_tenant_id,
+                client_id=client_id,
             )
             workflow.project_id = project.id
             shared_context["project_id"] = project.id
@@ -450,6 +454,7 @@ class MultiAgentOrchestrator:
         priority: str,
         deadline: Optional[datetime],
         tenant_id: Optional[int] = None,
+        client_id: Optional[int] = None,
     ) -> tuple[Project, Dict[int, int]]:
         from datetime import timedelta as _td
         approval_deadline = (datetime.utcnow() + _td(minutes=240)).isoformat()
@@ -458,6 +463,7 @@ class MultiAgentOrchestrator:
             description=execution_plan["project_summary"],
             admin_id=requested_by,
             tenant_id=tenant_id,
+            client_id=client_id,
             budget=budget,
             priority=priority,
             deadline=deadline,

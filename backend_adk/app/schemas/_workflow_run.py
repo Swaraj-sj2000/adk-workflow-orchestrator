@@ -12,6 +12,7 @@ class MultiAgentIntakeRequest(BaseModel):
     priority: str = "medium"
     deadline: Optional[datetime] = None
     persist_project: bool = False
+    client_id: Optional[int] = None
 
 
 class MultiAgentLoopRequest(BaseModel):

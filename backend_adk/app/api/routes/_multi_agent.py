@@ -28,6 +28,7 @@ def run_intake_workflow(
         priority=payload.priority,
         deadline=payload.deadline,
         persist_project=payload.persist_project,
+        client_id=payload.client_id,
     )
 
 

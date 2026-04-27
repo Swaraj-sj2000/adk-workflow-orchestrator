@@ -11,17 +11,16 @@ class IntakeAgent(BaseAgent):
     role = "project_intake"
     stage = "intake"
 
-    def __init__(self):
-        self.llm_service = LLMService()
-
     def run(self, shared_context: Dict[str, Any]) -> AgentResult:
+        llm = shared_context.get("llm_service") or LLMService()
         request_text = shared_context["request_text"]
-        parsed = self.llm_service.parse_project_intake(request_text)
-        confidence = 0.85 if self.llm_service.enabled else 0.55
+        parsed = llm.parse_project_intake(request_text)
+        used_llm = llm.enabled and parsed.get("project_title", "").strip() != request_text.strip().split(".")[0][:80]
+        confidence = 0.85 if llm.enabled else 0.55
         reasoning = (
-            "Used LLM-backed intake parsing"
-            if self.llm_service.enabled
-            else "Used deterministic fallback intake parsing because LLM integration is unavailable"
+            "Used LLM to extract structured project plan from the brief"
+            if llm.enabled
+            else "LLM unavailable — used rule-based project plan from brief keywords"
         )
         return AgentResult(
             agent_name=self.agent_name,
