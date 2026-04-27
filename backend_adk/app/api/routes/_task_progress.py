@@ -10,7 +10,7 @@ from app.models._task import Task
 from app.models._employee_profile import EmployeeProfile
 from app.models._task_assignment import TaskAssignment
 from app.models._task_progress import TaskProgress
-from app.schemas._task_progress import TaskProgressRead, TaskProgressUpdate
+from app.schemas._task_progress import TaskProgressRead, TaskProgressUpdate, ProofOfWorkSubmit
 from app.services._event_service import EventService, process_event_queue_batch_async
 
 router = APIRouter(prefix="/task-progress", tags=["Task Progress"])
@@ -79,4 +79,41 @@ def update_task_progress(
     )
     background_tasks.add_task(process_event_queue_batch_async, 1)
 
+    return progress
+
+
+@router.put("/{task_id}/proof", response_model=TaskProgressRead)
+def submit_proof_of_work(
+    task_id: int,
+    payload: ProofOfWorkSubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Employee submits proof of work for a subtask (optional checkpoint)."""
+    task = db.query(Task).filter(Task.id == task_id, Task.tenant_id == current_user.tenant_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if current_user.role == "employee":
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == current_user.id).first()
+        assignment = db.query(TaskAssignment).filter(
+            TaskAssignment.task_id == task_id,
+            TaskAssignment.employee_id == (profile.id if profile else -1)
+        ).first()
+        if not assignment:
+            raise HTTPException(status_code=403, detail="Not assigned to this task")
+
+    progress = db.query(TaskProgress).filter(TaskProgress.task_id == task_id).first()
+    if not progress:
+        progress = TaskProgress(task_id=task_id)
+        db.add(progress)
+        db.flush()
+
+    if payload.proof_note is not None:
+        progress.proof_note = payload.proof_note
+    if payload.proof_url is not None:
+        progress.proof_url = payload.proof_url
+
+    db.commit()
+    db.refresh(progress)
     return progress

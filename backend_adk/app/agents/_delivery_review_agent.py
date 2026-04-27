@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.agents._base import AgentResult, BaseAgent
 from app.core._logging import get_logger
+from app.models._task import Task
+from app.models._task_progress import TaskProgress
 from app.services._monitoring_service import MonitoringService
 
 logger = get_logger(__name__)
@@ -22,9 +24,32 @@ class DeliveryReviewAgent(BaseAgent):
     def run(self, shared_context: Dict[str, Any]) -> AgentResult:
         project_id = shared_context["project_id"]
         llm_service = shared_context.get("llm_service")
+        db: Session = shared_context.get("db") or self.monitoring_service.db
 
         health = self.monitoring_service.check_project_health(project_id)
         risk_summary = self.monitoring_service.get_risk_summary(project_id)
+
+        # Collect proof-of-work evidence for completed subtasks
+        proof_items = []
+        if db:
+            subtasks_with_proof = (
+                db.query(Task, TaskProgress)
+                .join(TaskProgress, TaskProgress.task_id == Task.id)
+                .filter(
+                    Task.project_id == project_id,
+                    Task.parent_task_id.isnot(None),
+                    Task.status == "done",
+                )
+                .all()
+            )
+            for task, progress in subtasks_with_proof:
+                if progress.proof_note or progress.proof_url:
+                    proof_items.append({
+                        "task_id": task.id,
+                        "task": task.description,
+                        "proof_note": progress.proof_note,
+                        "proof_url": progress.proof_url,
+                    })
 
         blockers = []
         for item in health.get("blocked_tasks", []):
@@ -49,6 +74,7 @@ class DeliveryReviewAgent(BaseAgent):
                 "needs_intervention": risk_summary.get("needs_intervention"),
                 "active_risks": risk_summary.get("risks", [])[:5],
             },
+            "proof_of_work": proof_items,
         }
 
         llm_result: Dict[str, Any] = {}
@@ -75,6 +101,7 @@ class DeliveryReviewAgent(BaseAgent):
             "health": health,
             "risk_summary": risk_summary,
             "delivery_blockers": blockers,
+            "proof_of_work": proof_items,
             "llm_narrative": llm_result.get("narrative", ""),
             "llm_health_status": llm_result.get("health_status", ""),
             "priority_actions": llm_result.get("priority_actions", []),

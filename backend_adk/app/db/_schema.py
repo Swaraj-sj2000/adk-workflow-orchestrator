@@ -51,6 +51,7 @@ def _additive_columns(engine):
             "duty_start_hour": "FLOAT",
             "duty_end_hour": "FLOAT",
             "deleted_at": ts,
+            "demonstrated_skills": "TEXT",
         },
         "client_profiles": {
             "tenant_id": "INTEGER",
@@ -61,6 +62,10 @@ def _additive_columns(engine):
             "google_calendar_email": "VARCHAR",
             "onboarding_complete": "INTEGER DEFAULT 0",
             "currency": "VARCHAR DEFAULT 'USD'",
+        },
+        "task_progress": {
+            "proof_note": "TEXT",
+            "proof_url": "VARCHAR",
         },
         "tenant_settings": {
             "max_teams": "INTEGER DEFAULT 1",

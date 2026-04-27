@@ -91,6 +91,7 @@ class MultiAgentOrchestrator:
             "client_id": client_id,
             "workflow_run_id": workflow.id,
             "llm_service": self.llm_service,
+            "db": self.db,
         }
 
         intake_result = IntakeAgent().run(shared_context)

@@ -274,22 +274,43 @@ class AssignmentEngine:
     def _calculate_skill_match(self, employee: EmployeeProfile, task: Task) -> float:
         """
         Calculate how well employee's skills match task requirements.
-        Returns 0-1 score. Applies alias normalisation so LLM-generated skill
-        names (e.g. 'machine_learning') resolve to profile keys (e.g. 'llm').
+        Blends declared skills (70%) with demonstrated skills from completed
+        tasks (30%) so proven performance influences assignment.
         """
         if not task.required_skills:
             return 1.0
 
-        employee_skills = employee.skills or {}
+        import json
+        declared_skills: dict = employee.skills or {}
+        raw_demo = employee.demonstrated_skills
+        if isinstance(raw_demo, str):
+            try:
+                demonstrated_skills: dict = json.loads(raw_demo)
+            except Exception:
+                demonstrated_skills = {}
+        else:
+            demonstrated_skills = dict(raw_demo) if raw_demo else {}
 
         matched_skills = []
         for required_skill, required_level in task.required_skills.items():
             canonical = self._normalise_skill(required_skill)
-            # Try exact first, then canonical alias
-            employee_level = employee_skills.get(required_skill) or employee_skills.get(canonical)
-            if employee_level is not None:
-                skill_score = 1.0 - abs(float(employee_level) - float(required_level))
-                matched_skills.append(max(0.0, skill_score))
+            declared_level = declared_skills.get(required_skill) or declared_skills.get(canonical)
+            demo_entry = demonstrated_skills.get(required_skill) or demonstrated_skills.get(canonical)
+            demo_level = demo_entry["score"] if isinstance(demo_entry, dict) else demo_entry
+
+            if declared_level is None and demo_level is None:
+                continue
+
+            # Blend: if both available, weight declared 70% / demonstrated 30%
+            if declared_level is not None and demo_level is not None:
+                blended = 0.7 * float(declared_level) + 0.3 * float(demo_level)
+            elif demo_level is not None:
+                blended = float(demo_level)
+            else:
+                blended = float(declared_level)
+
+            skill_score = 1.0 - abs(blended - float(required_level))
+            matched_skills.append(max(0.0, skill_score))
 
         if not matched_skills:
             return 0.0

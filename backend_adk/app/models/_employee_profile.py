@@ -17,6 +17,10 @@ class EmployeeProfile(Base):
     availability_status = Column(String, default="available")  # available / on-leave / busy
     duty_start_hour = Column(Float, nullable=True, default=9.0)
     duty_end_hour = Column(Float, nullable=True, default=18.0)
+    # Skill growth: tracks confidence scores from completed tasks
+    # {"python": {"score": 0.85, "tasks_done": 5, "last_updated": "2026-01-01"}}
+    demonstrated_skills = Column(JSON, nullable=True, default={})
+
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)
 
