@@ -32,8 +32,10 @@ class LoggerConfig:
         )
         self.date_format = "%Y-%m-%d %H:%M:%S"
         
-        # Create log directory only when file logging is enabled and not stdout-only mode
-        if self.log_file_enabled and not self.log_to_stdout:
+        # Disable file logging when running in stdout-only mode (e.g. Cloud Run)
+        if self.log_to_stdout:
+            self.log_file_enabled = False
+        elif self.log_file_enabled:
             try:
                 self.log_dir.mkdir(parents=True, exist_ok=True)
             except PermissionError:
