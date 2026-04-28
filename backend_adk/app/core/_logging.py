@@ -32,9 +32,12 @@ class LoggerConfig:
         )
         self.date_format = "%Y-%m-%d %H:%M:%S"
         
-        # Create log directory if file logging is enabled
-        if self.log_file_enabled:
-            self.log_dir.mkdir(parents=True, exist_ok=True)
+        # Create log directory only when file logging is enabled and not stdout-only mode
+        if self.log_file_enabled and not self.log_to_stdout:
+            try:
+                self.log_dir.mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                self.log_file_enabled = False
         
         # Track configured loggers to avoid duplicate handlers
         self._configured_loggers = set()
