@@ -43,7 +43,7 @@ from app.services._llm_service import LLMService
 from app.schemas._project import ProjectCreate
 
 
-DEFAULT_APPROVAL_WINDOW_MINUTES = 5
+DEFAULT_APPROVAL_WINDOW_MINUTES = 4320  # 72 hours
 EXPERIENCE_GRADE_THRESHOLDS = (
     (0, "Starter"),
     (120, "Contributor"),
@@ -1261,6 +1261,13 @@ def handle_team_approval(db: Session, project_id: int, approved: bool, note: Opt
         return build_project_status(db, project.id, viewer=actor)
     if not approved and meta.get("approval_status") == "rejected":
         return build_project_status(db, project.id, viewer=actor)
+    # Allow admin to approve even from escalated state (undo auto-escalation)
+    if meta.get("approval_status") == "escalated":
+        meta["approval_status"] = "awaiting-admin-approval"
+        meta["admin_followup_created"] = False
+        meta["approval_deadline"] = (_utcnow() + timedelta(hours=72)).isoformat()
+        project.status = "planning"
+        project.custom_fields = meta
     meta["approval_response_note"] = note
     meta["approval_acted_at"] = _utcnow().isoformat()
     llm_service = LLMService()

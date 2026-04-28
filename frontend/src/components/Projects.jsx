@@ -669,8 +669,13 @@ export default function Projects({ role }) {
                 </div>
               )}
 
-              {role === 'admin' && selectedProject.approval_status === 'awaiting-admin-approval' && (
+              {role === 'admin' && (selectedProject.approval_status === 'awaiting-admin-approval' || selectedProject.approval_status === 'escalated') && (
                 <div className="project-card-actions">
+                  {selectedProject.approval_status === 'escalated' && (
+                    <p style={{ fontSize: '0.8rem', color: '#b45309', margin: '0 0 8px' }}>
+                      ⚠ Approval window expired — you can still approve or reject the draft team below.
+                    </p>
+                  )}
                   <button className="btn btn-primary" onClick={() => updateApproval(selectedProject.id, true)} disabled={Boolean(actionKey)}>
                     {actionKey === `approve-${selectedProject.id}` ? 'Approving...' : 'Approve Team Plan'}
                   </button>
