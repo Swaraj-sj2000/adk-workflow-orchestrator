@@ -1691,6 +1691,8 @@ gcloud run deploy orchestrator-backend \
   --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
   --set-env-vars "LOG_TO_STDOUT=true,GOOGLE_CLOUD_LOCATION=europe-west1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=havoc-ai-prod" \
   --set-secrets "SECRET_KEY=backend-secret-key:latest,DATABASE_URL=database-url:latest"
+# NOTE: ignore the "Service URL" printed above — get the real URL:
+echo "Backend: $(gcloud run services describe orchestrator-backend --region europe-west1 --format 'value(status.url)')"
 
 # Frontend
 cd ../frontend
@@ -1699,6 +1701,8 @@ gcloud run deploy orchestrator-frontend \
   --region europe-west1 \
   --allow-unauthenticated \
   --set-build-env-vars VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
+# NOTE: ignore the "Service URL" printed above — get the real URL:
+echo "Frontend: $(gcloud run services describe orchestrator-frontend --region europe-west1 --format 'value(status.url)')"
 ```
 
 ### Schema migrations
