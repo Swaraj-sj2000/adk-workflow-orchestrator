@@ -178,7 +178,7 @@ TENANTS = [
         "industry": "SaaS / AI",
         "hq": "Bengaluru, India",
         "plan_tier": "pro",
-        "totp_for_ceo": True,
+        "totp_secret": "IXPVAG5BBGKUTTSLVRY6QH2QV6SPQOIM",
         "ceo": {
             "email": "priya.sharma@technova.ai",
             "password": "CEO_Secure#88",
@@ -239,7 +239,7 @@ TENANTS = [
         "industry": "Data & Analytics",
         "hq": "San Francisco, USA",
         "plan_tier": "enterprise",
-        "totp_for_ceo": True,
+        "totp_secret": "T7OJGVGPKQPNM6PWPHAMDT5LAM2GD6S4",
         "ceo": {
             "email": "alex.turner@datasphere.io",
             "password": "CEO_Secure#DS88",
@@ -298,7 +298,7 @@ TENANTS = [
         "industry": "Infrastructure Technology",
         "hq": "London, UK",
         "plan_tier": "pro",
-        "totp_for_ceo": True,
+        "totp_secret": "RCD6XQDFCGCO3EWZ3H5EXFLWHD4XIRNQ",
         "ceo": {
             "email": "james.obrien@buildright.co",
             "password": "CEO_Secure#BR88",
@@ -355,7 +355,7 @@ TENANTS = [
         "industry": "Healthcare Technology",
         "hq": "Singapore",
         "plan_tier": "enterprise",
-        "totp_for_ceo": True,
+        "totp_secret": "DWH2YPZBCWJHUEJA3R56XGNFNZL76P3F",
         "ceo": {
             "email": "sarah.kim@healthsync.sg",
             "password": "CEO_Secure#HS88",
@@ -601,7 +601,7 @@ def seed_tenant(db, spec):
     _ensure_tenant_settings(db, tenant.id, plan_tier=plan_tier)
 
     # CEO
-    totp_secret = pyotp.random_base32() if spec.get("totp_for_ceo") else None
+    totp_secret = spec.get("totp_secret") or (pyotp.random_base32() if spec.get("totp_for_ceo") else None)
     ceo_data    = spec["ceo"]
     ceo, _      = _upsert_user(
         db,
