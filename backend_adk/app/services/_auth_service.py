@@ -256,11 +256,6 @@ def login_user(db: Session, email: str, password: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Please verify your email address before logging in")
 
-    # 2FA gate — issue a short-lived challenge token instead of a full session
-    if getattr(user, "totp_enabled", False):
-        mfa_token = create_mfa_session_token(user.id)
-        return {"requires_2fa": True, "mfa_session_token": mfa_token}
-
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
     access_token = create_access_token(
         {"user_id": user.id, "role": user.role, "tenant_id": user.tenant_id, "email": user.email}
