@@ -239,7 +239,7 @@ TENANTS = [
         "industry": "Data & Analytics",
         "hq": "San Francisco, USA",
         "plan_tier": "enterprise",
-        "totp_for_ceo": False,
+        "totp_for_ceo": True,
         "ceo": {
             "email": "alex.turner@datasphere.io",
             "password": "CEO_Secure#DS88",
@@ -298,7 +298,7 @@ TENANTS = [
         "industry": "Infrastructure Technology",
         "hq": "London, UK",
         "plan_tier": "pro",
-        "totp_for_ceo": False,
+        "totp_for_ceo": True,
         "ceo": {
             "email": "james.obrien@buildright.co",
             "password": "CEO_Secure#BR88",
@@ -355,7 +355,7 @@ TENANTS = [
         "industry": "Healthcare Technology",
         "hq": "Singapore",
         "plan_tier": "enterprise",
-        "totp_for_ceo": False,
+        "totp_for_ceo": True,
         "ceo": {
             "email": "sarah.kim@healthsync.sg",
             "password": "CEO_Secure#HS88",
