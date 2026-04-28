@@ -364,11 +364,13 @@ class LLMService:
                 content=(
                     f"Decision type: {decision_type}\n"
                     f"Audience: {audience}\n"
-                    "Return a concise decision memo with:\n"
-                    "- recommendation\n"
-                    "- why this is recommended\n"
-                    "- what to watch next\n\n"
-                    f"Context JSON:\n{json.dumps(context)}"
+                    "Write a short, direct decision briefing in plain prose. "
+                    "Do NOT use document headers, placeholders like [Your Name] or [Date], or formal memo structure. "
+                    "Write as if you are speaking directly to the reader right now. Use this structure:\n"
+                    "**Recommendation:** one clear sentence.\n"
+                    "**Why:** 2-3 bullet points explaining the rationale.\n"
+                    "**Watch for:** 2-3 bullet points on risks or next actions.\n\n"
+                    f"Context:\n{json.dumps(context)}"
                 )
             ),
         ]
