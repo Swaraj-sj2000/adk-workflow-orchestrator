@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
@@ -615,6 +616,7 @@ def create_project(db: Session, payload: ProjectCreate, admin: User):
     project.custom_fields["team_id"] = team.id
 
     _seed_project_plan(db, project, planning_packet, role_clusters)
+    _auto_extend_deadline_if_needed(db, project, role_clusters)
     _log_project_intake(db, project, client_report, recommended_team)
     _notify_client_on_project_start(db, project, client)
 
@@ -1891,6 +1893,67 @@ def _update_client_profile(client: ClientProfile, payload: ProjectCreate):
             client.user.full_name = payload.client_user_full_name
         if payload.client_user_password:
             client.user.password = hash_password(payload.client_user_password)
+
+
+def _auto_extend_deadline_if_needed(db: Session, project: Project, role_clusters: List[Dict[str, Any]]) -> None:
+    """
+    After tasks are seeded, check if the deadline is achievable.
+    If total task hours exceed team capacity × available days, extend the deadline
+    automatically and log it as a project notification.
+    """
+    now = _utcnow()
+    deadline = _normalize_datetime(project.deadline)
+    if not deadline or deadline <= now:
+        return
+
+    top_level_tasks = [t for t in project.tasks if t.parent_task_id is None]
+    total_hours = sum(float(t.estimated_time or 0) for t in top_level_tasks)
+    if total_hours <= 0:
+        return
+
+    team_size = max(1, sum(c.get("suggested_headcount", 1) for c in role_clusters))
+    # Assume 6 productive hours per person per day
+    daily_team_capacity = team_size * 6.0
+    required_days = math.ceil(total_hours / daily_team_capacity)
+    available_days = (deadline - now).days
+
+    if required_days <= available_days:
+        return  # deadline is achievable, nothing to do
+
+    # Add 15% buffer on top of the calculated requirement
+    extended_days = math.ceil(required_days * 1.15)
+    new_deadline = now + timedelta(days=extended_days)
+    original_deadline_str = deadline.strftime("%Y-%m-%d")
+    project.deadline = new_deadline
+
+    meta = _project_meta(project)
+    meta.setdefault("deadline_extensions", []).append({
+        "original_deadline": original_deadline_str,
+        "extended_to": new_deadline.strftime("%Y-%m-%d"),
+        "reason": (
+            f"Agent-calculated: {total_hours:.0f}h of work across {team_size} team members "
+            f"requires ~{required_days} days but only {available_days} days were available. "
+            f"Deadline extended with 15% buffer."
+        ),
+        "extended_at": now.isoformat(),
+        "extended_by": "intake_agent",
+    })
+    _append_notification(
+        meta,
+        kind="deadline",
+        title="Deadline auto-adjusted by intake agent",
+        message=(
+            f"Original deadline {original_deadline_str} was not achievable "
+            f"({total_hours:.0f}h work / {team_size} members = {required_days} days needed). "
+            f"New deadline: {new_deadline.strftime('%Y-%m-%d')}."
+        ),
+        actor="intake_agent",
+    )
+    project.custom_fields = meta
+    logger.info(
+        "Deadline extended: project_id=%s from %s to %s (required=%dd, available=%dd)",
+        project.id, original_deadline_str, new_deadline.strftime("%Y-%m-%d"), required_days, available_days,
+    )
 
 
 def _seed_project_plan(db: Session, project: Project, planning_packet: Dict, role_clusters: List[Dict[str, Any]]):

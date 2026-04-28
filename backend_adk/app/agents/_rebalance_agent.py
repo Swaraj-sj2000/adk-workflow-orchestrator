@@ -1,5 +1,7 @@
 # app/agents/_rebalance_agent.py
 
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.agents._base import AgentResult, BaseAgent
 from app.core._logging import get_logger
 from app.models._employee_profile import EmployeeProfile
+from app.models._project import Project
 from app.models._task import Task
 from app.models._task_assignment import TaskAssignment
 from app.services._assignment_engine import AssignmentEngine
@@ -102,6 +105,9 @@ class RebalanceAgent(BaseAgent):
             reasoning = "Rule-based workload evaluation (LLM unavailable)"
             confidence = 0.8 if not suggestions else 0.72
 
+        # ── Velocity-based deadline check ──────────────────────────────────
+        deadline_extension = self._check_deadline_feasibility(project_id, tasks)
+
         output_payload = {
             "reassignment_suggestions": suggestions,
             "unassigned_active_tasks": unassigned,
@@ -118,6 +124,7 @@ class RebalanceAgent(BaseAgent):
                 "deficit_hours": max(0, total_unassigned_hours - available_capacity),
                 "overloaded_count": len(overloaded),
             },
+            "deadline_extension": deadline_extension,
         }
 
         return AgentResult(
@@ -129,3 +136,94 @@ class RebalanceAgent(BaseAgent):
             output_payload=output_payload,
             requires_human_review=bool(unassigned) or llm_result.get("admin_alert", False),
         )
+
+    def _check_deadline_feasibility(self, project_id: int, tasks: List) -> Dict[str, Any]:
+        """
+        Velocity-based deadline check. If the projected completion date exceeds
+        the project deadline, auto-extend the deadline and log the extension.
+        """
+        project = self.db.query(Project).filter(Project.id == project_id).first()
+        if not project or not project.deadline:
+            return {"extended": False, "reason": "No deadline set"}
+
+        now = datetime.now(timezone.utc)
+        deadline = project.deadline if project.deadline.tzinfo else project.deadline.replace(tzinfo=timezone.utc)
+        created_at = project.created_at if project.created_at and project.created_at.tzinfo else (
+            project.created_at.replace(tzinfo=timezone.utc) if project.created_at else now
+        )
+
+        total_tasks = len(tasks)
+        completed_tasks = sum(1 for t in tasks if t.status in ("done", "completed", "closed"))
+        remaining_tasks = total_tasks - completed_tasks
+
+        if total_tasks == 0 or remaining_tasks == 0:
+            return {"extended": False, "reason": "No remaining tasks"}
+
+        elapsed_days = max((now - created_at).total_seconds() / 86400, 1.0)
+        velocity = completed_tasks / elapsed_days  # tasks per day
+
+        if velocity <= 0:
+            # No velocity yet — estimate from team size and task hours
+            total_hours = sum(t.estimated_time or 0 for t in tasks if t.status not in ("done", "completed", "closed"))
+            tenant_id = tasks[0].tenant_id if tasks else None
+            if tenant_id:
+                employees = self.db.query(EmployeeProfile).filter(
+                    EmployeeProfile.tenant_id == tenant_id,
+                ).count()
+            else:
+                employees = 1
+            daily_team_capacity = max(employees, 1) * 6  # 6 productive hours per person per day
+            avg_task_hours = total_hours / max(remaining_tasks, 1)
+            velocity = daily_team_capacity / max(avg_task_hours, 1)
+
+        projected_days = remaining_tasks / max(velocity, 0.01)
+        projected_completion = now + timedelta(days=projected_days)
+
+        if projected_completion <= deadline:
+            return {
+                "extended": False,
+                "original_deadline": deadline.isoformat(),
+                "projected_completion": projected_completion.isoformat(),
+                "reason": "On track — projected completion within deadline",
+            }
+
+        # Need to extend: buffer = 15%
+        required_days = math.ceil(projected_days * 1.15)
+        new_deadline = now + timedelta(days=required_days)
+        days_extended = (new_deadline - deadline).days
+
+        # Persist the new deadline
+        project.deadline = new_deadline
+
+        # Record the extension in custom_fields
+        meta = dict(project.custom_fields or {})
+        extensions = meta.get("deadline_extensions", [])
+        extensions.append({
+            "extended_at": now.isoformat(),
+            "original_deadline": deadline.isoformat(),
+            "new_deadline": new_deadline.isoformat(),
+            "days_extended": days_extended,
+            "reason": f"Velocity-based: projected completion {projected_completion.date()} > deadline {deadline.date()}",
+            "agent": "rebalance_agent",
+        })
+        meta["deadline_extensions"] = extensions
+        project.custom_fields = meta
+
+        self.db.commit()
+
+        logger.info(
+            f"RebalanceAgent extended deadline for project_id={project_id}: "
+            f"+{days_extended}d (velocity={velocity:.2f} tasks/day, remaining={remaining_tasks})"
+        )
+
+        return {
+            "extended": True,
+            "original_deadline": deadline.isoformat(),
+            "new_deadline": new_deadline.isoformat(),
+            "days_extended": days_extended,
+            "projected_completion": projected_completion.isoformat(),
+            "reason": (
+                f"Projected completion ({projected_completion.date()}) exceeded deadline "
+                f"({deadline.date()}). Extended by {days_extended} days."
+            ),
+        }
