@@ -262,9 +262,9 @@ agentic_orchestrator/
 ## Deployment
 
 ### Live URLs
-- **Frontend:** `https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app`
-- **Backend API:** Cloud Run service `agentic-orchestrator-backend` (europe-west1)
-- **API Docs:** `{backend-url}/docs`
+- **Frontend:** `https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app`
+- **Backend API:** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app`
+- **API Docs:** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs`
 - **GCP Project:** `havoc-ai-prod`
 - **Billing account:** `01E336-987ED9-6B9D22`
 
@@ -272,27 +272,25 @@ agentic_orchestrator/
 ```bash
 # In Cloud Shell — clone if needed
 git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
-cd agentic_orchestrator
+cd agentic_orchestrator && git pull origin main
 
-git pull origin main
-
-# Backend
+# Backend (--source handles build + push automatically)
 cd backend_adk
-gcloud builds submit \
-  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
-  --project havoc-ai-prod
-gcloud run deploy agentic-orchestrator-backend \
-  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
-  --region europe-west1 --project havoc-ai-prod
+gcloud run deploy orchestrator-backend \
+  --source . \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
+  --set-env-vars "LOG_TO_STDOUT=true,GOOGLE_CLOUD_LOCATION=europe-west1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=havoc-ai-prod" \
+  --set-secrets "SECRET_KEY=backend-secret-key:latest,DATABASE_URL=database-url:latest"
 
 # Frontend
 cd ../frontend
-gcloud builds submit \
-  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
-  --project havoc-ai-prod
-gcloud run deploy agentic-orchestrator-frontend \
-  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
-  --region europe-west1 --project havoc-ai-prod --allow-unauthenticated
+gcloud run deploy orchestrator-frontend \
+  --source . \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --set-build-env-vars VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
 ```
 
 ### Schema migrations

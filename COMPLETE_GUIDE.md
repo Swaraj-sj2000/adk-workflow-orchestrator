@@ -750,7 +750,7 @@ error_message String nullable
 
 ## 7. API Endpoints — Complete Map
 
-**Base URL (prod):** `https://backend-adk-974381609416.europe-west1.run.app`
+**Base URL (prod):** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app`
 **Base URL (local):** `http://localhost:8001`
 **Auth header:** `Authorization: Bearer <JWT>` on all protected routes
 **Paginated list responses:** `{"items": [...], "total": int, "skip": int, "limit": int}`
@@ -1347,9 +1347,9 @@ DATABASE_URL=postgresql://orchestrator_user:<password>@/orchestrator?host=/cloud
 ```
 GCP Project:    havoc-ai-prod
 Region:         europe-west1
-Backend URL:    https://backend-adk-974381609416.europe-west1.run.app
-Frontend URL:   https://frontend-974381609416.europe-west1.run.app
-API Docs:       https://backend-adk-974381609416.europe-west1.run.app/docs
+Backend URL:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
+Frontend URL:   https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+API Docs:       https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
 Cloud SQL:      havoc-ai-prod:europe-west1:orchestrator-sql
 DB Name:        orchestrator
 DB User:        orchestrator_user
@@ -1669,12 +1669,11 @@ Monday 9am UTC (scheduler job "weekly_digest"):
 
 ### Live URLs (production)
 ```
-Frontend:   https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
-Backend:    Cloud Run service agentic-orchestrator-backend (europe-west1)
-API Docs:   {backend-url}/docs
+Frontend:    https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+Backend:     https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
+API Docs:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
 GCP project: havoc-ai-prod
-Billing:    01E336-987ED9-6B9D22
-Artifact Registry: europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/
+Billing:     01E336-987ED9-6B9D22
 ```
 
 ### Deploy from Cloud Shell (manual)
@@ -1683,23 +1682,23 @@ Artifact Registry: europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-de
 git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
 cd agentic_orchestrator && git pull origin main
 
-# Backend
+# Backend (--source handles build + Artifact Registry push automatically)
 cd backend_adk
-gcloud builds submit \
-  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
-  --project havoc-ai-prod
-gcloud run deploy agentic-orchestrator-backend \
-  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-backend \
-  --region europe-west1 --project havoc-ai-prod
+gcloud run deploy orchestrator-backend \
+  --source . \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
+  --set-env-vars "LOG_TO_STDOUT=true,GOOGLE_CLOUD_LOCATION=europe-west1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=havoc-ai-prod" \
+  --set-secrets "SECRET_KEY=backend-secret-key:latest,DATABASE_URL=database-url:latest"
 
 # Frontend
 cd ../frontend
-gcloud builds submit \
-  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
-  --project havoc-ai-prod
-gcloud run deploy agentic-orchestrator-frontend \
-  --image europe-west1-docker.pkg.dev/havoc-ai-prod/cloud-run-source-deploy/agentic-orchestrator-frontend \
-  --region europe-west1 --project havoc-ai-prod --allow-unauthenticated
+gcloud run deploy orchestrator-frontend \
+  --source . \
+  --region europe-west1 \
+  --allow-unauthenticated \
+  --set-build-env-vars VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
 ```
 
 ### Schema migrations
@@ -1716,21 +1715,21 @@ ENVIRONMENT                  production
 SENDGRID_API_KEY             <sendgrid key>
 EMAIL_FROM                   no-reply@yourdomain.com
 EMAIL_FROM_NAME              AI Workforce Orchestrator
-FRONTEND_URL                 https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
+FRONTEND_URL                 https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
 PLATFORM_OWNER_EMAIL         <owner email>
 STRIPE_SECRET_KEY            <stripe secret>
 STRIPE_WEBHOOK_SECRET        <webhook secret>
 STRIPE_STARTER_PRICE_ID      <price_id>
 STRIPE_GROWTH_PRICE_ID       <price_id>
 STRIPE_ENTERPRISE_PRICE_ID   <price_id>
-ALLOWED_ORIGINS              https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app
+ALLOWED_ORIGINS              https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
 GOOGLE_CLOUD_PROJECT         havoc-ai-prod
 GOOGLE_CLOUD_LOCATION        us-central1
 GOOGLE_GENAI_USE_VERTEXAI    true
 GRACE_PERIOD_DAYS            7
 GOOGLE_CLIENT_ID             <oauth client id>
 GOOGLE_CLIENT_SECRET         <oauth client secret>
-GOOGLE_REDIRECT_URI          https://agentic-orchestrator-frontend-974381609416.europe-west1.run.app/integrations/google/callback
+GOOGLE_REDIRECT_URI          https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app/integrations/google/callback
 ```
 
 ### Docker Images
