@@ -27,6 +27,9 @@ export default function Projects({ role }) {
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
+  const currentUserEmail = (() => {
+    try { return JSON.parse(atob(token.split('.')[1])).sub || ''; } catch { return ''; }
+  })();
 
   useEffect(() => {
     fetchProjects();
@@ -306,9 +309,15 @@ export default function Projects({ role }) {
                   </button>
                 </div>
                 {intakeRunning && (
-                  <p className="modal-hint">
-                    Running intake → planning → staffing → risk → execution pipeline. This takes ~30–90 seconds.
-                  </p>
+                  <div className="action-loading-bar-wrap" style={{ marginTop: '1rem' }}>
+                    <div className="action-loading-label">
+                      <div className="action-loading-spinner" />
+                      Running intake → planning → staffing → risk → execution pipeline…
+                    </div>
+                    <div className="action-loading-track">
+                      <div className="action-loading-fill" />
+                    </div>
+                  </div>
                 )}
               </div>
             ) : intakeResult.error ? (
@@ -451,6 +460,17 @@ export default function Projects({ role }) {
                       </button>
                     )}
                   </div>
+                  {actionKey && (actionKey.includes(`-${project.id}`)) && (
+                    <div className="action-loading-bar-wrap">
+                      <div className="action-loading-label">
+                        <div className="action-loading-spinner" />
+                        {actionKey.startsWith('approve') ? 'Approving team plan…' : actionKey.startsWith('delete') ? 'Deleting project…' : 'Processing…'}
+                      </div>
+                      <div className="action-loading-track">
+                        <div className="action-loading-fill" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </details>
             </article>
@@ -577,13 +597,25 @@ export default function Projects({ role }) {
 
                   <h3>Team Invite Status</h3>
                   <div className="people-list">
-                    {(selectedProject.team_invites || []).map((invite) => (
-                      <div key={`${invite.invite_id || invite.email}-${invite.title || invite.email}`} className="person-chip">
-                        <strong>{invite.name}</strong>
-                        <span>{invite.title || invite.email}</span>
-                        <span>{invite.status}</span>
-                      </div>
-                    ))}
+                    {role === 'admin'
+                      ? (selectedProject.team_invites || []).map((invite) => (
+                          <div key={`${invite.invite_id || invite.email}-${invite.title || invite.email}`} className="person-chip">
+                            <strong>{invite.name}</strong>
+                            <span>{invite.title || invite.email}</span>
+                            <span>{invite.status}</span>
+                          </div>
+                        ))
+                      : (() => {
+                          const myInvite = (selectedProject.team_invites || []).find(i => i.email === currentUserEmail);
+                          return myInvite ? (
+                            <div className="person-chip">
+                              <strong>{myInvite.name}</strong>
+                              <span>{myInvite.title}</span>
+                              <span>{myInvite.status}</span>
+                            </div>
+                          ) : <p style={{ color: '#6b7280', fontSize: '0.85rem' }}>No active invite for your account.</p>;
+                        })()
+                    }
                   </div>
 
                   <h3>Add Team Member By Email</h3>
@@ -633,7 +665,7 @@ export default function Projects({ role }) {
                       <div key={member.employee_id} className="person-chip">
                         <strong>{member.name}</strong>
                         <span>{member.title}</span>
-                        <span>{member.workload_percent}% workload</span>
+                        {role === 'admin' && <span>{member.workload_percent}% workload</span>}
                       </div>
                     ))}
                   </div>
