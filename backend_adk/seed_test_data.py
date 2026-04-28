@@ -178,7 +178,6 @@ TENANTS = [
         "industry": "SaaS / AI",
         "hq": "Bengaluru, India",
         "plan_tier": "pro",
-        "totp_secret": "IXPVAG5BBGKUTTSLVRY6QH2QV6SPQOIM",
         "ceo": {
             "email": "priya.sharma@technova.ai",
             "password": "CEO_Secure#88",
@@ -239,7 +238,6 @@ TENANTS = [
         "industry": "Data & Analytics",
         "hq": "San Francisco, USA",
         "plan_tier": "enterprise",
-        "totp_secret": "T7OJGVGPKQPNM6PWPHAMDT5LAM2GD6S4",
         "ceo": {
             "email": "alex.turner@datasphere.io",
             "password": "CEO_Secure#DS88",
@@ -298,7 +296,6 @@ TENANTS = [
         "industry": "Infrastructure Technology",
         "hq": "London, UK",
         "plan_tier": "pro",
-        "totp_secret": "RCD6XQDFCGCO3EWZ3H5EXFLWHD4XIRNQ",
         "ceo": {
             "email": "james.obrien@buildright.co",
             "password": "CEO_Secure#BR88",
@@ -355,7 +352,6 @@ TENANTS = [
         "industry": "Healthcare Technology",
         "hq": "Singapore",
         "plan_tier": "enterprise",
-        "totp_secret": "DWH2YPZBCWJHUEJA3R56XGNFNZL76P3F",
         "ceo": {
             "email": "sarah.kim@healthsync.sg",
             "password": "CEO_Secure#HS88",
