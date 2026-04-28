@@ -164,7 +164,7 @@ class AssignmentEngine:
         """Get employees available to take this task, scoped to the task's tenant."""
         query = self.db.query(EmployeeProfile).filter(
             EmployeeProfile.availability_status == "available",
-            EmployeeProfile.current_load < EmployeeProfile.max_capacity,
+            EmployeeProfile.current_load < EmployeeProfile.max_capacity * 1.5,
         )
         # Always restrict candidates to the same tenant as the task.
         # This prevents cross-tenant employee assignment (C3).

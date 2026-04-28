@@ -2249,10 +2249,14 @@ def _pick_employee_for_task(task: Task, employees: List[EmployeeProfile], index:
     best_score = None
 
     for employee in employees:
+        capacity = float(employee.max_capacity or 40.0)
+        load = float(employee.current_load or 0.0)
+        # Drop role bonus if employee is already over capacity — force redistribution
+        overloaded = load >= capacity
         employee_skills = employee.skills or {}
-        role_bonus = 1.0 if required_role and _title_from_employee(employee) == required_role else 0.0
+        role_bonus = (1.0 if required_role and _title_from_employee(employee) == required_role else 0.0) if not overloaded else 0.0
         skill_score = sum(employee_skills.get(skill, 0) * weight for skill, weight in required.items())
-        load_penalty = _workload_percent(employee.current_load, employee.max_capacity)
+        load_penalty = min(load / capacity, 2.0)  # cap penalty at 2× capacity so very overloaded employees aren't penalised further
         score = (role_bonus, skill_score, -load_penalty, -employee.id)
         if best_score is None or score > best_score:
             best_score = score
@@ -2712,10 +2716,11 @@ def review_task_change_request(
     return build_project_status(db, project.id, viewer=actor)
 
 
-def _workload_percent(current_load: float, max_capacity: float):
+def _workload_percent(current_load: float, max_capacity: float, cap: bool = True):
     if not max_capacity:
         return 0
-    return round((current_load / max_capacity) * 100, 1)
+    raw = round((current_load / max_capacity) * 100, 1)
+    return min(raw, 100.0) if cap else raw
 
 
 def _infer_role_from_skills(skills: Dict[str, float]) -> str:

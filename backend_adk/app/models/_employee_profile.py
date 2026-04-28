@@ -11,7 +11,7 @@ class EmployeeProfile(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     skills = Column(JSON, nullable=False, default={})  # {"python": 0.9, "fastapi": 0.8, ...}
-    max_capacity = Column(Float, default=8.0)  # hours per day
+    max_capacity = Column(Float, default=40.0)  # hours per sprint (1 work week)
     current_load = Column(Float, default=0.0)  # hours currently assigned
     department = Column(String, nullable=True)
     availability_status = Column(String, default="available")  # available / on-leave / busy

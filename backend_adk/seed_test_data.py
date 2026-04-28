@@ -472,7 +472,7 @@ def _ensure_employee(db, user, skills, department, load=0.0, status="available")
         tenant_id=user.tenant_id,
         user_id=user.id,
         skills=skills,
-        max_capacity=8.0,
+        max_capacity=40.0,
         current_load=load,
         department=department,
         availability_status=status,
