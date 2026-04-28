@@ -724,7 +724,11 @@ def main():
         if confirm.strip() != "yes-delete-everything":
             print("Aborted.")
             sys.exit(0)
-        Base.metadata.drop_all(bind=engine)
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.commit()
         Base.metadata.create_all(bind=engine)
         ensure_runtime_schema(engine)
     else:
