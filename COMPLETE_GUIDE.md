@@ -1280,7 +1280,7 @@ Tabbed layout:
 
 ### config.js (updated)
 ```javascript
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://orchestrator-backend-yo2mex5f2a-ew.a.run.app';
 
 export function formatDateInUserTimezone(isoString, timezone) {
     if (!isoString) return "—";
@@ -1348,7 +1348,7 @@ DATABASE_URL=postgresql://orchestrator_user:<password>@/orchestrator?host=/cloud
 GCP Project:    havoc-ai-prod
 Region:         europe-west1
 Backend URL:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
-Frontend URL:   https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+Frontend URL:   https://orchestrator-frontend-974381609416.europe-west1.run.app
 API Docs:       https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
 Cloud SQL:      havoc-ai-prod:europe-west1:orchestrator-sql
 DB Name:        orchestrator
@@ -1669,7 +1669,7 @@ Monday 9am UTC (scheduler job "weekly_digest"):
 
 ### Live URLs (production)
 ```
-Frontend:    https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+Frontend:    https://orchestrator-frontend-974381609416.europe-west1.run.app
 Backend:     https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
 API Docs:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
 GCP project: havoc-ai-prod
@@ -1694,13 +1694,12 @@ gcloud run deploy orchestrator-backend \
 # NOTE: ignore the "Service URL" printed above — get the real URL:
 echo "Backend: $(gcloud run services describe orchestrator-backend --region europe-west1 --format 'value(status.url)')"
 
-# Frontend
+# Frontend (production URL baked into Dockerfile ARG — no extra flags needed)
 cd ../frontend
 gcloud run deploy orchestrator-frontend \
   --source . \
   --region europe-west1 \
-  --allow-unauthenticated \
-  --set-build-env-vars VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
+  --allow-unauthenticated
 # NOTE: ignore the "Service URL" printed above — get the real URL:
 echo "Frontend: $(gcloud run services describe orchestrator-frontend --region europe-west1 --format 'value(status.url)')"
 ```
@@ -1719,21 +1718,21 @@ ENVIRONMENT                  production
 SENDGRID_API_KEY             <sendgrid key>
 EMAIL_FROM                   no-reply@yourdomain.com
 EMAIL_FROM_NAME              AI Workforce Orchestrator
-FRONTEND_URL                 https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+FRONTEND_URL                 https://orchestrator-frontend-974381609416.europe-west1.run.app
 PLATFORM_OWNER_EMAIL         <owner email>
 STRIPE_SECRET_KEY            <stripe secret>
 STRIPE_WEBHOOK_SECRET        <webhook secret>
 STRIPE_STARTER_PRICE_ID      <price_id>
 STRIPE_GROWTH_PRICE_ID       <price_id>
 STRIPE_ENTERPRISE_PRICE_ID   <price_id>
-ALLOWED_ORIGINS              https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app
+ALLOWED_ORIGINS              https://orchestrator-frontend-974381609416.europe-west1.run.app
 GOOGLE_CLOUD_PROJECT         havoc-ai-prod
 GOOGLE_CLOUD_LOCATION        us-central1
 GOOGLE_GENAI_USE_VERTEXAI    true
 GRACE_PERIOD_DAYS            7
 GOOGLE_CLIENT_ID             <oauth client id>
 GOOGLE_CLIENT_SECRET         <oauth client secret>
-GOOGLE_REDIRECT_URI          https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app/integrations/google/callback
+GOOGLE_REDIRECT_URI          https://orchestrator-frontend-974381609416.europe-west1.run.app/integrations/google/callback
 ```
 
 ### Docker Images
@@ -1909,62 +1908,73 @@ Then seed the production Cloud SQL database (via Cloud SQL Auth Proxy or Cloud R
 
 ## 19. Seed Credentials
 
-Both seeds (`backend_adk --local` and `backend/`) create the same user set.
+Run `seed_test_data.py` (production via Cloud SQL Auth Proxy) to populate all 4 tenants.
+All employees share password `team123456`. All clients share `client123456`.
+2FA is disabled platform-wide for demo. `/auth/2fa/*` endpoints remain for future use.
 
-### Tenant A — OrchestrateCo (Pro plan)
-
-| Role | Email | Password | Notes |
-|------|-------|----------|-------|
-| Platform Owner | `swaraj@orchestrator.ai` | `OwnerSecure#99` | Cross-tenant superadmin |
-| CEO | `priya.sharma@orchestrateco.ai` | `CEO_Secure#88` | **2FA enabled** — two-step login required |
-| Admin | `rohan.mehta@orchestrateco.ai` | `Admin_Secure#77` | Has a seeded 30-day refresh token |
-| Solution Architect | `amira.khan@orchestrateco.ai` | `team123456` | |
-| AI Engineer | `arjun.rao@orchestrateco.ai` | `team123456` | |
-| Backend Engineer | `neha.gupta@orchestrateco.ai` | `team123456` | |
-| Frontend Engineer | `yash.patel@orchestrateco.ai` | `team123456` | |
-| QA Engineer | `sofia.dsouza@orchestrateco.ai` | `team123456` | |
-| Client | `contact@globalcorp.com` | `client123456` | GlobalCorp |
-
-### Tenant B — GlobalTech Solutions (Starter — grace period)
-
+### Platform Owner
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | `alex.turner@globaltech.io` | `Admin_Secure#66` |
-| Data Scientist | `maya.r@globaltech.io` | `team123456` |
-| DevOps Engineer | `tom.brooks@globaltech.io` | `team123456` |
-| Client | `partner@techventures.com` | `client123456` |
+| Platform Owner | `swaraj@orchestrator.ai` | `OwnerSecure#99` |
 
-### CEO 2FA login flow
+---
 
-```
-Step 1:  POST /auth/login
-         {"email":"priya.sharma@orchestrateco.ai","password":"CEO_Secure#88"}
-         → {"requires_2fa": true, "mfa_session_token": "eyJ..."}
+### Tenant 1 — TechNova Solutions (`technova`)
+| Role | Email | Password |
+|------|-------|----------|
+| CEO | `priya.sharma@technova.ai` | `CEO_Secure#88` |
+| Admin — Engineering | `rohan.mehta@technova.ai` | `Admin#Rohan77` |
+| Admin — Product & AI | `kavya.nair@technova.ai` | `Admin#Kavya77` |
+| Admin — Operations | `aditya.singh@technova.ai` | `Admin#Adity77` |
+| Admin — People & HR | `shruti.bose@technova.ai` | `Admin#Shrut77` |
+| Employees (20+) | `amira.khan@technova.ai`, `arjun.rao@technova.ai`, `neha.gupta@technova.ai`, `yash.patel@technova.ai`, `dev.sharma@technova.ai`, … | `team123456` |
+| Client | `contact@globalcorp.com` | `client123456` | GlobalCorp Pte Ltd |
+| Client | `partner@fintech360.io` | `client123456` | FinTech360 Inc |
 
-Step 2:  POST /auth/2fa/verify-login
-         {"mfa_session_token": "eyJ...", "totp_code": "132945"}
-         → {"access_token": "...", "refresh_token": "...", "user": {...}}
-```
+### Tenant 2 — DataSphere Analytics (`datasphere`)
+| Role | Email | Password |
+|------|-------|----------|
+| CEO | `alex.turner@datasphere.io` | `CEO_Secure#DS88` |
+| Admin — Data Engineering | `marcus.chen@datasphere.io` | `Admin#Marc77` |
+| Admin — Analytics & BI | `zara.ahmed@datasphere.io` | `Admin#Zara77` |
+| Admin — Infrastructure | `ryan.park@datasphere.io` | `Admin#Ryan77` |
+| Admin — Research & AI | `hannah.lee@datasphere.io` | `Admin#Hann77` |
+| Employees (20+) | `david.kim@datasphere.io`, … | `team123456` |
+| Client | `cto@investedge.com` | `client123456` | InvestEdge Capital |
+| Client | `data@supplypro.co` | `client123456` | SupplyPro Logistics |
 
-The TOTP secret and current 6-digit code are printed at the end of every seed run. Re-run the seed to get a fresh code, or use any TOTP app (Google Authenticator, Authy) with the printed secret.
+### Tenant 3 — BuildRight Engineering (`buildright`)
+| Role | Email | Password |
+|------|-------|----------|
+| CEO | `james.obrien@buildright.co` | `CEO_Secure#BR88` |
+| Admin — Project Delivery | `lisa.chen@buildright.co` | `Admin#Lisa77` |
+| Admin — Engineering | `sanjay.kumar@buildright.co` | `Admin#Sanj77` |
+| Admin — Quality Assurance | `maya.torres@buildright.co` | `Admin#Maya77` |
+| Admin — Finance & Ops | `derek.walsh@buildright.co` | `Admin#Dere77` |
+| Employees (20+) | `thomas.wright@buildright.co`, … | `team123456` |
+| Client | `ops@citygrid.co.uk` | `client123456` | CityGrid Infrastructure |
+| Client | `tech@thameswater.io` | `client123456` | Thames Digital Water |
+
+### Tenant 4 — HealthSync Medical (`healthsync`)
+| Role | Email | Password |
+|------|-------|----------|
+| CEO | `sarah.kim@healthsync.sg` | `CEO_Secure#HS88` |
+| Admin — Engineering | `tom.reddy@healthsync.sg` | `Admin#TomR77` |
+| Admin — Clinical Product | `ananya.menon@healthsync.sg` | `Admin#Anan77` |
+| Admin — Data & AI | `chris.lawson@healthsync.sg` | `Admin#Chri77` |
+| Admin — Operations | `nina.patel@healthsync.sg` | `Admin#Nina77` |
+| Employees (20+) | `priyanka.s@healthsync.sg`, … | `team123456` |
+| Client | `digital@nuh.sg` | `client123456` | NUH Digital Health |
+| Client | `tech@farmacare.sg` | `client123456` | FarmaCare Asia |
 
 ### Seeded data summary
 
-| Entity | Count | Notes |
-|--------|-------|-------|
-| Tenants | 3 | Platform, OrchestrateCo, GlobalTech |
-| Users | 15 | All roles, all email-verified |
-| Agents | 12 | Intake (7) + Execution loop (5) |
-| Projects | 3 | in-progress, planning, soft-deleted |
-| Tasks | 10 | completed/in_progress/pending/blocked + 1 soft-deleted |
-| TaskAssignments | 5 | With `assignment_confidence` scores |
-| WorkflowRun | 1 | Completed intake workflow |
-| AgentRun | 7 | One per intake agent |
-| DecisionLog | 1 | StaffingAgent assignment decision |
-| ScheduledAgentJob | 4 | nightly/weekly/payment/archive |
-| EmailDeliveryLog | 6 | 5 success, 1 failed |
-| SupportTicket | 1 | Open, admin → platform owner |
-| RefreshToken | 1 | 30-day session for admin |
+| Entity | Count |
+|--------|-------|
+| Tenants | 4 |
+| Users | ~100 (4 CEOs + 16 admins + ~80 employees + 8 clients + 1 platform owner) |
+| Agents | 11 (Intake + Execution loop) |
+| Department Teams | 16 (4 per tenant, org-pool) |
 
 ---
 
