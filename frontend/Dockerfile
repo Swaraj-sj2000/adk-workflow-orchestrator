@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Build argument for API URL - can be passed via gcloud builds submit or docker build
-ARG VITE_API_URL=http://localhost:8000
+ARG VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
 ENV VITE_API_URL=$VITE_API_URL
 
 # Show what API URL is being used
