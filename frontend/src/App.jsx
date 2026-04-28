@@ -81,7 +81,15 @@ export default function App() {
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
     fetch(`${API_BASE_URL}/settings/me`, { headers })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
+          setCurrentUser(null);
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (!data?.preferences) return;
         if (data.preferences.theme === 'light' || data.preferences.theme === 'dark') {
