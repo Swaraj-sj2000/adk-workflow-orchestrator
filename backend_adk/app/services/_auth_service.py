@@ -276,7 +276,7 @@ def login_user(db: Session, email: str, password: str):
         "tenant_id": user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
-        "totp_enabled": True,
+        "totp_enabled": getattr(user, "totp_enabled", False),
     }
     return access_token, refresh_token, user_data
 
@@ -314,7 +314,7 @@ def complete_mfa_login(db: Session, mfa_session_token: str, totp_code: str):
         "tenant_id": user.tenant_id,
         "tenant_slug": tenant.slug if tenant else None,
         "tenant_name": tenant.name if tenant else None,
-        "totp_enabled": True,
+        "totp_enabled": getattr(user, "totp_enabled", False),
     }
 
 
