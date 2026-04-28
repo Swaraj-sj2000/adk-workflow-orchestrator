@@ -47,6 +47,14 @@ function computeThemeVars(accent, isDark) {
   };
 }
 
+function isTokenValid(token) {
+  if (!token) return false;
+  try {
+    const exp = JSON.parse(atob(token.split('.')[1])).exp;
+    return exp * 1000 > Date.now();
+  } catch { return false; }
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -62,8 +70,14 @@ export default function App() {
   const [overdueCount, setOverdueCount] = useState(0);
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
-    if (user) setCurrentUser(JSON.parse(user));
+    if (user && isTokenValid(token)) {
+      setCurrentUser(JSON.parse(user));
+    } else {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+    }
     const storedTheme = localStorage.getItem('theme');
     if (storedTheme === 'dark' || storedTheme === 'light') {
       setTheme(storedTheme);
@@ -91,35 +105,30 @@ export default function App() {
         return res.ok ? res.json() : null;
       })
       .then((data) => {
-        if (!data?.preferences) return;
-        if (data.preferences.theme === 'light' || data.preferences.theme === 'dark') {
-          setTheme(data.preferences.theme);
-        }
-        if (data.preferences.timezone) {
-          setUserTimezone(data.preferences.timezone);
-        }
-        setOnboardingComplete(!!data.preferences.onboarding_complete);
+        if (!data) return; // null from 401/403 — session already cleared
+        // Always land owner/ceo on their correct page first
+        if (currentUser.role === 'platform_owner') setCurrentPage('owner');
+        else if (currentUser.role === 'ceo') setCurrentPage('ceo');
+
+        const prefs = data.preferences;
+        if (!prefs) return;
+        if (prefs.theme === 'light' || prefs.theme === 'dark') setTheme(prefs.theme);
+        if (prefs.timezone) setUserTimezone(prefs.timezone);
+        setOnboardingComplete(!!prefs.onboarding_complete);
         if (data.user?.tenant_name) setTenantName(data.user.tenant_name);
         if (data.user?.tenant_logo_url !== undefined) setTenantLogoUrl(data.user.tenant_logo_url || null);
         if (data.user) {
-          const merged = { ...currentUser, ...data.user, currency: data.preferences.currency || 'USD' };
+          const merged = { ...currentUser, ...data.user, currency: prefs.currency || 'USD' };
           setCurrentUser(merged);
           localStorage.setItem('user', JSON.stringify(merged));
         }
-        if (currentUser.role === 'platform_owner') {
-          setCurrentPage('owner');
-        } else if (currentUser.role === 'ceo') {
-          setCurrentPage('ceo');
-        } else if (data.preferences.default_landing_page) {
-          setCurrentPage(data.preferences.default_landing_page);
+        if (currentUser.role !== 'platform_owner' && currentUser.role !== 'ceo' && prefs.default_landing_page) {
+          setCurrentPage(prefs.default_landing_page);
         }
       })
       .catch(() => {
-        if (currentUser.role === 'platform_owner') {
-          setCurrentPage('owner');
-        } else if (currentUser.role === 'ceo') {
-          setCurrentPage('ceo');
-        }
+        if (currentUser.role === 'platform_owner') setCurrentPage('owner');
+        else if (currentUser.role === 'ceo') setCurrentPage('ceo');
       });
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
