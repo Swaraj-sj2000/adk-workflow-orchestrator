@@ -235,8 +235,6 @@ function LoginPage({ setCurrentUser }) {
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [mfaToken, setMfaToken] = useState(null);
-  const [totpCode, setTotpCode] = useState('');
 
   // Forgot-password flow: null | 'email' | 'reset'
   const [forgotStep, setForgotStep] = useState(null);
@@ -259,41 +257,15 @@ function LoginPage({ setCurrentUser }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Login failed');
-      if (data.mfa_session_token) {
-        setMfaToken(data.mfa_session_token);
-        setMessage('');
-      } else {
-        localStorage.setItem('token', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        setCurrentUser(data.user);
-      }
+      localStorage.setItem('token', data.access_token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setCurrentUser(data.user);
     } catch (err) {
       setMessage('Login failed: ' + err.message);
     }
     setLoading(false);
   };
 
-  const handleMfaVerify = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/2fa/verify-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mfa_session_token: mfaToken, totp_code: totpCode }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Invalid code');
-      localStorage.setItem('token', data.access_token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      setCurrentUser(data.user);
-    } catch (err) {
-      setMessage(err.message);
-      setTotpCode('');
-    }
-    setLoading(false);
-  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -438,7 +410,7 @@ function LoginPage({ setCurrentUser }) {
       <div className="login-card">
         <img src={synraLogo} alt="SynRA" style={{ width: '100%', maxWidth: 260, margin: '0 auto 8px', display: 'block' }} />
         
-        {!mfaToken && !forgotStep && (
+        {!forgotStep && (
           <div className="auth-tabs">
             <button
               className={`tab ${isLogin ? 'active' : ''}`}
@@ -452,11 +424,6 @@ function LoginPage({ setCurrentUser }) {
             >
               Register
             </button>
-          </div>
-        )}
-        {mfaToken && (
-          <div style={{ textAlign: 'center', marginBottom: 20, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
-            Two-Factor Authentication
           </div>
         )}
         {forgotStep === 'email' && (
@@ -476,38 +443,8 @@ function LoginPage({ setCurrentUser }) {
           </div>
         )}
 
-        {/* ── MFA step ── */}
-        {mfaToken && (
-          <form onSubmit={handleMfaVerify}>
-            <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
-              Enter the 6-digit code from your authenticator app.
-            </p>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="000000"
-              value={totpCode}
-              onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              maxLength={6}
-              style={{ textAlign: 'center', letterSpacing: '0.3em', fontSize: 22 }}
-              autoFocus
-              required
-            />
-            <button type="submit" disabled={loading || totpCode.length !== 6}>
-              {loading ? 'Verifying...' : 'Verify →'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMfaToken(null); setTotpCode(''); setMessage(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'underline', width: '100%', marginTop: 8 }}
-            >
-              ← Back to login
-            </button>
-          </form>
-        )}
-
         {/* ── Forgot password — step 1: enter email ── */}
-        {!mfaToken && forgotStep === 'email' && (
+        {forgotStep === 'email' && (
           <form onSubmit={handleForgotRequest}>
             <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
               Enter your account email. We'll send you a reset link.
@@ -532,7 +469,7 @@ function LoginPage({ setCurrentUser }) {
         )}
 
         {/* ── Forgot password — step 2: enter token + new password ── */}
-        {!mfaToken && forgotStep === 'reset' && (
+        {forgotStep === 'reset' && (
           <form onSubmit={handleResetPassword}>
             <p style={{ margin: '0 0 12px', fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center' }}>
               Check your email for the reset code and set a new password.
@@ -593,7 +530,7 @@ function LoginPage({ setCurrentUser }) {
         )}
 
         {/* ── Normal login / register forms ── */}
-        {!mfaToken && !forgotStep && (isLogin ? (
+        {!forgotStep && (isLogin ? (
           <form onSubmit={handleLogin}>
             <input
               type="email"
