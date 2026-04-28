@@ -66,8 +66,6 @@ export default function App() {
   const [onboardingComplete, setOnboardingComplete] = useState(true);
   const [tenantName, setTenantName] = useState(null);
   const [tenantLogoUrl, setTenantLogoUrl] = useState(null);
-  const [loginToast, setLoginToast] = useState(null);
-  const [overdueCount, setOverdueCount] = useState(0);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -138,20 +136,6 @@ export default function App() {
     }
   }, [theme, currentUser]);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const token = localStorage.getItem('token');
-    fetch(`${API_BASE_URL}/tasks/overdue-count`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.ok ? r.json() : { count: 0 })
-      .then((d) => setOverdueCount(d.count || 0))
-      .catch(() => {});
-  }, [currentUser?.id]);
-
-  const handleLoginSuccess = (user) => {
-    setLoginToast(user);
-    setTimeout(() => setLoginToast(null), 4000);
-  };
-
   const handleAccentChange = (v) => {
     setCustomAccent(v);
     localStorage.setItem('customAccent', JSON.stringify(v));
@@ -173,7 +157,7 @@ export default function App() {
   };
 
   if (!currentUser) {
-    return <LoginPage setCurrentUser={setCurrentUser} onLoginSuccess={handleLoginSuccess} />;
+    return <LoginPage setCurrentUser={setCurrentUser} />;
   }
 
   const accentStyle = customAccent ? computeThemeVars(customAccent, theme === 'dark') : {};
@@ -195,28 +179,6 @@ export default function App() {
           filter: theme === 'dark' ? 'invert(1)' : 'none',
         }}
       />
-      {loginToast && (
-        <div style={{
-          position: 'fixed', top: 20, right: 24, zIndex: 9999,
-          background: 'var(--surface-card)', color: 'var(--text-primary)',
-          border: '1px solid var(--border-soft)',
-          borderRadius: 14, padding: '14px 20px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-          display: 'flex', alignItems: 'center', gap: 12,
-          animation: 'fadeSlideIn 0.3s ease',
-          minWidth: 260,
-        }}>
-          <span style={{ fontSize: 22 }}>👋</span>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>
-              Welcome back, {loginToast.full_name?.split(' ')[0] || loginToast.email}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, textTransform: 'capitalize' }}>
-              Signed in as {loginToast.role?.replace('_', ' ')}
-            </div>
-          </div>
-        </div>
-      )}
       <Navbar
         user={currentUser}
         tenantName={tenantName}
@@ -228,7 +190,6 @@ export default function App() {
         onOpenSettings={handleSettingsOpen}
         customAccent={customAccent}
         onAccentChange={handleAccentChange}
-        overdueCount={overdueCount}
       />
       <div className="container">
         {currentPage === 'dashboard' && currentUser.role !== 'platform_owner' && currentUser.role !== 'ceo' && <Dashboard role={currentUser.role} />}
@@ -281,7 +242,7 @@ export default function App() {
   );
 }
 
-function LoginPage({ setCurrentUser, onLoginSuccess }) {
+function LoginPage({ setCurrentUser }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -316,7 +277,6 @@ function LoginPage({ setCurrentUser, onLoginSuccess }) {
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setCurrentUser(data.user);
-      onLoginSuccess?.(data.user);
     } catch (err) {
       setMessage('Login failed: ' + err.message);
     }

@@ -212,12 +212,6 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
                       {t.user_count} users &nbsp;·&nbsp; {t.project_count} projects
                       &nbsp;·&nbsp; {t.admin_emails?.join(', ') || 'No admins'}
                     </p>
-                    {t.last_active_at && (
-                      <p style={{ margin: '3px 0 0', fontSize: 12, opacity: 0.5 }}>
-                        Last active: {fmt(t.last_active_at)}
-                      </p>
-                    )}
-
                     {/* Plan limits row */}
                     <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
                       <LimitDisplay label="teams"    value={t.max_teams} />

@@ -170,14 +170,6 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {/* Quick win #1: Start AI Workflow button - prominent CTA */}
-          <button 
-            className="btn btn-primary" 
-            style={{ background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%)', fontWeight: 600, padding: '10px 20px', fontSize: 14 }}
-            onClick={() => onNavigate('multi-agent')}
-          >
-            🚀 Launch AI Project Planning
-          </button>
           <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowCompanyEditor((v) => !v); }}>
             {showCompanyEditor ? 'Close Company Editor' : 'Edit Company Profile'}
           </button>
@@ -369,38 +361,6 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           <CeoAnalytics />
         </div>
       )}
-
-      {/* AI Workflow CTA */}
-      <div className="card full-width" style={{
-        background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%)',
-        color: '#fff',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 16, padding: '22px 28px',
-      }}>
-        <div>
-          <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.8, marginBottom: 6 }}>
-            AI Orchestration
-          </p>
-          <h2 style={{ color: '#fff', marginBottom: 4 }}>Launch AI Project Planning</h2>
-          <p style={{ opacity: 0.85, fontSize: 14 }}>
-            Brief a project in plain English — AI agents will plan, staff, and risk-assess it in seconds.
-          </p>
-        </div>
-        <button
-          onClick={() => onNavigate('multi-agent')}
-          style={{
-            background: 'rgba(255,255,255,0.2)', border: '2px solid rgba(255,255,255,0.7)',
-            color: '#fff', fontWeight: 700, fontSize: 15,
-            padding: '12px 28px', borderRadius: 12, cursor: 'pointer',
-            backdropFilter: 'blur(6px)', whiteSpace: 'nowrap',
-            transition: 'background 0.2s',
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.35)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-        >
-          Open AI Workbench →
-        </button>
-      </div>
 
       {/* KPI cards */}
       {(loading ? Array.from({ length: 4 }) : [
