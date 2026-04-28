@@ -49,10 +49,7 @@ function computeThemeVars(accent, isDark) {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
-  const _storedRole = (() => { try { return JSON.parse(localStorage.getItem('user'))?.role; } catch { return null; } })();
-  const [currentPage, setCurrentPage] = useState(
-    _storedRole === 'platform_owner' ? 'owner' : _storedRole === 'ceo' ? 'ceo' : 'dashboard'
-  );
+  const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedId, setSelectedId] = useState(null);
   const [theme, setTheme] = useState('light');
   const [customAccent, setCustomAccent] = useState(null); // { h, s, v, accent, accentStrong }
