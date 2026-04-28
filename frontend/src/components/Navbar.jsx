@@ -24,19 +24,34 @@ export default function Navbar({
   onOpenSettings,
   customAccent,
   onAccentChange,
+  overdueCount = 0,
 }) {
   const role = user?.role;
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [avatarHover, setAvatarHover] = useState(false);
+  const [overdueTaskCount, setOverdueTaskCount] = useState(0); // Quick win #4: Overdue task badge
 
   const isPlatformOwner = role === 'platform_owner';
+
+  // Quick win #4: Fetch overdue task count for admin
+  useEffect(() => {
+    if (role === 'admin' || role === 'ceo') {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      fetch(`${import.meta.env.VITE_API_URL || 'https://orchestrator-backend-yo2mex5f2a-ew.a.run.app'}/tasks/overdue-count`, { headers })
+        .then(res => res.ok ? res.json() : { count: 0 })
+        .then(data => setOverdueTaskCount(data.count || 0))
+        .catch(() => {});
+    }
+  }, [role]);
 
   const navItems = useMemo(() => {
     if (role === 'platform_owner') return [{ label: 'Owner Panel', page: 'owner' }];
     if (role === 'ceo') return [
       { label: 'CEO Dashboard', page: 'ceo' },
       { label: 'Projects', page: 'projects' },
+      { label: 'AI Workbench', page: 'multi-agent' },
     ];
     if (role === 'admin') return [
       { label: 'Admin Dashboard', page: 'dashboard' },
@@ -90,8 +105,26 @@ export default function Navbar({
             onClick={() => setPage(item.page)}
             className="nav-btn"
             data-tooltip={NAV_TIPS[item.page] || item.label}
+            style={{ position: 'relative' }}
           >
             {item.label}
+            {item.page === 'projects' && overdueCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: -4,
+                right: -8,
+                background: '#dc2626',
+                color: 'white',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 6px',
+                borderRadius: 10,
+                minWidth: 18,
+                textAlign: 'center',
+              }}>
+                {overdueCount > 99 ? '99+' : overdueCount}
+              </span>
+            )}
           </button>
         ))}
       </div>

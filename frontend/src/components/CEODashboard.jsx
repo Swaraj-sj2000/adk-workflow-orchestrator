@@ -13,6 +13,7 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   const [teams, setTeams] = useState(null);
   const [clients, setClients] = useState([]);
   const [risks, setRisks] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]); // Quick win #2: Live agent activity ticker
 
   const [showAnalytics, setShowAnalytics] = useState(false);
 
@@ -44,8 +45,9 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
       fetch(`${API_BASE_URL}/ceo/risks`, { headers }).then((r) => r.json()),
       fetch(`${API_BASE_URL}/settings/company`, { headers }).then((r) => r.ok ? r.json() : null),
       fetch(`${API_BASE_URL}/invite/talent-pool`, { headers }).then((r) => r.ok ? r.json() : { members: [], pending_invites: [] }),
+      fetch(`${API_BASE_URL}/ceo/recent-activity`, { headers }).then((r) => r.ok ? r.json() : []), // Quick win #2: Live agent activity ticker
     ])
-      .then(([overviewData, financialData, teamData, clientData, riskData, companyData, poolData]) => {
+      .then(([overviewData, financialData, teamData, clientData, riskData, companyData, poolData, activityData]) => {
         setOverview(overviewData);
         setFinancials(financialData);
         setTeams(teamData);
@@ -67,6 +69,7 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           });
         }
         setTalentPool(poolData || { members: [], pending_invites: [] });
+        setRecentActivity(activityData || []); // Quick win #2: Live agent activity ticker
       })
       .finally(() => setLoading(false));
   }, [API_BASE_URL]);
@@ -167,6 +170,14 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* Quick win #1: Start AI Workflow button - prominent CTA */}
+          <button 
+            className="btn btn-primary" 
+            style={{ background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%)', fontWeight: 600, padding: '10px 20px', fontSize: 14 }}
+            onClick={() => onNavigate('multi-agent')}
+          >
+            🚀 Launch AI Project Planning
+          </button>
           <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowCompanyEditor((v) => !v); }}>
             {showCompanyEditor ? 'Close Company Editor' : 'Edit Company Profile'}
           </button>
@@ -359,6 +370,38 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
         </div>
       )}
 
+      {/* AI Workflow CTA */}
+      <div className="card full-width" style={{
+        background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%)',
+        color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 16, padding: '22px 28px',
+      }}>
+        <div>
+          <p style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.8, marginBottom: 6 }}>
+            AI Orchestration
+          </p>
+          <h2 style={{ color: '#fff', marginBottom: 4 }}>Launch AI Project Planning</h2>
+          <p style={{ opacity: 0.85, fontSize: 14 }}>
+            Brief a project in plain English — AI agents will plan, staff, and risk-assess it in seconds.
+          </p>
+        </div>
+        <button
+          onClick={() => onNavigate('multi-agent')}
+          style={{
+            background: 'rgba(255,255,255,0.2)', border: '2px solid rgba(255,255,255,0.7)',
+            color: '#fff', fontWeight: 700, fontSize: 15,
+            padding: '12px 28px', borderRadius: 12, cursor: 'pointer',
+            backdropFilter: 'blur(6px)', whiteSpace: 'nowrap',
+            transition: 'background 0.2s',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.35)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+        >
+          Open AI Workbench →
+        </button>
+      </div>
+
       {/* KPI cards */}
       {(loading ? Array.from({ length: 4 }) : [
         { label: 'Total Projects', value: overview?.total_projects, meta: `${overview?.projects_on_track || 0} on track / ${overview?.projects_at_risk || 0} at risk / ${overview?.projects_delayed || 0} delayed` },
@@ -376,6 +419,47 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           )}
         </div>
       ))}
+
+      {/* Quick win #2: Live agent activity ticker */}
+      {recentActivity.length > 0 && (
+        <div className="card full-width" style={{ background: 'linear-gradient(90deg, var(--surface-card) 0%, var(--surface-soft) 100%)', borderLeft: '4px solid var(--accent)' }}>
+          <p className="eyebrow">Live Agent Activity</p>
+          <h2 style={{ marginBottom: 12 }}>Recent Actions</h2>
+          <div style={{ 
+            display: 'flex', 
+            gap: 0, 
+            overflowX: 'auto', 
+            paddingBottom: 8,
+            scrollBehavior: 'smooth',
+          }}>
+            {recentActivity.slice(0, 10).map((activity, idx) => (
+              <div 
+                key={activity.id || idx} 
+                style={{ 
+                  minWidth: 220, 
+                  maxWidth: 280, 
+                  padding: '12px 16px', 
+                  marginRight: 12, 
+                  background: 'var(--surface-card)', 
+                  borderRadius: 10, 
+                  border: '1px solid var(--border-soft)',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, marginBottom: 4 }}>
+                  {activity.agent_name || 'Agent'}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                  {activity.message}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
+                  {activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card">
         <p className="eyebrow">Risk Flags</p>
