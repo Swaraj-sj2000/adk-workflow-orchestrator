@@ -49,6 +49,18 @@ def activate_tenant(
     return OwnerService.activate_tenant(db, tenant_id)
 
 
+@router.delete("/tenants/{tenant_id}")
+def delete_tenant(
+    tenant_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_platform_owner),
+):
+    try:
+        return OwnerService.delete_tenant(db, tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @router.patch("/tenants/{tenant_id}/plan")
 def set_tenant_plan(
     tenant_id: int,

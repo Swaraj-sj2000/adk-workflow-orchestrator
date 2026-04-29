@@ -65,6 +65,7 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
   const [loadingId, setLoadingId]       = useState(null);
   const [planSelections, setPlanSelections] = useState({});
   const [planMsg, setPlanMsg] = useState({});
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const token   = localStorage.getItem('token');
   const headers = useMemo(() => ({
@@ -118,6 +119,14 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
       body: JSON.stringify({ reason: suspendReason.trim() }),
     });
     setSuspendModal(null);
+    await fetchData();
+    setLoadingId(null);
+  };
+
+  const deleteTenant = async (tenantId) => {
+    setLoadingId(tenantId);
+    await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}`, { method: 'DELETE', headers });
+    setDeleteConfirm(null);
     await fetchData();
     setLoadingId(null);
   };
@@ -177,6 +186,24 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
               <button className="btn btn-secondary" onClick={() => setSuspendModal(null)}>Cancel</button>
               <button className="btn btn-danger" disabled={!suspendReason.trim()} onClick={confirmSuspend}>
                 Confirm Suspend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ─────────────────────────────── */}
+      {deleteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--surface-card)', borderRadius: 16, padding: 28, width: 420, maxWidth: '90vw', boxShadow: '0 8px 40px rgba(0,0,0,0.45)', border: '2px solid #b71c1c' }}>
+            <h3 style={{ marginBottom: 8, color: '#b71c1c' }}>Delete {deleteConfirm.tenantName}?</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
+              This permanently deletes the company and <strong>all its data</strong> — users, projects, tasks, teams, and tickets. This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={() => deleteTenant(deleteConfirm.tenantId)}>
+                Yes, Delete Everything
               </button>
             </div>
           </div>
@@ -330,6 +357,13 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
                         {isLoading ? '…' : '⏸ Suspend'}
                       </button>
                     )}
+                    <button
+                      disabled={isLoading}
+                      onClick={() => setDeleteConfirm({ tenantId: t.tenant_id, tenantName: t.tenant_name })}
+                      style={{ width: '100%', background: 'none', border: '1px solid #b71c1c', color: '#b71c1c', borderRadius: 8, padding: '4px 0', fontSize: 12, cursor: 'pointer' }}
+                    >
+                      Delete Company
+                    </button>
                   </div>
                 </div>
               </div>
