@@ -333,60 +333,88 @@ class OwnerService:
 
     @classmethod
     def delete_tenant(cls, db: Session, tenant_id: int) -> dict:
+        from app.models._availability import Availability
         from app.models._blocker import Blocker
+        from app.models._change_request import ChangeRequest
+        from app.models._checkpoint import Checkpoint
         from app.models._client_profile import ClientProfile
         from app.models._communication import Communication
         from app.models._decision_log import DecisionLog
+        from app.models._email_delivery_log import EmailDeliveryLog
         from app.models._employee_metrics import EmployeeMetrics
         from app.models._employee_profile import EmployeeProfile
+        from app.models._meeting import Meeting
+        from app.models._performance_point import PerformancePoint
+        from app.models._refresh_token import RefreshToken
+        from app.models._scheduled_agent_job import ScheduledAgentJob
         from app.models._task import Task
         from app.models._task_assignment import TaskAssignment
+        from app.models._task_dependency import TaskDependency
         from app.models._task_progress import TaskProgress
         from app.models._team import Team, TeamMember
         from app.models._team_invite import TeamInvite
         from app.models._user_preferences import UserPreferences
+        from app.models._workflow_run import WorkflowRun
 
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if not tenant:
             raise ValueError("Tenant not found")
+        tenant_name = tenant.name
 
-        # Delete in dependency order
-        projects = db.query(Project).filter(Project.tenant_id == tenant_id).all()
+        d = lambda model, col, ids: db.query(model).filter(col.in_(ids)).delete(synchronize_session=False) if ids else None  # noqa
+
+        # Collect IDs
+        projects    = db.query(Project).filter(Project.tenant_id == tenant_id).all()
         project_ids = [p.id for p in projects]
+        task_ids    = [t.id for t in db.query(Task).filter(Task.project_id.in_(project_ids)).all()] if project_ids else []
+        emp_ids     = [e.id for e in db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == tenant_id).all()]
+        user_ids    = [u.id for u in db.query(User).filter(User.tenant_id == tenant_id).all()]
+        team_ids    = [t.id for t in db.query(Team).filter(Team.tenant_id == tenant_id).all()]
 
-        if project_ids:
-            task_ids = [t.id for t in db.query(Task).filter(Task.project_id.in_(project_ids)).all()]
-            if task_ids:
-                db.query(TaskAssignment).filter(TaskAssignment.task_id.in_(task_ids)).delete(synchronize_session=False)
-                db.query(TaskProgress).filter(TaskProgress.task_id.in_(task_ids)).delete(synchronize_session=False)
-                db.query(Blocker).filter(Blocker.task_id.in_(task_ids)).delete(synchronize_session=False)
-            db.query(Task).filter(Task.project_id.in_(project_ids)).delete(synchronize_session=False)
-            db.query(Communication).filter(Communication.project_id.in_(project_ids)).delete(synchronize_session=False)
+        # Task-level leaves
+        d(Checkpoint,      Checkpoint.task_id,      task_ids)
+        d(TaskDependency,  TaskDependency.task_id,   task_ids)
+        d(TaskAssignment,  TaskAssignment.task_id,   task_ids)
+        d(TaskProgress,    TaskProgress.task_id,     task_ids)
+        d(Blocker,         Blocker.task_id,          task_ids)
+        d(PerformancePoint, PerformancePoint.task_id, task_ids)
+
+        # Project-level leaves
+        d(Meeting,         Meeting.project_id,       project_ids)
+        d(ChangeRequest,   ChangeRequest.project_id, project_ids)
+        d(Communication,   Communication.project_id, project_ids)
+        d(WorkflowRun,     WorkflowRun.project_id,   project_ids)
+        d(ScheduledAgentJob, ScheduledAgentJob.project_id, project_ids)
+        db.query(Task).filter(Task.project_id.in_(project_ids)).delete(synchronize_session=False) if project_ids else None
 
         db.query(Project).filter(Project.tenant_id == tenant_id).delete(synchronize_session=False)
+        db.query(ScheduledAgentJob).filter(ScheduledAgentJob.tenant_id == tenant_id).delete(synchronize_session=False)
 
-        team_ids = [t.id for t in db.query(Team).filter(Team.tenant_id == tenant_id).all()]
-        if team_ids:
-            db.query(TeamMember).filter(TeamMember.team_id.in_(team_ids)).delete(synchronize_session=False)
+        # Teams
+        d(TeamMember, TeamMember.team_id, team_ids)
         db.query(Team).filter(Team.tenant_id == tenant_id).delete(synchronize_session=False)
         db.query(TeamInvite).filter(TeamInvite.tenant_id == tenant_id).delete(synchronize_session=False)
 
-        emp_ids = [e.id for e in db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == tenant_id).all()]
-        if emp_ids:
-            db.query(EmployeeMetrics).filter(EmployeeMetrics.employee_id.in_(emp_ids)).delete(synchronize_session=False)
+        # Employees
+        d(Availability,     Availability.employee_id,     emp_ids)
+        d(EmployeeMetrics,  EmployeeMetrics.employee_id,  emp_ids)
+        d(PerformancePoint, PerformancePoint.employee_id, emp_ids)
         db.query(EmployeeProfile).filter(EmployeeProfile.tenant_id == tenant_id).delete(synchronize_session=False)
         db.query(ClientProfile).filter(ClientProfile.tenant_id == tenant_id).delete(synchronize_session=False)
 
+        # Tenant-scoped logs
         db.query(DecisionLog).filter(DecisionLog.tenant_id == tenant_id).delete(synchronize_session=False)
         db.query(SupportTicket).filter(SupportTicket.tenant_id == tenant_id).delete(synchronize_session=False)
+        db.query(EmailDeliveryLog).filter(EmailDeliveryLog.tenant_id == tenant_id).delete(synchronize_session=False)
 
-        user_ids = [u.id for u in db.query(User).filter(User.tenant_id == tenant_id).all()]
-        if user_ids:
-            db.query(UserPreferences).filter(UserPreferences.user_id.in_(user_ids)).delete(synchronize_session=False)
+        # Users
+        d(RefreshToken,     RefreshToken.user_id,     user_ids)
+        d(UserPreferences,  UserPreferences.user_id,  user_ids)
+        d(WorkflowRun,      WorkflowRun.requested_by, user_ids)
         db.query(User).filter(User.tenant_id == tenant_id).delete(synchronize_session=False)
 
         db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant_id).delete(synchronize_session=False)
         db.delete(tenant)
         db.commit()
 
-        return {"deleted": True, "tenant_id": tenant_id, "tenant_name": tenant.name}
+        return {"deleted": True, "tenant_id": tenant_id, "tenant_name": tenant_name}
