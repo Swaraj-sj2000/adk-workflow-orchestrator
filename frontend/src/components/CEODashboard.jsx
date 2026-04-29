@@ -30,6 +30,12 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   const [inviteMsg, setInviteMsg] = useState('');
   const [sendingInvite, setSendingInvite] = useState(false);
   const [showTeamPanel, setShowTeamPanel] = useState(false);
+  const [teamTab, setTeamTab] = useState('direct'); // 'direct' | 'invite'
+
+  // Direct add state
+  const [directForm, setDirectForm] = useState({ email: '', full_name: '', role: 'employee', role_title: '' });
+  const [directMsg, setDirectMsg] = useState(null); // null | { type: 'success'|'error', text, creds }
+  const [addingDirect, setAddingDirect] = useState(false);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -123,6 +129,34 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
       setInviteMsg(err.message);
     } finally {
       setSendingInvite(false);
+    }
+  };
+
+  const handleDirectAdd = async (e) => {
+    e.preventDefault();
+    setAddingDirect(true);
+    setDirectMsg(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/invite/direct-add`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify(directForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to add member');
+      setDirectMsg({
+        type: 'success',
+        text: `${data.full_name} added successfully.`,
+        creds: { email: data.email, password: data.temp_password, role: data.role },
+      });
+      setDirectForm({ email: '', full_name: '', role: 'employee', role_title: '' });
+      fetch(`${API_BASE_URL}/invite/talent-pool`, { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setTalentPool(d));
+    } catch (err) {
+      setDirectMsg({ type: 'error', text: err.message });
+    } finally {
+      setAddingDirect(false);
     }
   };
 
@@ -285,38 +319,135 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
         <div className="card full-width">
           <p className="eyebrow">Org Talent Pool</p>
           <h2 style={{ marginBottom: 4 }}>Team Management</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
-            Invite people to join your company talent pool. Once they accept, you can assign them to projects.
-          </p>
 
-          {/* Invite form */}
-          <form onSubmit={handleSendInvite} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 24 }}>
-            <div>
-              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email Address</label>
-              <input
-                type="email"
-                required
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
-                value={inviteForm.email}
-                onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="new.hire@email.com"
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role / Title (optional)</label>
-              <input
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
-                value={inviteForm.role_title}
-                onChange={(e) => setInviteForm((f) => ({ ...f, role_title: e.target.value }))}
-                placeholder="Senior Developer"
-              />
-            </div>
-            <button type="submit" className="btn btn-primary" disabled={sendingInvite} style={{ whiteSpace: 'nowrap' }}>
-              {sendingInvite ? 'Sending...' : 'Send Invite'}
-            </button>
-          </form>
-          {inviteMsg && (
-            <p style={{ fontSize: 13, color: inviteMsg.includes('sent') ? '#15803d' : '#dc2626', marginBottom: 16 }}>{inviteMsg}</p>
+          {/* Tab switcher */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20, marginTop: 12 }}>
+            {[['direct', 'Add Member Directly'], ['invite', 'Send Email Invite']].map(([key, label]) => (
+              <button
+                key={key}
+                className={`btn ${teamTab === key ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ fontSize: 13 }}
+                onClick={() => { setTeamTab(key); setDirectMsg(null); setInviteMsg(''); }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Direct Add form */}
+          {teamTab === 'direct' && (
+            <form onSubmit={handleDirectAdd} style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Full Name *</label>
+                  <input
+                    required
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                    value={directForm.full_name}
+                    onChange={(e) => setDirectForm((f) => ({ ...f, full_name: e.target.value }))}
+                    placeholder="Priya Sharma"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email *</label>
+                  <input
+                    type="email"
+                    required
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                    value={directForm.email}
+                    onChange={(e) => setDirectForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="priya@goldmine.ai"
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role *</label>
+                  <select
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                    value={directForm.role}
+                    onChange={(e) => setDirectForm((f) => ({ ...f, role: e.target.value }))}
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="admin">Admin</option>
+                    <option value="client">Client</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Job Title (optional)</label>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                    value={directForm.role_title}
+                    onChange={(e) => setDirectForm((f) => ({ ...f, role_title: e.target.value }))}
+                    placeholder="Senior Developer"
+                  />
+                </div>
+              </div>
+              {addingDirect && (
+                <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
+                  <style>{`@keyframes indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}`}</style>
+                </div>
+              )}
+              <button type="submit" className="btn btn-primary" disabled={addingDirect} style={{ width: 'fit-content' }}>
+                {addingDirect ? 'Adding…' : 'Add Member'}
+              </button>
+              {directMsg && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 8, fontSize: 13,
+                  background: directMsg.type === 'success' ? 'rgba(21,128,61,0.08)' : 'rgba(220,38,38,0.08)',
+                  color: directMsg.type === 'success' ? '#15803d' : '#dc2626',
+                  border: `1px solid ${directMsg.type === 'success' ? 'rgba(21,128,61,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                }}>
+                  <strong>{directMsg.text}</strong>
+                  {directMsg.creds && (
+                    <div style={{ marginTop: 8, fontFamily: 'monospace', display: 'grid', gap: 2 }}>
+                      <span>Email: {directMsg.creds.email}</span>
+                      <span>Password: {directMsg.creds.password}</span>
+                      <span>Role: {directMsg.creds.role}</span>
+                      <span style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Share these credentials with the new member. They can change the password after login.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </form>
+          )}
+
+          {/* Email Invite form */}
+          {teamTab === 'invite' && (
+            <>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                Send an invite link to their email. They register using the link.
+              </p>
+              <form onSubmit={handleSendInvite} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end', marginBottom: 24 }}>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                    value={inviteForm.email}
+                    onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="new.hire@email.com"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role / Title (optional)</label>
+                  <input
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                    value={inviteForm.role_title}
+                    onChange={(e) => setInviteForm((f) => ({ ...f, role_title: e.target.value }))}
+                    placeholder="Senior Developer"
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={sendingInvite} style={{ whiteSpace: 'nowrap' }}>
+                  {sendingInvite ? 'Sending...' : 'Send Invite'}
+                </button>
+              </form>
+              {inviteMsg && (
+                <p style={{ fontSize: 13, color: inviteMsg.includes('sent') ? '#15803d' : '#dc2626', marginBottom: 16 }}>{inviteMsg}</p>
+              )}
+            </>
           )}
 
           {/* Pending invites */}
