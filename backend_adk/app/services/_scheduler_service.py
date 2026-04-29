@@ -51,6 +51,10 @@ class SchedulerService:
         def _matches(value: int, token: str) -> bool:
             if token == "*":
                 return True
+            if token.startswith("*/"):
+                return value % int(token[2:]) == 0
+            if "," in token:
+                return value in {int(t) for t in token.split(",")}
             return value == int(token)
 
         return (
