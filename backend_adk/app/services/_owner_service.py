@@ -200,6 +200,36 @@ class OwnerService:
         return settings
 
     @classmethod
+    def set_plan(cls, db: Session, tenant_id: int, plan_tier: str) -> TenantSettings:
+        from datetime import timedelta
+        if plan_tier not in PLAN_CONFIG:
+            raise ValueError(f"Unknown plan tier: {plan_tier}")
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        settings = cls._get_or_create_settings(db, tenant_id)
+        settings.plan_tier = plan_tier
+        plan = PLAN_CONFIG[plan_tier]
+        settings.next_billing_date = cls._now() + timedelta(days=plan["billing_days"])
+        settings.suspended = False
+        settings.suspension_reason = None
+        db.add(settings)
+        cls._log_action(db, "plan_updated", tenant_id, {"plan_tier": plan_tier})
+        db.commit()
+        db.refresh(settings)
+        for admin in cls._tenant_admins(db, tenant_id):
+            EmailService.send_email(
+                to_email=admin.email,
+                subject=f"Your plan has been upgraded to {plan['display_name']}",
+                html_body=(
+                    f"<p>Your SynRA plan has been updated to <strong>{plan['display_name']}</strong> "
+                    f"by the platform owner.</p>"
+                    f"<p>Your subscription is active for {plan['billing_days']} days.</p>"
+                ),
+                tenant_id=tenant_id,
+                template_name="plan_updated",
+            )
+        return settings
+
+    @classmethod
     def get_platform_metrics(cls, db: Session) -> dict:
         tenants = db.query(Tenant).all()
         settings = db.query(TenantSettings).all()

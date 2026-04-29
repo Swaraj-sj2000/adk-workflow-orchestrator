@@ -14,6 +14,10 @@ class TenantSuspendRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class TenantPlanRequest(BaseModel):
+    plan_tier: str = Field(min_length=3, max_length=50)
+
+
 class TicketResponseRequest(BaseModel):
     response: str = Field(min_length=3, max_length=5000)
 
@@ -43,6 +47,19 @@ def activate_tenant(
     current_user: User = Depends(require_platform_owner),
 ):
     return OwnerService.activate_tenant(db, tenant_id)
+
+
+@router.patch("/tenants/{tenant_id}/plan")
+def set_tenant_plan(
+    tenant_id: int,
+    payload: TenantPlanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_platform_owner),
+):
+    try:
+        return OwnerService.set_plan(db, tenant_id, payload.plan_tier.strip().lower())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/metrics")

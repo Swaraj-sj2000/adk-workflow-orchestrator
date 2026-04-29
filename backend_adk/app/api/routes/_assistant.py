@@ -115,16 +115,44 @@ ROLE_KEYWORD_ANSWERS: dict[str, list[tuple[list[str], str]]] = {
         (["all companies", "list companies", "how many companies", "all tenants", "list tenants", "see all"],
          "The Owner Panel lists every registered company with their plan, user count, project count, billing status, "
          "and subscription dates. Use the search bar at the top to filter by name."),
+        (["set plan", "upgrade plan", "change plan", "approve plan", "assign plan"],
+         "In the Owner Panel, find the company card and use the Plan dropdown to set their tier — Trial, Starter, Pro, or Enterprise. Click Apply Plan to confirm. This takes effect immediately."),
     ],
     "ceo": [
-        (["subscription", "billing", "plan", "payment", "upgrade"],
-         "Your company's subscription is managed by your admin. View your current plan and billing status in Settings → Billing. "
-         "To upgrade, contact your platform owner or go to Settings → Billing → Upgrade Plan."),
+        (["subscription", "billing", "plan", "payment", "upgrade", "buy", "purchase"],
+         "You are currently on the Trial plan (1 team, 3 projects, 5 users). To upgrade, go to Settings → Billing and submit a plan request — the platform owner will activate it. Available plans: Starter ₹1,000/mo, Pro ₹5,000/6mo, Enterprise ₹15,000/yr."),
+        (["stripe", "payment gateway", "credit card", "pay online"],
+         "Online payment via Stripe is not active in this deployment. To upgrade your plan, go to Settings → Billing → Request Upgrade and the platform owner will manually activate your chosen plan."),
+        (["employee", "user", "member", "staff", "team member", "how many people", "count"],
+         "Go to the CEO Dashboard → Team Management panel to see your current team members and pending invites. Your plan's user limit applies — Trial allows up to 5 users."),
+        (["logo", "company logo", "add logo", "upload logo", "company image"],
+         "Go to CEO Dashboard → Edit Company Profile. Paste a public image URL into the Logo URL field and save. The logo will appear in the navbar and your dashboard header."),
+        (["company", "profile", "about", "description", "industry", "website"],
+         "Click Edit Company Profile on your CEO Dashboard to update your company name, description, industry, website, headquarters, and contact details."),
+        (["invite", "add admin", "add employee", "add team", "hire"],
+         "Click Team Management on your CEO Dashboard. Enter the email address and role title, then click Send Invite. The person registers on the platform with that email to join your company automatically."),
+        (["help", "what can you", "what do you", "capabilities", "features"],
+         "I can help you with: navigating the platform, understanding your CEO Dashboard, inviting team members, setting up your company profile, understanding AI risk flags, managing projects, and configuring your account settings. Just ask me anything!"),
     ],
     "admin": [
-        (["subscription", "billing", "plan", "payment", "upgrade"],
-         "Manage your company's subscription in Settings → Billing. You can see your current plan, expiry date, "
-         "and upgrade to Starter, Pro, or Enterprise from there."),
+        (["subscription", "billing", "plan", "payment", "upgrade", "buy", "purchase"],
+         "Manage your company's subscription in Settings → Billing. You can submit a plan upgrade request there — the platform owner approves and activates it. Plans: Starter ₹1,000/mo, Pro ₹5,000/6mo, Enterprise ₹15,000/yr."),
+        (["stripe", "payment gateway"],
+         "Online payment via Stripe is not active in this deployment. Use Settings → Billing → Request Upgrade to ask the platform owner to activate a plan for you."),
+        (["employee", "user", "member", "staff", "team member", "how many people", "count"],
+         "Go to Team Dashboard to see all employees, their skills, workload, and availability. Your plan's user limit applies."),
+        (["help", "what can you", "what do you", "capabilities", "features"],
+         "I can help you with: creating projects and tasks, triggering AI agent workflows, managing your team, understanding the agentic decision log, configuring billing, and navigating the platform. Just ask!"),
+    ],
+    "employee": [
+        (["help", "what can you", "what do you", "capabilities", "features"],
+         "I can help you with: understanding your assigned tasks, updating task progress, flagging blockers, navigating to your projects, and managing your profile and skills. What do you need?"),
+        (["skill", "profile", "update skill", "my skills"],
+         "Go to Settings → Profile to update your skills. The AI StaffingAgent uses your skills to score task assignments — keeping them updated gets you better-matched tasks."),
+    ],
+    "client": [
+        (["help", "what can you", "what do you", "capabilities", "features"],
+         "I can help you understand your project status, task progress, and how to contact your team. Go to Projects to see real-time updates on your projects."),
     ],
 }
 
@@ -133,34 +161,46 @@ KEYWORD_ANSWERS: list[tuple[list[str], str]] = [
      "To suspend a company: go to Owner Panel → find the company → click ⏸ Suspend. Enter the reason. The company's users are locked out immediately and the admin receives an email."),
     (["activate", "reactivate", "unsuspend"],
      "To reactivate a company: go to Owner Panel → find the suspended company (red border) → click ▶ Activate. Access is restored immediately."),
-    (["support ticket", "raise ticket", "help ticket", "ticket"],
+    (["support ticket", "raise ticket", "help ticket", "ticket", "contact support", "get help"],
      "To raise a support ticket: go to Settings → Support tab → fill in the subject and body → Submit. The platform owner will reply to your email."),
     (["password", "change password", "reset password"],
      "Go to Settings → Security tab. Enter your current password, then your new password twice. Click Change Password. Passwords must be at least 8 characters."),
-    (["2fa", "two factor", "totp", "authenticator"],
-     "2FA is available in Settings → Security. Scan the QR code with Google Authenticator or Authy, then enter the 6-digit code to enable. CEOs have 2FA enabled by default."),
-    (["profile", "avatar", "photo", "picture", "name"],
-     "Go to Settings → Profile. Click ✏ Edit to update your name, photo, position, location, phone, or secondary email. Click your avatar circle to upload a photo (max 2 MB)."),
-    (["project", "create project", "new project"],
+    (["2fa", "two factor", "totp", "authenticator", "otp"],
+     "2FA is available in Settings → Security. Scan the QR code with Google Authenticator or Authy, then enter the 6-digit code to enable."),
+    (["profile", "avatar", "photo", "picture", "my name", "update name", "edit profile"],
+     "Go to Settings → Profile. Click Edit to update your name, photo, position, location, phone, or secondary email. Paste an image URL or upload a photo (max 2 MB)."),
+    (["logo", "company logo", "add logo", "upload logo", "brand"],
+     "As CEO, go to CEO Dashboard → Edit Company Profile. Paste a public image URL into the Logo URL field and save. The logo appears in the navbar and dashboard header."),
+    (["project", "create project", "new project", "add project"],
      "Admins: go to Projects → New Project. Fill in name, description, budget, deadline, priority, and client. Once created, add tasks to it."),
-    (["task", "assign task", "create task"],
+    (["task", "assign task", "create task", "add task"],
      "Tasks belong to projects. Open a project → Add Task. Set required skills, urgency, difficulty, and estimated hours. The AI StaffingAgent will score and assign the best-matched employee automatically."),
-    (["agent", "ai agent", "workflow", "pipeline", "multi-agent"],
+    (["agent", "ai agent", "workflow", "pipeline", "multi-agent", "workbench"],
      "The Multi-Agent Workbench (admin only) lets you trigger the full AI pipeline: IntakeAgent → PlanningAgent → StaffingAgent → RiskAgent → ExecutionCoordinator → CommunicationAgent → EscalationAgent."),
-    (["ceo dashboard", "company overview", "risk", "financials"],
+    (["ceo dashboard", "company overview", "health score", "financials", "risk flag"],
      "The CEO Dashboard shows: company health score, active project count, risk flags (AI-generated), financial overview (budget vs spent), and team performance metrics."),
-    (["billing", "plan", "subscription", "upgrade", "payment"],
-     "Plans: Trial (free/30d, 1 team), Starter (₹1,000/mo, 10 teams), Pro (₹5,000/6mo, unlimited), Enterprise (₹15,000/yr, unlimited+SLA). Manage in Settings → Billing."),
-    (["calendar", "google calendar", "meeting", "sync"],
+    (["stripe", "payment gateway", "credit card", "checkout", "payment failed", "not configured"],
+     "Stripe online payments are not active in this deployment. To upgrade your plan, use Settings → Billing → Request Upgrade — the platform owner will manually activate your chosen plan within 24 hours."),
+    (["billing", "plan", "subscription", "upgrade", "payment", "buy", "purchase", "pricing"],
+     "Plans available: Trial (free/30d, 1 team, 3 projects), Starter (₹1,000/mo, 10 teams, 20 projects), Pro (₹5,000/6mo, unlimited), Enterprise (₹15,000/yr, unlimited + SLA). Request an upgrade in Settings → Billing."),
+    (["employee count", "how many users", "how many employees", "how many members", "team size", "user count"],
+     "Check your CEO Dashboard → Team Management panel for current member count and pending invites. Your plan's user limit applies (Trial = 5 users, Starter = 25, Pro/Enterprise = unlimited)."),
+    (["calendar", "google calendar", "meeting", "sync", "integration"],
      "Connect Google Calendar in Settings → Integrations. Once connected, meetings created in the platform sync to your calendar automatically."),
-    (["theme", "dark mode", "light mode", "appearance"],
-     "Toggle dark/light mode using the ☀/🌙 button in the top navbar. Change colour palette (Sage, Ocean, Sunset) using the Palette dropdown next to it."),
-    (["navigate", "where", "find", "go to", "how do i get to"],
-     "Use the top navbar to navigate. Your available pages depend on your role. You can also access Settings and Support from the avatar menu (top-right)."),
-    (["tenant", "company", "organisation"],
-     "Each company on the platform is a tenant. Platform owners can see all tenants in the Owner Panel. Each tenant is isolated — users and projects are never visible across companies."),
-    (["onboarding", "tutorial", "guide", "getting started", "walkthrough"],
-     "The onboarding wizard runs automatically on first login. You can re-run it anytime by clicking the 🎓 icon at the bottom of the screen."),
+    (["theme", "dark mode", "light mode", "appearance", "colour", "color", "palette"],
+     "Toggle dark/light mode using the ☀️/🌙 button in the top navbar. Change colour palette using the Palette dropdown next to it — choose from Sage, Ocean, Sunset, and more."),
+    (["navigate", "where", "find", "go to", "how do i get to", "how to access"],
+     "Use the top navbar to navigate between pages. Your available pages depend on your role. Access Settings and Support from the avatar menu (top-right corner)."),
+    (["tenant", "company", "organisation", "isolated", "multi-tenant"],
+     "Each company on the platform is a tenant. Platform owners can see all tenants in the Owner Panel. Each tenant is fully isolated — users and projects are never visible across companies."),
+    (["onboarding", "tutorial", "guide", "getting started", "walkthrough", "tour"],
+     "The onboarding wizard runs automatically on first login. Re-run it anytime from the 🎓 icon at the bottom of the screen."),
+    (["invite", "add user", "add member", "invite employee", "invite admin"],
+     "CEOs invite via CEO Dashboard → Team Management. Admins invite via Team Dashboard. The invitee registers on the platform with the same email to join your company automatically."),
+    (["logout", "log out", "sign out"],
+     "Click your avatar (top-right) → Logout. Your session ends immediately."),
+    (["help", "what can you", "what do you", "capabilities", "what are you", "who are you"],
+     "I'm your platform assistant! I can help with: navigating the platform, inviting team members, setting up projects, understanding AI agents, managing billing, configuring your profile, and anything else about using AI Workforce Orchestrator. What do you need?"),
 ]
 
 
@@ -232,17 +272,25 @@ def assistant_chat(
     if kw_reply:
         return AssistantResponse(reply=kw_reply, source="keyword")
 
-    # 3. Role tips
-    tips = ROLE_TIPS.get(role, [])
-    tip  = tips[hash(message) % len(tips)] if tips else None
-    if tip:
-        return AssistantResponse(
-            reply=f"I'm not sure about that specifically, but here's a tip for your role: {tip}",
-            source="fallback",
-        )
-
+    # 3. Helpful fallback with role context
+    role_pages = {
+        "ceo": "CEO Dashboard, Projects, and Settings",
+        "admin": "Admin Dashboard, Projects, Team Dashboard, Agentic Dashboard, Multi-Agent Workbench, and Settings",
+        "employee": "My Dashboard, My Projects, My Work, and Settings",
+        "client": "Client Dashboard, Project Status, and Settings",
+        "platform_owner": "Owner Panel and Settings",
+    }
+    pages = role_pages.get(role, "the platform")
     return AssistantResponse(
-        reply="I'm your platform assistant. Ask me anything about navigating the platform, managing projects, understanding AI agents, or your account settings.",
+        reply=(
+            f"I didn't quite catch that. I can help you with navigating {pages}, "
+            "managing your account, understanding AI agents, billing, inviting team members, "
+            "and anything else about using the platform. Try asking something like:\n"
+            "- \"How do I add a team member?\"\n"
+            "- \"How do I upgrade my plan?\"\n"
+            "- \"How do I create a project?\"\n"
+            "- \"What does the health score mean?\""
+        ),
         source="fallback",
     )
 

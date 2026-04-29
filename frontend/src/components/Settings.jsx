@@ -349,16 +349,18 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
     URL.revokeObjectURL(url);
   };
 
-  const startSubscription = async (plan) => {
-    const res  = await fetch(`${API_BASE_URL}/billing/subscribe`, { method: 'POST', headers, body: JSON.stringify({ plan_tier: plan }) });
-    const data = await res.json();
-    data.checkout_url ? window.open(data.checkout_url, '_blank') : setBillingMsg(data.detail || 'Unavailable.');
-  };
-
-  const openBillingPortal = async () => {
-    const res  = await fetch(`${API_BASE_URL}/billing/portal`, { headers });
-    const data = await res.json();
-    data.url ? window.open(data.url, '_blank') : setBillingMsg(data.detail || 'Unavailable.');
+  const requestPlanUpgrade = async (plan, label) => {
+    setBillingMsg('');
+    const res = await fetch(`${API_BASE_URL}/settings/support`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        subject: `Plan Upgrade Request — ${label}`,
+        body: `Hi, I would like to upgrade our company plan to ${label}. Please activate this plan for our account. Thank you.`,
+        priority: 'high',
+      }),
+    });
+    if (res.ok) setBillingMsg(`Upgrade request for ${label} submitted — the platform owner will activate it shortly.`);
+    else setBillingMsg('Could not submit request. Please try again or contact support.');
   };
 
   const tabs = [
@@ -674,15 +676,35 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
 
             {/* ── BILLING ──────────────────────────────────────── */}
             {activeTab === 'billing' && (
-              <div style={{ display: 'grid', gap: 12 }}>
-                {billingMsg && <p style={{ color: '#e53935' }}>{billingMsg}</p>}
-                <p style={{ opacity: 0.7 }}>Upgrade or manage your workspace plan.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
-                  {[['starter','Starter — ₹1,000/mo'],['pro','Pro — ₹5,000/6mo'],['enterprise','Enterprise — ₹15,000/yr']].map(([tier, label]) => (
-                    <button key={tier} className="btn btn-primary" onClick={() => startSubscription(tier)}>{label}</button>
+              <div style={{ display: 'grid', gap: 16 }}>
+                <div>
+                  <p className="eyebrow">Current Plan</p>
+                  <p style={{ opacity: 0.7, marginTop: 4 }}>Select a plan to send an upgrade request to the platform owner. They will activate it for your account.</p>
+                </div>
+                {billingMsg && (
+                  <p style={{ color: billingMsg.startsWith('Upgrade request') ? '#15803d' : '#e53935', fontWeight: 500 }}>
+                    {billingMsg}
+                  </p>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
+                  {[
+                    { tier: 'starter', label: 'Starter', price: '₹1,000 / month', features: '10 teams · 20 projects · 25 users' },
+                    { tier: 'pro',     label: 'Pro',     price: '₹5,000 / 6 months', features: 'Unlimited teams, projects & users · 5,000 AI calls' },
+                    { tier: 'enterprise', label: 'Enterprise', price: '₹15,000 / year', features: 'Everything in Pro · Unlimited AI calls · SLA' },
+                  ].map(({ tier, label, price, features }) => (
+                    <div key={tier} className="card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>{label}</div>
+                      <div style={{ fontWeight: 600, color: 'var(--accent)' }}>{price}</div>
+                      <div style={{ fontSize: 12, opacity: 0.65 }}>{features}</div>
+                      <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={() => requestPlanUpgrade(tier, `${label} (${price})`)}>
+                        Request {label}
+                      </button>
+                    </div>
                   ))}
                 </div>
-                <button className="btn btn-secondary" onClick={openBillingPortal}>Manage Billing Portal</button>
+                <p style={{ fontSize: 12, opacity: 0.5 }}>
+                  Requests are sent as a support ticket to the platform owner. Once approved, your plan is activated immediately.
+                </p>
               </div>
             )}
 

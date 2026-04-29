@@ -63,6 +63,8 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
   const [suspendModal, setSuspendModal] = useState(null);
   const [suspendReason, setSuspendReason] = useState('');
   const [loadingId, setLoadingId]       = useState(null);
+  const [planSelections, setPlanSelections] = useState({});
+  const [planMsg, setPlanMsg] = useState({});
 
   const token   = localStorage.getItem('token');
   const headers = useMemo(() => ({
@@ -87,6 +89,24 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
     setLoadingId(tenantId);
     await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}/activate`, { method: 'POST', headers });
     await fetchData();
+    setLoadingId(null);
+  };
+
+  const applyPlan = async (tenantId, tenantName) => {
+    const tier = planSelections[tenantId];
+    if (!tier) return;
+    setLoadingId(tenantId);
+    const res = await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}/plan`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ plan_tier: tier }),
+    });
+    if (res.ok) {
+      setPlanMsg(prev => ({ ...prev, [tenantId]: `${tenantName} upgraded to ${tier}` }));
+      await fetchData();
+    } else {
+      const d = await res.json();
+      setPlanMsg(prev => ({ ...prev, [tenantId]: d.detail || 'Failed' }));
+    }
     setLoadingId(null);
   };
 
@@ -268,8 +288,29 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
                     )}
                   </div>
 
-                  {/* Single toggle button */}
-                  <div style={{ minWidth: 110 }}>
+                  {/* Plan setter + suspend/activate */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 160 }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <select
+                        value={planSelections[t.tenant_id] || t.plan_tier || 'trial'}
+                        onChange={(e) => setPlanSelections(prev => ({ ...prev, [t.tenant_id]: e.target.value }))}
+                        style={{ flex: 1, fontSize: 13, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border-soft)', background: 'var(--surface-soft)', color: 'var(--text-primary)' }}
+                      >
+                        <option value="trial">Trial</option>
+                        <option value="starter">Starter</option>
+                        <option value="pro">Pro</option>
+                        <option value="enterprise">Enterprise</option>
+                      </select>
+                      <button
+                        className="btn btn-primary"
+                        disabled={isLoading}
+                        onClick={() => applyPlan(t.tenant_id, t.tenant_name)}
+                        style={{ fontSize: 12, padding: '4px 10px', whiteSpace: 'nowrap' }}
+                      >
+                        {isLoading ? '…' : 'Apply'}
+                      </button>
+                    </div>
+                    {planMsg[t.tenant_id] && <p style={{ fontSize: 11, color: '#15803d', margin: 0 }}>{planMsg[t.tenant_id]}</p>}
                     {t.suspended ? (
                       <button
                         className="btn btn-secondary"
