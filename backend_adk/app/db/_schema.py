@@ -57,6 +57,7 @@ def _additive_columns(engine):
             "joining_date": "DATE",
             "years_experience": "FLOAT DEFAULT 0",
             "pending_skills": "TEXT",
+            "manager_id": "INTEGER",
         },
         "client_profiles": {
             "tenant_id": "INTEGER",

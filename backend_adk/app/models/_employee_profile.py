@@ -33,6 +33,9 @@ class EmployeeProfile(Base):
     # {"python": {"current": 0.8, "requested": 0.9, "request_id": 42}}
     pending_skills = Column(JSON, nullable=True, default={})
 
+    # Manager assignment (set when employee accepts a team invite)
+    manager_id = Column(Integer, ForeignKey("employee_profiles.id"), nullable=True)
+
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)
 

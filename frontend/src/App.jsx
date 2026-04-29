@@ -14,6 +14,7 @@ import OwnerPanel from './components/OwnerPanel';
 import Settings from './components/Settings';
 import OnboardingWizard from './components/OnboardingWizard';
 import PlatformAssistant from './components/PlatformAssistant';
+import NotificationBell from './components/NotificationBell';
 
 function computeThemeVars(accent, isDark) {
   const { h, sHsl, l } = accent;
@@ -191,6 +192,11 @@ export default function App() {
         customAccent={customAccent}
         onAccentChange={handleAccentChange}
       />
+      {currentUser && currentUser.role !== 'platform_owner' && (
+        <div style={{ position: 'fixed', top: 12, right: 16, zIndex: 500 }}>
+          <NotificationBell API_BASE_URL={API_BASE_URL} />
+        </div>
+      )}
       <div className="container">
         {currentPage === 'dashboard' && currentUser.role !== 'platform_owner' && currentUser.role !== 'ceo' && <Dashboard role={currentUser.role} />}
         {currentPage === 'ceo' && currentUser.role === 'ceo' && (

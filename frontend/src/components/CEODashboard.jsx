@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Dashboard from './Dashboard';
 import { CeoAnalytics } from './Analytics';
 import { formatCurrency } from '../utils/currency';
+import CompanyDirectory from './CompanyDirectory';
 
 export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, tenantLogoUrl, onCompanyUpdate }) {
   const currency = currentUser?.currency || 'USD';
@@ -52,6 +53,30 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   // Skill approval state
   const [skillApprovals, setSkillApprovals] = useState([]);
   const [showApprovals, setShowApprovals] = useState(false);
+
+  // People & Teams panel
+  const [showPeoplePanel, setShowPeoplePanel] = useState(false);
+  const [pendingInviteRequests, setPendingInviteRequests] = useState([]);
+  const [actioningInvite, setActioningInvite] = useState(null); // { id, reason }
+
+  const fetchPendingInviteRequests = () => {
+    fetch(`${API_BASE_URL}/company/invite-requests/pending`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(setPendingInviteRequests)
+      .catch(() => {});
+  };
+
+  const handleInviteAction = async (requestId, approved, reason = '') => {
+    setActioningInvite(requestId);
+    try {
+      const res = await fetch(`${API_BASE_URL}/company/invite-request/${requestId}/ceo-action`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ approved, reason: reason || null }),
+      });
+      if (res.ok) fetchPendingInviteRequests();
+    } catch {}
+    setActioningInvite(null);
+  };
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -310,13 +335,16 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowCompanyEditor((v) => !v); }}>
+          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowCompanyEditor((v) => !v); setShowPeoplePanel(false); }}>
             {showCompanyEditor ? 'Close Company Editor' : 'Edit Company Profile'}
           </button>
-          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowTeamPanel((v) => !v); }}>
+          <button className="btn btn-secondary" onClick={() => { setShowAnalytics(false); setShowTeamPanel((v) => !v); setShowPeoplePanel(false); }}>
             {showTeamPanel ? 'Close Team Panel' : 'Team Management'}
           </button>
-          <button className="btn btn-secondary" onClick={() => { setShowCompanyEditor(false); setShowTeamPanel(false); setShowAnalytics((v) => !v); }}>
+          <button className="btn btn-secondary" onClick={() => { setShowCompanyEditor(false); setShowTeamPanel(false); setShowAnalytics(false); setShowPeoplePanel(v => { if (!v) fetchPendingInviteRequests(); return !v; }); }}>
+            {showPeoplePanel ? 'Close People & Teams' : 'People & Teams'}
+          </button>
+          <button className="btn btn-secondary" onClick={() => { setShowCompanyEditor(false); setShowTeamPanel(false); setShowPeoplePanel(false); setShowAnalytics((v) => !v); }}>
             {showAnalytics ? 'Close Analytics' : 'Business Analytics'}
           </button>
           <button className="btn btn-primary" onClick={() => setCeoMode(true)}>Technical View</button>
@@ -672,6 +700,69 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* People & Teams Panel */}
+      {showPeoplePanel && (
+        <div className="card full-width">
+          <p className="eyebrow">Organisation</p>
+          <h2 style={{ marginBottom: 4 }}>People & Teams</h2>
+
+          {/* Pending CEO approvals */}
+          {pendingInviteRequests.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-secondary)' }}>
+                Pending Your Approval ({pendingInviteRequests.length})
+              </h3>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {pendingInviteRequests.map(req => {
+                  const acting = actioningInvite === req.id;
+                  return (
+                    <div key={req.id} style={{ padding: '14px 16px', border: '1px solid var(--border-soft)', borderRadius: 10, background: 'var(--surface-soft)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                        <div>
+                          <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>
+                            {req.requester.name} → {req.employee.name}
+                          </p>
+                          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                            {req.requester.name} wants to add <strong>{req.employee.name}</strong>
+                            {req.proposed_role ? ` as ${req.proposed_role}` : ''}.
+                            {req.employee.name} is currently <strong>unassigned</strong>.
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+                            disabled={acting} onClick={() => handleInviteAction(req.id, true)}>
+                            {acting ? '…' : 'Approve'}
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px', color: '#dc2626' }}
+                            disabled={acting} onClick={() => {
+                              const reason = window.prompt(`Reason for rejecting ${req.employee.name}'s transfer request?`);
+                              if (reason !== null) handleInviteAction(req.id, false, reason);
+                            }}>
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {pendingInviteRequests.length === 0 && (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>No pending approvals.</p>
+          )}
+
+          {/* Company directory */}
+          <h3 style={{ fontSize: 14, marginBottom: 12, color: 'var(--text-secondary)' }}>Company Directory</h3>
+          <CompanyDirectory
+            API_BASE_URL={API_BASE_URL}
+            currentUser={currentUser}
+            onInviteSent={fetchPendingInviteRequests}
+          />
         </div>
       )}
 

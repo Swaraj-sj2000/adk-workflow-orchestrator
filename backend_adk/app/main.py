@@ -43,6 +43,7 @@ from app.api.routes import _settings as _settings_routes
 from app.api.routes import _billing as _billing_routes
 from app.api.routes import _integrations as _integrations_routes
 from app.api.routes import _assistant as _assistant_routes
+from app.api.routes import _company as _company_routes
 from app.services._auth_service import bootstrap_tenant_data
 from app.services._scheduler_service import SchedulerService
 
@@ -63,6 +64,8 @@ from app.models import (
     _scheduled_agent_job, _email_delivery_log,
     _refresh_token, _change_request,
     _skill_change_request,
+    _team_invite_request,
+    _notification,
 )
 
 
@@ -189,6 +192,7 @@ app.include_router(_settings_routes.router, prefix="/settings")
 app.include_router(_billing_routes.router, prefix="/billing")
 app.include_router(_integrations_routes.router)
 app.include_router(_assistant_routes.router, prefix="/assistant")
+app.include_router(_company_routes.router)
 
 
 @app.get("/")
