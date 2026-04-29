@@ -311,7 +311,13 @@ def direct_add_member(
         TeamMember.team_id == team.id, TeamMember.user_id == user.id
     ).first()
     if not existing_membership:
-        db.add(TeamMember(team_id=team.id, user_id=user.id, role_title=payload.role_title or payload.role))
+        db.add(TeamMember(
+            tenant_id=current_user.tenant_id,
+            team_id=team.id,
+            user_id=user.id,
+            employee_profile_id=profile.id,
+            role_title=payload.role_title or payload.role,
+        ))
 
     db.commit()
     db.refresh(user)
