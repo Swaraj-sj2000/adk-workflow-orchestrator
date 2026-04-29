@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core._deps import get_current_user, require_admin
+from app.core._deps import get_current_user, require_admin, require_ceo_or_admin
 from app.db._database import get_db
 from app.models._project import Project
 from app.models._team import Team
@@ -63,7 +63,7 @@ def create_invite(
 def create_org_invite(
     payload: TeamInviteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_ceo_or_admin),
 ):
     """Invite someone to join the company talent pool — no project needed."""
     if not current_user.tenant_id:
@@ -94,7 +94,7 @@ def create_org_invite(
 @router.get("/invite/talent-pool")
 def get_talent_pool(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_ceo_or_admin),
 ):
     """List all accepted members in the org talent pool."""
     return {
