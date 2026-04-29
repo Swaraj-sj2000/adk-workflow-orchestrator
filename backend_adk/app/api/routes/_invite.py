@@ -196,11 +196,13 @@ def parse_employee_brief(
                 "Reply ONLY with valid JSON, no markdown, no explanation.\n"
                 "Format:\n"
                 '{"full_name":"string","email":"firstname.lastname@DOMAIN","role":"employee|admin|client",'
-                '"role_title":"string","years_experience":float,"skills":[{"name":"string","rating":float 0-1}],'
+                '"role_title":"string","reliability":float 0-1,"skills":[{"name":"string","rating":float 0-1}],'
                 '"joining_date":"YYYY-MM-DD or null"}\n'
                 f"Use domain: {payload.company_domain}. "
                 "Skills rating 0-1 (e.g. 0.8 = strong, 0.5 = intermediate). "
-                "joining_date: use today if not mentioned. "
+                "reliability: extract from brief if mentioned (e.g. '89%' = 0.89), else default 0.5. "
+                "joining_date: extract from brief if mentioned, else use today. "
+                "Do NOT include years_experience — it is calculated from joining_date automatically. "
                 "Generate a realistic email from the person's name and the given domain."
             )),
             HumanMessage(content=payload.brief),
@@ -215,7 +217,7 @@ def parse_employee_brief(
             "email": data.get("email", ""),
             "role": data.get("role", "employee"),
             "role_title": data.get("role_title", ""),
-            "years_experience": float(data.get("years_experience", 0)),
+            "reliability": float(data.get("reliability", 0.5)),
             "skills": data.get("skills", []),
             "joining_date": data.get("joining_date"),
             "suggested_password": temp_pw,

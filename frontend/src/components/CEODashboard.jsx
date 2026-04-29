@@ -177,15 +177,19 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Parse failed');
+      const joiningDate = data.joining_date || new Date().toISOString().split('T')[0];
+      const yearsExp = joiningDate
+        ? Math.max(0, parseFloat(((Date.now() - new Date(joiningDate).getTime()) / (365.25 * 24 * 3600 * 1000)).toFixed(1)))
+        : 0;
       setDirectForm({
         full_name: data.full_name || '',
         email: data.email || '',
         role: data.role || 'employee',
         role_title: data.role_title || '',
         skills: (data.skills || []).map(s => ({ name: s.name, rating: s.rating })),
-        reliability: 0.5,
-        years_experience: data.years_experience || 0,
-        joining_date: data.joining_date || new Date().toISOString().split('T')[0],
+        reliability: data.reliability ?? 0.5,
+        years_experience: yearsExp,
+        joining_date: joiningDate,
         suggested_password: data.suggested_password || '',
       });
       if (data.email) checkEmailAvailability(data.email);
@@ -449,7 +453,8 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                   value={brief}
                   onChange={e => setBrief(e.target.value)}
                   placeholder="e.g. Priya has 5 years of experience in Python and FastAPI, worked on 3 SaaS products, strong in backend systems and databases, joining us as a senior developer from Jan 2024..."
-                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
+                  className="brief-textarea"
+                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
                 />
                 {(parsingBrief) && (
                   <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden', margin: '8px 0' }}>

@@ -301,6 +301,15 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.brief-textarea {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+}
+.brief-textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
 .inline-actions {
   display: flex;
   gap: 10px;
