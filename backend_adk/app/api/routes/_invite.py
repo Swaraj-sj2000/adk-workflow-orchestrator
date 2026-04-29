@@ -2,7 +2,7 @@ import secrets
 import string
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core._deps import get_current_user, require_admin, require_ceo_or_admin
@@ -151,7 +151,7 @@ class SkillEntry(BaseModel):
 
 
 class DirectAddMemberRequest(BaseModel):
-    email: EmailStr
+    email: str
     full_name: str = Field(min_length=2, max_length=100)
     role: str = Field(default="employee")
     role_title: str | None = None

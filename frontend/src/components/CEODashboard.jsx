@@ -522,12 +522,12 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                   </div>
                   <div>
                     <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Years Experience</label>
-                    <input type="number" min="0" max="50" step="0.5" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                    <input type="number" min="0" max="50" step="0.1" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
                       value={directForm.years_experience} onChange={e => setDirectForm(f => ({ ...f, years_experience: parseFloat(e.target.value) || 0 }))} />
                   </div>
                   <div>
                     <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Reliability (0–1)</label>
-                    <input type="number" min="0" max="1" step="0.05" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                    <input type="number" min="0" max="1" step="0.01" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
                       value={directForm.reliability} onChange={e => setDirectForm(f => ({ ...f, reliability: parseFloat(e.target.value) || 0.5 }))} />
                   </div>
                 </div>
@@ -551,7 +551,7 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                           style={{ padding: '8px 10px', border: '1px solid var(--border-soft)', borderRadius: 6, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13 }}
                           value={skill.name} placeholder="Skill name (e.g. Python)"
                           onChange={e => setDirectForm(f => { const s = [...f.skills]; s[i] = { ...s[i], name: e.target.value }; return { ...f, skills: s }; })} />
-                        <input type="number" min="0" max="1" step="0.05"
+                        <input type="number" min="0" max="1" step="0.01"
                           style={{ padding: '8px 10px', border: '1px solid var(--border-soft)', borderRadius: 6, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13 }}
                           value={skill.rating}
                           onChange={e => setDirectForm(f => { const s = [...f.skills]; s[i] = { ...s[i], rating: parseFloat(e.target.value) || 0 }; return { ...f, skills: s }; })} />
