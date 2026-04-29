@@ -66,6 +66,7 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
   const [planSelections, setPlanSelections] = useState({});
   const [planMsg, setPlanMsg] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const token   = localStorage.getItem('token');
   const headers = useMemo(() => ({
@@ -124,9 +125,11 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
   };
 
   const deleteTenant = async (tenantId) => {
+    setDeleting(true);
     setLoadingId(tenantId);
     await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}`, { method: 'DELETE', headers });
     setDeleteConfirm(null);
+    setDeleting(false);
     await fetchData();
     setLoadingId(null);
   };
@@ -200,10 +203,23 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
               This permanently deletes the company and <strong>all its data</strong> — users, projects, tasks, teams, and tickets. This cannot be undone.
             </p>
+            {deleting && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>Deleting all company data…</div>
+                <div style={{ height: 6, borderRadius: 4, background: 'var(--border-soft)', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 4, background: '#b71c1c',
+                    animation: 'indeterminate 1.4s ease-in-out infinite',
+                    width: '40%',
+                  }} />
+                </div>
+                <style>{`@keyframes indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }`}</style>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={() => deleteTenant(deleteConfirm.tenantId)}>
-                Yes, Delete Everything
+              <button className="btn btn-secondary" disabled={deleting} onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="btn btn-danger" disabled={deleting} onClick={() => deleteTenant(deleteConfirm.tenantId)}>
+                {deleting ? 'Deleting…' : 'Yes, Delete Everything'}
               </button>
             </div>
           </div>
