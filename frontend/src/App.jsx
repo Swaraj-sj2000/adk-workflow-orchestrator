@@ -247,7 +247,7 @@ function LoginPage({ setCurrentUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState('employee');
+  const [role, setRole] = useState('ceo');
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
@@ -598,12 +598,10 @@ function LoginPage({ setCurrentUser }) {
               placeholder="Password"
             />
             <select value={role} onChange={(e) => { setRole(e.target.value); setCompanyName(''); }}>
-              <option value="employee">Employee — join via invite</option>
-              <option value="admin">Admin — set up a team</option>
               <option value="ceo">CEO — register my company</option>
               <option value="client">Client</option>
             </select>
-            {(role === 'ceo' || role === 'admin') && (
+            {role === 'ceo' && (
               <input
                 type="text"
                 placeholder="Company name *"
@@ -612,9 +610,9 @@ function LoginPage({ setCurrentUser }) {
                 required
               />
             )}
-            {role === 'employee' && (
+            {role === 'client' && (
               <p style={{ margin: 0, fontSize: 12, color: '#888', lineHeight: 1.5 }}>
-                Your admin will send you an invite link. Register here with the same email to accept it automatically.
+                Your company admin will set up your client account. Contact them if you need access.
               </p>
             )}
             <button type="submit" disabled={loading}>
