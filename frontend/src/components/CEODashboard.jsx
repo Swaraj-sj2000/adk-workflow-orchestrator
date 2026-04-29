@@ -260,13 +260,21 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                 />
               </div>
             )}
-            <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 14 }}>
-              <button className="btn btn-primary" onClick={handleSaveCompany} disabled={savingCompany}>
-                {savingCompany ? 'Saving...' : 'Save Company Profile'}
-              </button>
-              {companyMsg && (
-                <span style={{ fontSize: 13, color: companyMsg.includes('saved') ? '#15803d' : '#dc2626' }}>{companyMsg}</span>
+            <div style={{ gridColumn: '1 / -1' }}>
+              {savingCompany && (
+                <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden', marginBottom: 10 }}>
+                  <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
+                  <style>{`@keyframes indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }`}</style>
+                </div>
               )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <button className="btn btn-primary" onClick={handleSaveCompany} disabled={savingCompany}>
+                  {savingCompany ? 'Saving…' : 'Save Company Profile'}
+                </button>
+                {companyMsg && (
+                  <span style={{ fontSize: 13, color: companyMsg.includes('saved') ? '#15803d' : '#dc2626' }}>{companyMsg}</span>
+                )}
+              </div>
             </div>
           </div>
         </div>

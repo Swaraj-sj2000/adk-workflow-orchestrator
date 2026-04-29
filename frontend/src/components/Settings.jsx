@@ -234,6 +234,7 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
   const [msg, setMsg]               = useState('');
   const [billingMsg, setBillingMsg] = useState('');
   const [locationOther, setLocationOther] = useState(false);
+  const [saving, setSaving]         = useState(false);
 
   const token   = localStorage.getItem('token');
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
@@ -282,17 +283,20 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 4000); };
 
   const saveProfile = async () => {
-    const res = await fetch(`${API_BASE_URL}/settings/profile`, {
-      method: 'PATCH', headers, body: JSON.stringify(profile),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      onTimezoneChange(data.preferences.timezone);
-      if (onProfileUpdate) onProfileUpdate(data.user);
-      loadProfile();
-      setEditingProfile(false);
-      flash('Profile saved.');
-    } else flash(data.detail || 'Could not save profile.');
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/profile`, {
+        method: 'PATCH', headers, body: JSON.stringify(profile),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onTimezoneChange(data.preferences.timezone);
+        if (onProfileUpdate) onProfileUpdate(data.user);
+        loadProfile();
+        setEditingProfile(false);
+        flash('Profile saved.');
+      } else flash(data.detail || 'Could not save profile.');
+    } finally { setSaving(false); }
   };
 
   const cancelEdit = () => {
@@ -304,41 +308,49 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
   };
 
   const savePreferences = async () => {
-    const res = await fetch(`${API_BASE_URL}/settings/preferences`, {
-      method: 'PATCH', headers, body: JSON.stringify(preferences),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      if (preferences.theme)    onThemeChange(preferences.theme);
-      if (preferences.timezone) onTimezoneChange(preferences.timezone);
-      // Persist currency onto cached user so getCurrency() reads it immediately
-      try {
-        const u = JSON.parse(localStorage.getItem('user') || '{}');
-        localStorage.setItem('user', JSON.stringify({ ...u, currency: preferences.currency || 'USD' }));
-      } catch {}
-      if (onProfileUpdate) onProfileUpdate({ currency: preferences.currency || 'USD' });
-      flash('Preferences saved.');
-    } else flash(data.detail || 'Could not save preferences.');
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/preferences`, {
+        method: 'PATCH', headers, body: JSON.stringify(preferences),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (preferences.theme)    onThemeChange(preferences.theme);
+        if (preferences.timezone) onTimezoneChange(preferences.timezone);
+        try {
+          const u = JSON.parse(localStorage.getItem('user') || '{}');
+          localStorage.setItem('user', JSON.stringify({ ...u, currency: preferences.currency || 'USD' }));
+        } catch {}
+        if (onProfileUpdate) onProfileUpdate({ currency: preferences.currency || 'USD' });
+        flash('Preferences saved.');
+      } else flash(data.detail || 'Could not save preferences.');
+    } finally { setSaving(false); }
   };
 
   const changePassword = async () => {
     if (pwForm.new_password !== pwForm.confirm_password) { flash('Passwords do not match.'); return; }
-    const res = await fetch(`${API_BASE_URL}/settings/change-password`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ current_password: pwForm.current_password, new_password: pwForm.new_password }),
-    });
-    const data = await res.json();
-    flash(data.message || data.detail || 'Done.');
-    if (res.ok) setPwForm({ current_password: '', new_password: '', confirm_password: '' });
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/change-password`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ current_password: pwForm.current_password, new_password: pwForm.new_password }),
+      });
+      const data = await res.json();
+      flash(data.message || data.detail || 'Done.');
+      if (res.ok) setPwForm({ current_password: '', new_password: '', confirm_password: '' });
+    } finally { setSaving(false); }
   };
 
   const submitSupport = async () => {
-    const res = await fetch(`${API_BASE_URL}/settings/support`, {
-      method: 'POST', headers, body: JSON.stringify(supportForm),
-    });
-    const data = await res.json();
-    if (res.ok) { flash("Ticket submitted — we'll reply to your email."); setSupportForm({ subject: '', body: '', priority: 'medium' }); }
-    else flash(data.detail || 'Could not submit ticket.');
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/support`, {
+        method: 'POST', headers, body: JSON.stringify(supportForm),
+      });
+      const data = await res.json();
+      if (res.ok) { flash("Ticket submitted — we'll reply to your email."); setSupportForm({ subject: '', body: '', priority: 'medium' }); }
+      else flash(data.detail || 'Could not submit ticket.');
+    } finally { setSaving(false); }
   };
 
   const exportData = async () => {
@@ -351,19 +363,22 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
 
   const requestPlanUpgrade = async (plan, label) => {
     setBillingMsg('');
-    const res = await fetch(`${API_BASE_URL}/settings/support`, {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        subject: `Plan Upgrade Request — ${label}`,
-        body: `Hi, I would like to upgrade our company plan to ${label}. Please activate this plan for our account. Thank you.`,
-        priority: 'high',
-      }),
-    });
-    if (res.ok) setBillingMsg(`Upgrade request for ${label} submitted — the platform owner will activate it shortly.`);
-    else {
-      const err = await res.json().catch(() => ({}));
-      setBillingMsg(`Could not submit request: ${err.detail || res.status}`);
-    }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/settings/support`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          subject: `Plan Upgrade Request — ${label}`,
+          body: `Hi, I would like to upgrade our company plan to ${label}. Please activate this plan for our account. Thank you.`,
+          priority: 'high',
+        }),
+      });
+      if (res.ok) setBillingMsg(`Upgrade request for ${label} submitted — the platform owner will activate it shortly.`);
+      else {
+        const err = await res.json().catch(() => ({}));
+        setBillingMsg(`Could not submit request: ${err.detail || res.status}`);
+      }
+    } finally { setSaving(false); }
   };
 
   const tabs = [
@@ -393,6 +408,12 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
 
           {/* Content */}
           <div className="card">
+            {saving && (
+              <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
+              </div>
+            )}
+            <style>{`@keyframes indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }`}</style>
 
             {/* ── PROFILE ─────────────────────────────────────── */}
             {activeTab === 'profile' && profileLoading && (
@@ -537,13 +558,13 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     className="btn btn-primary"
-                    disabled={!profile.first_name.trim() || !profile.last_name.trim()}
+                    disabled={saving || !profile.first_name.trim() || !profile.last_name.trim()}
                     onClick={saveProfile}
                     style={{ flex: 1 }}
                   >
-                    Save Changes
+                    {saving ? 'Saving…' : 'Save Changes'}
                   </button>
-                  <button className="btn btn-secondary" onClick={cancelEdit}>Cancel</button>
+                  <button className="btn btn-secondary" disabled={saving} onClick={cancelEdit}>Cancel</button>
                 </div>
               </div>
             )}
@@ -596,7 +617,9 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                     Technical view (CEO mode)
                   </label>
                 )}
-                <button className="btn btn-primary" onClick={savePreferences}>Save Preferences</button>
+                <button className="btn btn-primary" disabled={saving} onClick={savePreferences}>
+                  {saving ? 'Saving…' : 'Save Preferences'}
+                </button>
 
                 {/* Onboarding re-trigger */}
                 <div style={{ marginTop: 8, paddingTop: 16, borderTop: '1px solid var(--border-soft)' }}>
@@ -640,10 +663,10 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                 )}
                 <button
                   className="btn btn-primary"
-                  disabled={!pwForm.current_password || !pwForm.new_password || pwForm.new_password !== pwForm.confirm_password}
+                  disabled={saving || !pwForm.current_password || !pwForm.new_password || pwForm.new_password !== pwForm.confirm_password}
                   onClick={changePassword}
                 >
-                  Change Password
+                  {saving ? 'Saving…' : 'Change Password'}
                 </button>
               </div>
             )}
@@ -662,8 +685,8 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                 </div>
                 <input value={supportForm.subject} onChange={(e) => setSupportForm((p) => ({ ...p, subject: e.target.value }))} placeholder="Subject" />
                 <textarea value={supportForm.body} onChange={(e) => setSupportForm((p) => ({ ...p, body: e.target.value }))} placeholder="How can we help?" style={{ minHeight: 160 }} />
-                <button className="btn btn-primary" disabled={!supportForm.subject.trim() || !supportForm.body.trim()} onClick={submitSupport}>
-                  Submit Ticket
+                <button className="btn btn-primary" disabled={saving || !supportForm.subject.trim() || !supportForm.body.trim()} onClick={submitSupport}>
+                  {saving ? 'Submitting…' : 'Submit Ticket'}
                 </button>
               </div>
             )}
@@ -699,8 +722,8 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
                       <div style={{ fontWeight: 700, fontSize: 16 }}>{label}</div>
                       <div style={{ fontWeight: 600, color: 'var(--accent)' }}>{price}</div>
                       <div style={{ fontSize: 12, opacity: 0.65 }}>{features}</div>
-                      <button className="btn btn-primary" style={{ marginTop: 4 }} onClick={() => requestPlanUpgrade(tier, `${label} (${price})`)}>
-                        Request {label}
+                      <button className="btn btn-primary" style={{ marginTop: 4 }} disabled={saving} onClick={() => requestPlanUpgrade(tier, `${label} (${price})`)}>
+                        {saving ? 'Sending…' : `Request ${label}`}
                       </button>
                     </div>
                   ))}
