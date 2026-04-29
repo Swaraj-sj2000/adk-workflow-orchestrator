@@ -38,21 +38,21 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      fetch(`${API_BASE_URL}/ceo/overview`, { headers }).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/ceo/financials`, { headers }).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/ceo/teams`, { headers }).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/ceo/clients`, { headers }).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/ceo/risks`, { headers }).then((r) => r.json()),
+      fetch(`${API_BASE_URL}/ceo/overview`, { headers }).then((r) => r.ok ? r.json() : null),
+      fetch(`${API_BASE_URL}/ceo/financials`, { headers }).then((r) => r.ok ? r.json() : null),
+      fetch(`${API_BASE_URL}/ceo/teams`, { headers }).then((r) => r.ok ? r.json() : null),
+      fetch(`${API_BASE_URL}/ceo/clients`, { headers }).then((r) => r.ok ? r.json() : []),
+      fetch(`${API_BASE_URL}/ceo/risks`, { headers }).then((r) => r.ok ? r.json() : []),
       fetch(`${API_BASE_URL}/settings/company`, { headers }).then((r) => r.ok ? r.json() : null),
       fetch(`${API_BASE_URL}/invite/talent-pool`, { headers }).then((r) => r.ok ? r.json() : { members: [], pending_invites: [] }),
-      fetch(`${API_BASE_URL}/ceo/recent-activity`, { headers }).then((r) => r.ok ? r.json() : []), // Quick win #2: Live agent activity ticker
+      fetch(`${API_BASE_URL}/ceo/recent-activity`, { headers }).then((r) => r.ok ? r.json() : []),
     ])
       .then(([overviewData, financialData, teamData, clientData, riskData, companyData, poolData, activityData]) => {
         setOverview(overviewData);
         setFinancials(financialData);
         setTeams(teamData);
-        setClients(clientData || []);
-        setRisks(riskData || []);
+        setClients(Array.isArray(clientData) ? clientData : []);
+        setRisks(Array.isArray(riskData) ? riskData : []);
         if (companyData) {
           setCompanyProfile(companyData);
           setCompanyForm({
@@ -69,8 +69,9 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
           });
         }
         setTalentPool(poolData || { members: [], pending_invites: [] });
-        setRecentActivity(activityData || []); // Quick win #2: Live agent activity ticker
+        setRecentActivity(Array.isArray(activityData) ? activityData : []);
       })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [API_BASE_URL]);
 
