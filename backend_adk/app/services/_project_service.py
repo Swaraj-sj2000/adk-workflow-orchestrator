@@ -922,10 +922,19 @@ def build_admin_analytics(db: Session, admin: User) -> dict:
 
 
 def build_team_dashboard(db: Session, admin: User):
+    admin_profile = (
+        db.query(EmployeeProfile)
+        .filter(EmployeeProfile.user_id == admin.id, EmployeeProfile.tenant_id == admin.tenant_id)
+        .first()
+    )
     employees = (
         db.query(EmployeeProfile)
         .options(joinedload(EmployeeProfile.user), joinedload(EmployeeProfile.assignments).joinedload(TaskAssignment.task))
-        .filter(EmployeeProfile.tenant_id == admin.tenant_id)
+        .filter(
+            EmployeeProfile.tenant_id == admin.tenant_id,
+            EmployeeProfile.deleted_at.is_(None),
+            EmployeeProfile.manager_id == (admin_profile.id if admin_profile else -1),
+        )
         .order_by(EmployeeProfile.department.asc(), EmployeeProfile.id.asc())
         .all()
     )
