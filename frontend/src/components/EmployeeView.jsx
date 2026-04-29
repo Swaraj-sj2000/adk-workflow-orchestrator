@@ -43,9 +43,7 @@ export default function EmployeeView({ role }) {
   const [loading, setLoading] = useState(true);
   const [actionKey, setActionKey] = useState('');
   const [orgInvites, setOrgInvites] = useState([]);
-  const [pendingTeamInvites, setPendingTeamInvites] = useState([]);
   const [showDirectory, setShowDirectory] = useState(false);
-  const [rejectReason, setRejectReason] = useState({});
 
   useEffect(() => {
     fetchData();
@@ -62,18 +60,13 @@ export default function EmployeeView({ role }) {
     setLoading(true);
     try {
       const endpoint = role === 'admin' ? `${API}/system/team-dashboard` : `${API}/employees/my-work`;
-      const [res, invRes, teamInvRes] = await Promise.all([
+      const [res, invRes] = await Promise.all([
         fetch(endpoint, { headers }),
         fetch(`${API}/my-invites`, { headers }),
-        fetch(`${API}/company/invite-requests/pending`, { headers }),
       ]);
       if (invRes.ok) {
         const invData = await invRes.json();
         setOrgInvites(Array.isArray(invData) ? invData : []);
-      }
-      if (teamInvRes.ok) {
-        const tData = await teamInvRes.json();
-        setPendingTeamInvites(Array.isArray(tData) ? tData : []);
       }
       if (res.ok) {
         const nextData = await res.json();
@@ -302,40 +295,6 @@ export default function EmployeeView({ role }) {
     }
   };
 
-  const respondToTeamInvite = async (requestId, accepted, reason = '') => {
-    try {
-      const res = await fetch(`${API}/company/invite-request/${requestId}/employee-action`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accepted, reason: reason || null }),
-      });
-      if (res.ok) {
-        setMessage(accepted ? 'You have joined the team.' : 'Invite declined.');
-        await fetchData();
-      } else {
-        const d = await res.json();
-        setMessage(d.detail || 'Could not process invite.');
-      }
-    } catch { setMessage('Could not process invite.'); }
-  };
-
-  const respondManagerInvite = async (requestId, approved, reason = '') => {
-    try {
-      const res = await fetch(`${API}/company/invite-request/${requestId}/manager-action`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved, reason: reason || null }),
-      });
-      if (res.ok) {
-        setMessage(approved ? 'Transfer approved.' : 'Transfer rejected and escalated to CEO.');
-        await fetchData();
-      } else {
-        const d = await res.json();
-        setMessage(d.detail || 'Could not process request.');
-      }
-    } catch { setMessage('Could not process request.'); }
-  };
-
   const inviteMember = async (event) => {
     event.preventDefault();
     if (!inviteForm.email.trim()) return;
@@ -425,36 +384,6 @@ export default function EmployeeView({ role }) {
         {message && (
           <div className={`card full-width workspace-message workspace-${messageTone(message)}`}>
             <strong>{message}</strong>
-          </div>
-        )}
-
-        {/* Pending manager approvals */}
-        {pendingTeamInvites.length > 0 && (
-          <div className="card full-width">
-            <p className="eyebrow">Requires Your Action</p>
-            <h2 style={{ marginBottom: 12 }}>Transfer Requests</h2>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {pendingTeamInvites.map(req => (
-                <div key={req.id} style={{ padding: '14px 16px', border: '1px solid var(--border-soft)', borderRadius: 10, background: 'var(--surface-soft)' }}>
-                  <p style={{ fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>
-                    {req.requester.name} wants to add {req.employee.name}
-                    {req.proposed_role ? ` as ${req.proposed_role}` : ''} to their team.
-                  </p>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
-                    {req.employee.name} is currently in your team.
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn btn-primary" style={{ fontSize: 12 }}
-                      onClick={() => respondManagerInvite(req.id, true)}>Approve Transfer</button>
-                    <button className="btn btn-secondary" style={{ fontSize: 12, color: '#dc2626' }}
-                      onClick={() => {
-                        const r = window.prompt('Reason for rejection?');
-                        if (r !== null) respondManagerInvite(req.id, false, r);
-                      }}>Reject</button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -693,33 +622,6 @@ export default function EmployeeView({ role }) {
       {message && (
         <div className={`card full-width workspace-message workspace-${messageTone(message)}`}>
           <strong>{message}</strong>
-        </div>
-      )}
-
-      {/* Pending team invite requests from admins */}
-      {pendingTeamInvites.length > 0 && (
-        <div className="card full-width" style={{ borderLeft: '4px solid var(--accent)' }}>
-          <p className="eyebrow">Team Invite</p>
-          <h2 style={{ marginBottom: 14 }}>You have a team invite</h2>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {pendingTeamInvites.map(req => (
-              <div key={req.id} style={{ padding: '14px 16px', border: '1px solid var(--border-soft)', borderRadius: 10, background: 'var(--surface-soft)' }}>
-                <p style={{ fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>
-                  {req.requester.name} wants you to join their team
-                  {req.proposed_role ? ` as ${req.proposed_role}` : ''}.
-                </p>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" style={{ fontSize: 13 }}
-                    onClick={() => respondToTeamInvite(req.id, true)}>Accept</button>
-                  <button className="btn btn-secondary" style={{ fontSize: 13, color: '#dc2626' }}
-                    onClick={() => {
-                      const r = window.prompt('Reason for declining (optional)?') || '';
-                      respondToTeamInvite(req.id, false, r);
-                    }}>Decline</button>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

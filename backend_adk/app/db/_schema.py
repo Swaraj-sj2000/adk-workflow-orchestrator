@@ -77,6 +77,9 @@ def _additive_columns(engine):
             "max_teams": "INTEGER DEFAULT 1",
             "subscription_expires_at": ts,
         },
+        "notifications": {
+            "llm_annotation": "TEXT",
+        },
     }
 
 

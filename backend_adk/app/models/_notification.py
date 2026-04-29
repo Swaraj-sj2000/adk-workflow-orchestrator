@@ -13,6 +13,7 @@ class Notification(Base):
     type = Column(String, nullable=False)
     title = Column(String, nullable=False)
     body = Column(Text, nullable=True)
+    llm_annotation = Column(Text, nullable=True)
     reference_type = Column(String, nullable=True)
     reference_id = Column(Integer, nullable=True)
     read_at = Column(DateTime, nullable=True)

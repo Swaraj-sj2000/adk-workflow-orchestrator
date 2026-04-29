@@ -11,16 +11,29 @@ from app.models._employee_profile import EmployeeProfile
 from app.models._notification import Notification
 from app.models._team_invite_request import TeamInviteRequest
 from app.models._user import User
+from app.services._llm_service import LLMService, HumanMessage, SystemMessage
 
 router = APIRouter(tags=["Company"])
+
+_llm = LLMService()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _notify(db, tenant_id, user_id, ntype, title, body, ref_type=None, ref_id=None):
+    annotation = None
+    try:
+        if _llm.enabled:
+            annotation = _llm._invoke_text([
+                SystemMessage(content="You are a concise notification assistant. In one short sentence, tell the recipient what they should focus on or do next based on this notification. No headers, no bullet points."),
+                HumanMessage(content=f"Type: {ntype}\nTitle: {title}\nBody: {body}"),
+            ]) or None
+    except Exception:
+        pass
     db.add(Notification(
         tenant_id=tenant_id, user_id=user_id,
         type=ntype, title=title, body=body,
+        llm_annotation=annotation,
         reference_type=ref_type, reference_id=ref_id,
     ))
 
@@ -478,6 +491,7 @@ def list_notifications(
             "type": n.type,
             "title": n.title,
             "body": n.body,
+            "llm_annotation": n.llm_annotation,
             "reference_type": n.reference_type,
             "reference_id": n.reference_id,
             "read": n.read_at is not None,

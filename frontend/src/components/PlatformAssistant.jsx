@@ -2,55 +2,172 @@ import React, { useState, useRef, useEffect } from 'react';
 import { API_BASE_URL } from '../config';
 import manhAvatar from '../assets/manh_assistant.png';
 
+const TYPE_ICON = {
+  approval_needed: '🔔',
+  fyi: 'ℹ️',
+  escalation: '⚠️',
+  invite_received: '📩',
+  accepted: '✅',
+  rejection_record: '📋',
+};
+
 export default function PlatformAssistant({ currentUser }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState('chat');
+  const [showBubble, setShowBubble] = useState(false);
+  const bubbleTimerRef = useRef(null);
+
+  // Notifications
+  const [notifications, setNotifications] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const prevUnreadRef = useRef(0);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [showReason, setShowReason] = useState({});
+  const [reasonText, setReasonText] = useState({});
+
+  // Chat
   const firstName = currentUser?.full_name?.split(' ')[0] || 'there';
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      text: `Hi ${firstName}! I'm ManH, your AI assistant. I have live access to your account data — ask me anything about the platform, your projects, your team, or how features work.`,
-    },
-  ]);
+  const [messages, setMessages] = useState([{
+    role: 'assistant',
+    text: `Hi ${firstName}! I'm ManH, your AI assistant. I have live access to your account data — ask me anything about the platform, your projects, your team, or how features work.`,
+  }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
+  const inputRef = useRef(null);
 
+  const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+  const getJsonHeaders = () => ({ ...getHeaders(), 'Content-Type': 'application/json' });
+
+  // ── Notification helpers ─────────────────────────────────────────────────────
+  const fetchCount = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/notifications/unread-count`, { headers: getHeaders() });
+      if (r.ok) { const d = await r.json(); setUnread(d.count || 0); }
+    } catch {}
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const r = await fetch(`${API_BASE_URL}/notifications`, { headers: getHeaders() });
+      if (r.ok) { const d = await r.json(); setNotifications(Array.isArray(d) ? d : []); }
+    } catch {}
+  };
+
+  const triggerBubble = () => {
+    setShowBubble(true);
+    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
+    bubbleTimerRef.current = setTimeout(() => setShowBubble(false), 5000);
+  };
+
+  // Poll unread count every 30s
   useEffect(() => {
-    if (open && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    fetchCount();
+    const iv = setInterval(fetchCount, 30000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Show bubble once per session on mount if there are unreads
+  useEffect(() => {
+    if (!sessionStorage.getItem('mh_bubble_shown')) {
+      (async () => {
+        try {
+          const r = await fetch(`${API_BASE_URL}/notifications/unread-count`, { headers: getHeaders() });
+          if (r.ok) {
+            const d = await r.json();
+            if ((d.count || 0) > 0) {
+              sessionStorage.setItem('mh_bubble_shown', '1');
+              triggerBubble();
+            }
+          }
+        } catch {}
+      })();
     }
-  }, [messages, open]);
+    return () => { if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current); };
+  }, []);
+
+  // Show bubble when new unread notification arrives during session
+  useEffect(() => {
+    if (prevUnreadRef.current > 0 && unread > prevUnreadRef.current && !open) {
+      triggerBubble();
+    }
+    prevUnreadRef.current = unread;
+  }, [unread, open]);
+
+  // Fetch notifications when notifications tab opens
+  useEffect(() => {
+    if (open && tab === 'notifications') fetchNotifications();
+  }, [open, tab]);
+
+  // ── Notification actions ─────────────────────────────────────────────────────
+  const markRead = async (id) => {
+    await fetch(`${API_BASE_URL}/notifications/${id}/read`, { method: 'PATCH', headers: getHeaders() });
+    setNotifications(ns => ns.map(n => n.id === id ? { ...n, read: true } : n));
+    setUnread(u => Math.max(0, u - 1));
+  };
+
+  const markAll = async () => {
+    await fetch(`${API_BASE_URL}/notifications/read-all`, { method: 'PATCH', headers: getJsonHeaders() });
+    setNotifications(ns => ns.map(n => ({ ...n, read: true })));
+    setUnread(0);
+  };
+
+  const doInviteAction = async (notif, positive, reason = '') => {
+    const refId = notif.reference_id;
+    if (!refId) return;
+    setActionLoading(notif.id);
+    try {
+      let endpoint, body;
+      if (notif.type === 'invite_received') {
+        endpoint = `/company/invite-request/${refId}/employee-action`;
+        body = { accepted: positive, reason: reason || null };
+      } else if (currentUser?.role === 'ceo') {
+        endpoint = `/company/invite-request/${refId}/ceo-action`;
+        body = { approved: positive, reason: reason || null };
+      } else {
+        endpoint = `/company/invite-request/${refId}/manager-action`;
+        body = { approved: positive, reason: reason || null };
+      }
+      const r = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST', headers: getJsonHeaders(), body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        if (!notif.read) await markRead(notif.id);
+        await fetchNotifications();
+        await fetchCount();
+      }
+    } catch {}
+    setActionLoading(null);
+    setShowReason(s => ({ ...s, [notif.id]: false }));
+  };
+
+  // ── Chat helpers ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (open && tab === 'chat' && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, open, tab]);
 
   useEffect(() => {
-    if (open && inputRef.current) inputRef.current.focus();
-  }, [open]);
+    if (open && tab === 'chat' && inputRef.current) inputRef.current.focus();
+  }, [open, tab]);
 
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
-
     const newMessages = [...messages, { role: 'user', text }];
     setMessages(newMessages);
     setInput('');
     setLoading(true);
-
     try {
-      const token = localStorage.getItem('token');
       const res = await fetch(`${API_BASE_URL}/assistant/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          message: text,
-          history: messages.slice(-10).map(m => ({ role: m.role, text: m.text })),
-        }),
+        headers: getJsonHeaders(),
+        body: JSON.stringify({ message: text, history: messages.slice(-10).map(m => ({ role: m.role, text: m.text })) }),
       });
-
       if (res.ok) {
         const data = await res.json();
         setMessages(prev => [...prev, { role: 'assistant', text: data.reply }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', text: "I couldn't process that right now — please try again in a moment." }]);
+        setMessages(prev => [...prev, { role: 'assistant', text: "I couldn't process that right now — please try again." }]);
       }
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', text: "Network error — please check your connection." }]);
@@ -70,79 +187,230 @@ export default function PlatformAssistant({ currentUser }) {
 
   return (
     <>
-      {/* Floating bubble */}
-      <button onClick={() => setOpen(o => !o)} style={bubbleStyle} title="Assistant ManH" aria-label="Open Assistant ManH">
+      <style>{`
+        @keyframes manhDot { 0%,80%,100%{transform:scale(0.6);opacity:0.4} 40%{transform:scale(1);opacity:1} }
+        @keyframes manhSlideUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
+
+      {/* Unread bubble tooltip */}
+      {showBubble && !open && (
+        <div style={bubbleTooltipStyle}>
+          <span
+            style={{ cursor: 'pointer', flex: 1, fontSize: 13 }}
+            onClick={() => { setOpen(true); setTab('notifications'); setShowBubble(false); }}>
+            {unread > 0
+              ? `You have ${unread > 99 ? '99+' : unread} unread notification${unread === 1 ? '' : 's'}`
+              : 'New notification'}
+          </span>
+          <button
+            onClick={() => setShowBubble(false)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 10, flexShrink: 0 }}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* FAB */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={fabStyle}
+        title="ManH Assistant & Notifications"
+        aria-label="Open ManH Assistant">
         {open ? (
           <span style={{ fontSize: 18, lineHeight: 1, color: '#fff', fontWeight: 700 }}>✕</span>
         ) : (
-          <img src={manhAvatar} alt="ManH" style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />
+          <>
+            <img src={manhAvatar} alt="ManH" style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover' }} />
+            {unread > 0 && (
+              <span style={{
+                position: 'absolute', top: 2, right: 2,
+                background: '#dc2626', color: '#fff',
+                borderRadius: '50%', fontSize: 10, fontWeight: 700,
+                minWidth: 16, height: 16, lineHeight: 1,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px',
+              }}>
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </>
         )}
       </button>
 
-      {/* Chat panel */}
+      {/* Panel */}
       {open && (
         <div style={panelStyle}>
-          {/* Header */}
-          <div style={headerStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <img src={manhAvatar} alt="ManH" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>Assistant ManH</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Gemini 2.5 Flash · live account context</div>
-              </div>
-            </div>
-            <button onClick={clearChat} style={clearBtnStyle} title="Clear conversation">
-              Clear
+          {/* Tab bar */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+            <button onClick={() => setTab('chat')} style={tabBtnStyle(tab === 'chat')}>Chat</button>
+            <button onClick={() => { setTab('notifications'); fetchNotifications(); }} style={tabBtnStyle(tab === 'notifications')}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                Notifications
+                {unread > 0 && (
+                  <span style={{ background: '#dc2626', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 5px', lineHeight: 1 }}>
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
+              </span>
             </button>
           </div>
 
-          {/* Messages */}
-          <div style={messagesAreaStyle}>
-            {messages.map((msg, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
-                {msg.role === 'assistant' && (
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
-                    <img src={manhAvatar} alt="ManH" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: 2 }} />
-                    <div style={assistantBubble}>{formatText(msg.text)}</div>
+          {/* ── Chat tab ── */}
+          {tab === 'chat' && (
+            <>
+              <div style={chatHeaderStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <img src={manhAvatar} alt="ManH" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>Assistant ManH</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Gemini 2.5 Flash · live context</div>
+                  </div>
+                </div>
+                <button onClick={clearChat} style={clearBtnStyle}>Clear</button>
+              </div>
+              <div style={messagesAreaStyle}>
+                {messages.map((msg, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
+                    {msg.role === 'assistant' ? (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+                        <img src={manhAvatar} alt="ManH" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, marginBottom: 2 }} />
+                        <div style={assistantBubbleStyle}>{formatText(msg.text)}</div>
+                      </div>
+                    ) : (
+                      <div style={userBubbleStyle}>{msg.text}</div>
+                    )}
+                  </div>
+                ))}
+                {loading && (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 12 }}>
+                    <img src={manhAvatar} alt="ManH" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    <div style={{ ...assistantBubbleStyle, opacity: 0.6 }}><TypingDots /></div>
                   </div>
                 )}
-                {msg.role === 'user' && (
-                  <div style={userBubble}>{msg.text}</div>
+                <div ref={bottomRef} />
+              </div>
+              <div style={inputAreaStyle}>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask ManH anything…"
+                  rows={2}
+                  style={textareaStyle}
+                  disabled={loading}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || !input.trim()}
+                  style={{ ...sendBtnStyle, opacity: loading || !input.trim() ? 0.4 : 1 }}>
+                  ↑
+                </button>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-secondary)', opacity: 0.45, paddingBottom: 6 }}>
+                Enter to send · Shift+Enter for new line
+              </div>
+            </>
+          )}
+
+          {/* ── Notifications tab ── */}
+          {tab === 'notifications' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Inbox</span>
+                {unread > 0 && (
+                  <button onClick={markAll} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent)' }}>
+                    Mark all read
+                  </button>
                 )}
               </div>
-            ))}
-            {loading && (
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, marginBottom: 12 }}>
-                <img src={manhAvatar} alt="ManH" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                <div style={{ ...assistantBubble, opacity: 0.6 }}><TypingDots /></div>
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {notifications.length === 0 ? (
+                  <p style={{ padding: '24px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)' }}>
+                    No notifications yet.
+                  </p>
+                ) : notifications.map(n => {
+                  const isActionable = ['approval_needed', 'invite_received'].includes(n.type) && n.reference_id && !n.read;
+                  const isLoading = actionLoading === n.id;
+                  const isShowingReason = !!showReason[n.id];
+                  const posLabel = n.type === 'invite_received' ? 'Accept' : 'Approve';
+                  const negLabel = n.type === 'invite_received' ? 'Decline' : 'Reject';
 
-          {/* Input */}
-          <div style={inputAreaStyle}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask ManH anything…"
-              rows={2}
-              style={textareaStyle}
-              disabled={loading}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={loading || !input.trim()}
-              style={{ ...sendBtnStyle, opacity: loading || !input.trim() ? 0.4 : 1 }}
-            >
-              ↑
-            </button>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-secondary)', opacity: 0.45, paddingBottom: 6 }}>
-            Enter to send · Shift+Enter for new line
-          </div>
+                  return (
+                    <div
+                      key={n.id}
+                      onClick={() => !n.read && !isActionable && markRead(n.id)}
+                      style={{
+                        padding: '12px 14px',
+                        borderBottom: '1px solid var(--border-soft)',
+                        background: n.read ? 'transparent' : 'rgba(79,70,229,0.05)',
+                        cursor: !n.read && !isActionable ? 'pointer' : 'default',
+                      }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{TYPE_ICON[n.type] || '🔔'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: n.read ? 400 : 600, color: 'var(--text-primary)', marginBottom: 2 }}>{n.title}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</div>
+                          {n.llm_annotation && (
+                            <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 5, fontStyle: 'italic', lineHeight: 1.4 }}>
+                              💡 {n.llm_annotation}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, opacity: 0.7 }}>
+                            {n.created_at ? new Date(n.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                          </div>
+
+                          {isActionable && !isShowingReason && (
+                            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                              <button
+                                disabled={isLoading}
+                                onClick={e => { e.stopPropagation(); doInviteAction(n, true); }}
+                                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.5 : 1 }}>
+                                {isLoading ? '…' : posLabel}
+                              </button>
+                              <button
+                                disabled={isLoading}
+                                onClick={e => { e.stopPropagation(); setShowReason(s => ({ ...s, [n.id]: true })); }}
+                                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #dc2626', background: 'transparent', color: '#dc2626', cursor: 'pointer' }}>
+                                {negLabel}
+                              </button>
+                            </div>
+                          )}
+
+                          {isActionable && isShowingReason && (
+                            <div style={{ marginTop: 8 }}>
+                              <input
+                                placeholder={`Reason (optional)`}
+                                value={reasonText[n.id] || ''}
+                                onChange={e => setReasonText(s => ({ ...s, [n.id]: e.target.value }))}
+                                onClick={e => e.stopPropagation()}
+                                style={{ width: '100%', fontSize: 12, padding: '5px 8px', border: '1px solid var(--border-soft)', borderRadius: 6, background: 'var(--surface-soft)', color: 'var(--text-primary)', boxSizing: 'border-box', marginBottom: 6, outline: 'none' }}
+                              />
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  disabled={isLoading}
+                                  onClick={e => { e.stopPropagation(); doInviteAction(n, false, reasonText[n.id] || ''); }}
+                                  style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', opacity: isLoading ? 0.5 : 1 }}>
+                                  {isLoading ? '…' : `Confirm ${negLabel}`}
+                                </button>
+                                <button
+                                  onClick={e => { e.stopPropagation(); setShowReason(s => ({ ...s, [n.id]: false })); }}
+                                  style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-soft)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {!n.read && !isActionable && (
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', flexShrink: 0, marginTop: 4 }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
@@ -150,13 +418,10 @@ export default function PlatformAssistant({ currentUser }) {
 }
 
 function formatText(text) {
-  // Render markdown-lite: **bold**, bullet points, newlines
   const lines = text.split('\n');
   return lines.map((line, i) => {
     const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, j) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={j}>{part.slice(2, -2)}</strong>;
-      }
+      if (part.startsWith('**') && part.endsWith('**')) return <strong key={j}>{part.slice(2, -2)}</strong>;
       return part;
     });
     const isBullet = line.trimStart().startsWith('- ') || line.trimStart().startsWith('• ');
@@ -182,12 +447,23 @@ function TypingDots() {
           opacity: 0.6,
         }} />
       ))}
-      <style>{`@keyframes manhDot { 0%,80%,100%{transform:scale(0.6);opacity:0.4} 40%{transform:scale(1);opacity:1} }`}</style>
     </span>
   );
 }
 
-const bubbleStyle = {
+const bubbleTooltipStyle = {
+  position: 'fixed', bottom: 92, right: 90,
+  background: 'var(--surface-card)',
+  border: '1px solid var(--border-soft)',
+  borderRadius: 10, padding: '10px 14px',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+  zIndex: 8001, maxWidth: 260,
+  color: 'var(--text-primary)',
+  display: 'flex', alignItems: 'center',
+  animation: 'manhSlideUp 0.25s ease',
+};
+
+const fabStyle = {
   position: 'fixed', bottom: 28, right: 28,
   width: 52, height: 52, borderRadius: '50%',
   background: 'var(--accent)',
@@ -200,7 +476,7 @@ const bubbleStyle = {
 
 const panelStyle = {
   position: 'fixed', bottom: 92, right: 28,
-  width: 370, maxHeight: 540,
+  width: 370, maxHeight: 560,
   background: 'var(--surface-card)',
   border: '1px solid var(--border-soft)',
   borderRadius: 18,
@@ -209,8 +485,16 @@ const panelStyle = {
   overflow: 'hidden',
 };
 
-const headerStyle = {
-  padding: '12px 14px',
+const tabBtnStyle = (active) => ({
+  flex: 1, padding: '10px 12px', border: 'none', cursor: 'pointer',
+  background: 'none', fontSize: 13, fontWeight: active ? 600 : 400,
+  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+  borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+  transition: 'all 0.15s', display: 'flex', alignItems: 'center', justifyContent: 'center',
+});
+
+const chatHeaderStyle = {
+  padding: '10px 14px',
   borderBottom: '1px solid var(--border-soft)',
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   flexShrink: 0,
@@ -228,24 +512,21 @@ const messagesAreaStyle = {
   display: 'flex', flexDirection: 'column',
 };
 
-const userBubble = {
-  maxWidth: '80%',
-  background: 'var(--accent)', color: '#fff',
+const userBubbleStyle = {
+  maxWidth: '80%', background: 'var(--accent)', color: '#fff',
   borderRadius: '14px 14px 2px 14px',
   padding: '9px 13px', fontSize: 13, lineHeight: 1.5, wordBreak: 'break-word',
 };
 
-const assistantBubble = {
-  maxWidth: '85%',
-  background: 'var(--surface-soft)', color: 'var(--text-primary)',
+const assistantBubbleStyle = {
+  maxWidth: '85%', background: 'var(--surface-soft)', color: 'var(--text-primary)',
   borderRadius: '14px 14px 14px 2px',
   padding: '9px 13px', fontSize: 13, lineHeight: 1.6, wordBreak: 'break-word',
   border: '1px solid var(--border-soft)',
 };
 
 const inputAreaStyle = {
-  padding: '10px 10px 6px',
-  borderTop: '1px solid var(--border-soft)',
+  padding: '10px 10px 6px', borderTop: '1px solid var(--border-soft)',
   display: 'flex', gap: 8, alignItems: 'flex-end', flexShrink: 0,
 };
 
