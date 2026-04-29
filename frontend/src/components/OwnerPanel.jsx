@@ -127,11 +127,17 @@ export default function OwnerPanel({ currentUser, API_BASE_URL }) {
   const deleteTenant = async (tenantId) => {
     setDeleting(true);
     setLoadingId(tenantId);
-    await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}`, { method: 'DELETE', headers });
-    setDeleteConfirm(null);
-    setDeleting(false);
-    await fetchData();
-    setLoadingId(null);
+    try {
+      await fetch(`${API_BASE_URL}/owner/tenants/${tenantId}`, { method: 'DELETE', headers });
+      setDeleteConfirm(null);
+      await fetchData();
+    } catch (e) {
+      // network error — close modal anyway
+      setDeleteConfirm(null);
+    } finally {
+      setDeleting(false);
+      setLoadingId(null);
+    }
   };
 
   const respondToTicket = async (ticketId) => {

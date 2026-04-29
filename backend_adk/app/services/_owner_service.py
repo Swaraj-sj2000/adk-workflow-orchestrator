@@ -344,7 +344,7 @@ class OwnerService:
         from app.models._task_progress import TaskProgress
         from app.models._team import Team, TeamMember
         from app.models._team_invite import TeamInvite
-        from app.models._user import UserPreferences
+        from app.models._user_preferences import UserPreferences
 
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if not tenant:
