@@ -344,6 +344,12 @@ class OwnerService:
         def sql(stmt, **kw):
             db.execute(text(stmt), {"tid": tid, **kw})
 
+        # decision_logs has no tenant_id — delete by entity before touching tasks/projects/employees
+        sql("DELETE FROM decision_logs WHERE entity_type = 'task'     AND entity_id IN (SELECT id FROM tasks           WHERE tenant_id = :tid)")
+        sql("DELETE FROM decision_logs WHERE entity_type = 'project'  AND entity_id IN (SELECT id FROM projects        WHERE tenant_id = :tid)")
+        sql("DELETE FROM decision_logs WHERE entity_type = 'employee' AND entity_id IN (SELECT id FROM employee_profiles WHERE tenant_id = :tid)")
+        sql("DELETE FROM decision_logs WHERE override_by_admin        IN (SELECT id FROM users WHERE tenant_id = :tid)")
+
         # Null out self-referencing FK on tasks before deletion
         sql("UPDATE tasks SET parent_task_id = NULL WHERE tenant_id = :tid")
 
@@ -379,7 +385,6 @@ class OwnerService:
         sql("DELETE FROM client_profiles    WHERE tenant_id = :tid")
 
         # Logs scoped to tenant / users
-        sql("DELETE FROM decision_logs      WHERE tenant_id = :tid")
         sql("DELETE FROM support_tickets    WHERE tenant_id = :tid")
         sql("DELETE FROM email_delivery_logs WHERE tenant_id = :tid")
 
