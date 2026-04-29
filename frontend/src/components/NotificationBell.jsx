@@ -66,9 +66,11 @@ export default function NotificationBell({ API_BASE_URL }) {
       <button
         onClick={() => setOpen(v => !v)}
         style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          position: 'relative', padding: '6px 8px', fontSize: 20,
-          color: 'var(--text-primary)',
+          width: 52, height: 52, borderRadius: '50%',
+          background: 'var(--accent)', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 22, boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+          position: 'relative',
         }}
         title="Notifications"
       >
@@ -88,7 +90,7 @@ export default function NotificationBell({ API_BASE_URL }) {
 
       {open && (
         <div style={{
-          position: 'absolute', right: 0, top: '110%', zIndex: 1000,
+          position: 'absolute', right: 0, bottom: '110%', zIndex: 1000,
           width: 360, maxHeight: 480, overflowY: 'auto',
           background: 'var(--surface-card)', border: '1px solid var(--border-soft)',
           borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',

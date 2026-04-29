@@ -193,7 +193,7 @@ export default function App() {
         onAccentChange={handleAccentChange}
       />
       {currentUser && currentUser.role !== 'platform_owner' && (
-        <div style={{ position: 'fixed', top: 12, right: 16, zIndex: 500 }}>
+        <div style={{ position: 'fixed', bottom: 92, right: 28, zIndex: 8000 }}>
           <NotificationBell API_BASE_URL={API_BASE_URL} />
         </div>
       )}
