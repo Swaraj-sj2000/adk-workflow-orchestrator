@@ -1,11 +1,9 @@
 """
-Platform Assistant — intelligent helper for all roles.
-Answers questions about the platform, guides users through features,
-and helps with workflows. LLM-powered with keyword fallback.
+Platform Assistant — ManH, the AI assistant for all roles.
+Fully LLM-powered with live DB context and conversation history.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -17,7 +15,7 @@ from app.models._user import User
 
 router = APIRouter(tags=["Assistant"])
 
-# ── Role-aware platform knowledge base ───────────────────────────────────────
+# ── Platform knowledge injected into every LLM call ─────────────────────────
 
 PLATFORM_OVERVIEW = """
 AI Workforce Orchestrator is a multi-tenant B2B SaaS platform that uses
@@ -62,6 +60,15 @@ NAVIGATION:
 - All roles: Settings (avatar icon top-right)
 """
 
+ROLE_NAV: dict[str, str] = {
+    "platform_owner": "Owner Panel (tenant list, metrics, support inbox), Settings",
+    "ceo": "CEO Dashboard, Projects, Settings",
+    "admin": "Admin Dashboard, Projects, Team Dashboard, Agentic Dashboard, Multi-Agent Workbench, Settings",
+    "employee": "My Dashboard, My Projects, My Work, Settings",
+    "client": "Client Dashboard, Project Status, Settings",
+}
+
+# kept for the onboarding endpoint only
 ROLE_TIPS: dict[str, list[str]] = {
     "platform_owner": [
         "Use the Owner Panel to see all registered companies and their plan status.",
@@ -100,151 +107,21 @@ ROLE_TIPS: dict[str, list[str]] = {
 # ── Keyword fallback ──────────────────────────────────────────────────────────
 
 # Role-specific keyword answers checked first (before generic ones)
-ROLE_KEYWORD_ANSWERS: dict[str, list[tuple[list[str], str]]] = {
-    "platform_owner": [
-        (["subscription", "active", "expire", "expir", "billing status", "account status",
-          "check account", "check company", "is active", "still active", "grace", "trial period",
-          "when does", "how long", "days left", "time left", "renewal"],
-         "Go to the Owner Panel (top nav). Each company card shows its billing status badge — "
-         "Active (green), Expiring Soon (amber, ≤7 days), Grace Period (orange, auto-suspend countdown), "
-         "Expired (red), or Suspended. The card also shows the plan name, exact expiry date, and how many "
-         "days remain. A ⚠ banner appears when a company is in its grace window and will auto-suspend soon."),
-        (["mrr", "revenue", "how much", "total revenue", "platform revenue"],
-         "The Owner Panel top bar shows an MRR estimate calculated from all active paid subscriptions across every tenant. "
-         "Trial companies contribute ₹0; Starter ₹1,000/mo; Pro ₹833/mo (₹5,000/6mo); Enterprise ₹1,250/mo (₹15,000/yr)."),
-        (["all companies", "list companies", "how many companies", "all tenants", "list tenants", "see all"],
-         "The Owner Panel lists every registered company with their plan, user count, project count, billing status, "
-         "and subscription dates. Use the search bar at the top to filter by name."),
-        (["set plan", "upgrade plan", "change plan", "approve plan", "assign plan"],
-         "In the Owner Panel, find the company card and use the Plan dropdown to set their tier — Trial, Starter, Pro, or Enterprise. Click Apply Plan to confirm. This takes effect immediately."),
-    ],
-    "ceo": [
-        (["subscription", "billing", "plan", "payment", "upgrade", "buy", "purchase"],
-         "You are currently on the Trial plan (1 team, 3 projects, 5 users). To upgrade, go to Settings → Billing and submit a plan request — the platform owner will activate it. Available plans: Starter ₹1,000/mo, Pro ₹5,000/6mo, Enterprise ₹15,000/yr."),
-        (["stripe", "payment gateway", "credit card", "pay online"],
-         "Online payment via Stripe is not active in this deployment. To upgrade your plan, go to Settings → Billing → Request Upgrade and the platform owner will manually activate your chosen plan."),
-        (["employee", "user", "member", "staff", "team member", "how many people", "count"],
-         "Go to the CEO Dashboard → Team Management panel to see your current team members and pending invites. Your plan's user limit applies — Trial allows up to 5 users."),
-        (["logo", "company logo", "add logo", "upload logo", "company image"],
-         "Go to CEO Dashboard → Edit Company Profile. Paste a public image URL into the Logo URL field and save. The logo will appear in the navbar and your dashboard header."),
-        (["company", "profile", "about", "description", "industry", "website"],
-         "Click Edit Company Profile on your CEO Dashboard to update your company name, description, industry, website, headquarters, and contact details."),
-        (["invite", "add admin", "add employee", "add team", "hire"],
-         "Click Team Management on your CEO Dashboard. Enter the email address and role title, then click Send Invite. The person registers on the platform with that email to join your company automatically."),
-        (["help", "what can you", "what do you", "capabilities", "features"],
-         "I can help you with: navigating the platform, understanding your CEO Dashboard, inviting team members, setting up your company profile, understanding AI risk flags, managing projects, and configuring your account settings. Just ask me anything!"),
-    ],
-    "admin": [
-        (["subscription", "billing", "plan", "payment", "upgrade", "buy", "purchase"],
-         "Manage your company's subscription in Settings → Billing. You can submit a plan upgrade request there — the platform owner approves and activates it. Plans: Starter ₹1,000/mo, Pro ₹5,000/6mo, Enterprise ₹15,000/yr."),
-        (["stripe", "payment gateway"],
-         "Online payment via Stripe is not active in this deployment. Use Settings → Billing → Request Upgrade to ask the platform owner to activate a plan for you."),
-        (["employee", "user", "member", "staff", "team member", "how many people", "count"],
-         "Go to Team Dashboard to see all employees, their skills, workload, and availability. Your plan's user limit applies."),
-        (["help", "what can you", "what do you", "capabilities", "features"],
-         "I can help you with: creating projects and tasks, triggering AI agent workflows, managing your team, understanding the agentic decision log, configuring billing, and navigating the platform. Just ask!"),
-    ],
-    "employee": [
-        (["help", "what can you", "what do you", "capabilities", "features"],
-         "I can help you with: understanding your assigned tasks, updating task progress, flagging blockers, navigating to your projects, and managing your profile and skills. What do you need?"),
-        (["skill", "profile", "update skill", "my skills"],
-         "Go to Settings → Profile to update your skills. The AI StaffingAgent uses your skills to score task assignments — keeping them updated gets you better-matched tasks."),
-    ],
-    "client": [
-        (["help", "what can you", "what do you", "capabilities", "features"],
-         "I can help you understand your project status, task progress, and how to contact your team. Go to Projects to see real-time updates on your projects."),
-    ],
-}
+# ── LLM-powered chat endpoint ─────────────────────────────────────────────────
 
-KEYWORD_ANSWERS: list[tuple[list[str], str]] = [
-    (["suspend", "lock", "deactivate", "block company"],
-     "To suspend a company: go to Owner Panel → find the company → click ⏸ Suspend. Enter the reason. The company's users are locked out immediately and the admin receives an email."),
-    (["activate", "reactivate", "unsuspend"],
-     "To reactivate a company: go to Owner Panel → find the suspended company (red border) → click ▶ Activate. Access is restored immediately."),
-    (["support ticket", "raise ticket", "help ticket", "ticket", "contact support", "get help"],
-     "To raise a support ticket: go to Settings → Support tab → fill in the subject and body → Submit. The platform owner will reply to your email."),
-    (["password", "change password", "reset password"],
-     "Go to Settings → Security tab. Enter your current password, then your new password twice. Click Change Password. Passwords must be at least 8 characters."),
-    (["2fa", "two factor", "totp", "authenticator", "otp"],
-     "2FA is available in Settings → Security. Scan the QR code with Google Authenticator or Authy, then enter the 6-digit code to enable."),
-    (["profile", "avatar", "photo", "picture", "my name", "update name", "edit profile"],
-     "Go to Settings → Profile. Click Edit to update your name, photo, position, location, phone, or secondary email. Paste an image URL or upload a photo (max 2 MB)."),
-    (["logo", "company logo", "add logo", "upload logo", "brand"],
-     "As CEO, go to CEO Dashboard → Edit Company Profile. Paste a public image URL into the Logo URL field and save. The logo appears in the navbar and dashboard header."),
-    (["project", "create project", "new project", "add project"],
-     "Admins: go to Projects → New Project. Fill in name, description, budget, deadline, priority, and client. Once created, add tasks to it."),
-    (["task", "assign task", "create task", "add task"],
-     "Tasks belong to projects. Open a project → Add Task. Set required skills, urgency, difficulty, and estimated hours. The AI StaffingAgent will score and assign the best-matched employee automatically."),
-    (["agent", "ai agent", "workflow", "pipeline", "multi-agent", "workbench"],
-     "The Multi-Agent Workbench (admin only) lets you trigger the full AI pipeline: IntakeAgent → PlanningAgent → StaffingAgent → RiskAgent → ExecutionCoordinator → CommunicationAgent → EscalationAgent."),
-    (["ceo dashboard", "company overview", "health score", "financials", "risk flag"],
-     "The CEO Dashboard shows: company health score, active project count, risk flags (AI-generated), financial overview (budget vs spent), and team performance metrics."),
-    (["stripe", "payment gateway", "credit card", "checkout", "payment failed", "not configured"],
-     "Stripe online payments are not active in this deployment. To upgrade your plan, use Settings → Billing → Request Upgrade — the platform owner will manually activate your chosen plan within 24 hours."),
-    (["billing", "plan", "subscription", "upgrade", "payment", "buy", "purchase", "pricing"],
-     "Plans available: Trial (free/30d, 1 team, 3 projects), Starter (₹1,000/mo, 10 teams, 20 projects), Pro (₹5,000/6mo, unlimited), Enterprise (₹15,000/yr, unlimited + SLA). Request an upgrade in Settings → Billing."),
-    (["employee count", "how many users", "how many employees", "how many members", "team size", "user count"],
-     "Check your CEO Dashboard → Team Management panel for current member count and pending invites. Your plan's user limit applies (Trial = 5 users, Starter = 25, Pro/Enterprise = unlimited)."),
-    (["calendar", "google calendar", "meeting", "sync", "integration"],
-     "Connect Google Calendar in Settings → Integrations. Once connected, meetings created in the platform sync to your calendar automatically."),
-    (["theme", "dark mode", "light mode", "appearance", "colour", "color", "palette"],
-     "Toggle dark/light mode using the ☀️/🌙 button in the top navbar. Change colour palette using the Palette dropdown next to it — choose from Sage, Ocean, Sunset, and more."),
-    (["navigate", "where", "find", "go to", "how do i get to", "how to access"],
-     "Use the top navbar to navigate between pages. Your available pages depend on your role. Access Settings and Support from the avatar menu (top-right corner)."),
-    (["tenant", "company", "organisation", "isolated", "multi-tenant"],
-     "Each company on the platform is a tenant. Platform owners can see all tenants in the Owner Panel. Each tenant is fully isolated — users and projects are never visible across companies."),
-    (["onboarding", "tutorial", "guide", "getting started", "walkthrough", "tour"],
-     "The onboarding wizard runs automatically on first login. Re-run it anytime from the 🎓 icon at the bottom of the screen."),
-    (["invite", "add user", "add member", "invite employee", "invite admin"],
-     "CEOs invite via CEO Dashboard → Team Management. Admins invite via Team Dashboard. The invitee registers on the platform with the same email to join your company automatically."),
-    (["logout", "log out", "sign out"],
-     "Click your avatar (top-right) → Logout. Your session ends immediately."),
-    (["help", "what can you", "what do you", "capabilities", "what are you", "who are you"],
-     "I'm your platform assistant! I can help with: navigating the platform, inviting team members, setting up projects, understanding AI agents, managing billing, configuring your profile, and anything else about using AI Workforce Orchestrator. What do you need?"),
-]
+class ChatMessage(BaseModel):
+    role: str   # "user" | "assistant"
+    text: str
 
-
-def _keyword_match(message: str, role: str = "") -> str | None:
-    lower = message.lower()
-    # Check role-specific answers first (more precise)
-    for keywords, answer in ROLE_KEYWORD_ANSWERS.get(role, []):
-        if any(kw in lower for kw in keywords):
-            return answer
-    # Fall back to generic answers
-    for keywords, answer in KEYWORD_ANSWERS:
-        if any(kw in lower for kw in keywords):
-            return answer
-    return None
-
-
-# ── LLM call ─────────────────────────────────────────────────────────────────
-
-def _llm_answer(message: str, role: str, user_name: str, live_context: str) -> str | None:
-    try:
-        from app.services._llm_service import LLMService
-        llm = LLMService()
-        if not llm.enabled:
-            return None
-        return llm.answer_user_question(
-            message=message,
-            role=role,
-            user_name=user_name,
-            live_context=live_context,
-            platform_overview=PLATFORM_OVERVIEW,
-        )
-    except Exception:
-        return None
-
-
-# ── Endpoint ──────────────────────────────────────────────────────────────────
 
 class AssistantRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    history: list[ChatMessage] = []
 
 
 class AssistantResponse(BaseModel):
     reply: str
-    source: str   # "llm" | "keyword" | "fallback"
+    source: str   # "llm" | "unavailable"
 
 
 @router.post("/chat", response_model=AssistantResponse)
@@ -254,45 +131,49 @@ def assistant_chat(
     db: Session = Depends(get_db),
 ):
     from app.services._assistant_context import build_context
+    from app.services._llm_service import LLMService
 
-    message  = payload.message.strip()
-    role     = current_user.role
-    name     = current_user.full_name or current_user.email.split("@")[0]
+    message = payload.message.strip()
+    role    = current_user.role
+    name    = current_user.full_name or current_user.email.split("@")[0]
 
-    # 1. Build live context scoped to this user's role + tenant
     live_context = build_context(db, current_user)
 
-    # 2. Try LLM with live context
-    llm_reply = _llm_answer(message, role, name, live_context)
-    if llm_reply:
-        return AssistantResponse(reply=llm_reply, source="llm")
+    try:
+        llm = LLMService()
+        if not llm.enabled:
+            raise RuntimeError("LLM not configured")
 
-    # 3. Keyword match (role-aware) — fallback when LLM unavailable
-    kw_reply = _keyword_match(message, role)
-    if kw_reply:
-        return AssistantResponse(reply=kw_reply, source="keyword")
+        # Build conversation history for multi-turn context
+        history_text = ""
+        if payload.history:
+            history_lines = []
+            for msg in payload.history[-10:]:   # last 10 turns
+                prefix = "User" if msg.role == "user" else "ManH"
+                history_lines.append(f"{prefix}: {msg.text}")
+            history_text = "\n".join(history_lines) + "\n"
 
-    # 3. Helpful fallback with role context
-    role_pages = {
-        "ceo": "CEO Dashboard, Projects, and Settings",
-        "admin": "Admin Dashboard, Projects, Team Dashboard, Agentic Dashboard, Multi-Agent Workbench, and Settings",
-        "employee": "My Dashboard, My Projects, My Work, and Settings",
-        "client": "Client Dashboard, Project Status, and Settings",
-        "platform_owner": "Owner Panel and Settings",
-    }
-    pages = role_pages.get(role, "the platform")
-    return AssistantResponse(
-        reply=(
-            f"I didn't quite catch that. I can help you with navigating {pages}, "
-            "managing your account, understanding AI agents, billing, inviting team members, "
-            "and anything else about using the platform. Try asking something like:\n"
-            "- \"How do I add a team member?\"\n"
-            "- \"How do I upgrade my plan?\"\n"
-            "- \"How do I create a project?\"\n"
-            "- \"What does the health score mean?\""
-        ),
-        source="fallback",
-    )
+        full_message = f"{history_text}User: {message}" if history_text else message
+
+        reply = llm.answer_user_question(
+            message=full_message,
+            role=role,
+            user_name=name,
+            live_context=live_context,
+            platform_overview=PLATFORM_OVERVIEW,
+        )
+        return AssistantResponse(reply=reply, source="llm")
+
+    except Exception:
+        nav = ROLE_NAV.get(role, "the platform")
+        return AssistantResponse(
+            reply=(
+                f"I'm having trouble connecting to the AI right now. "
+                f"As a {role.replace('_', ' ')}, your main pages are: {nav}. "
+                "Try again in a moment, or raise a support ticket in Settings → Support."
+            ),
+            source="unavailable",
+        )
 
 
 # ── Natural Language Query endpoint ──────────────────────────────────────────
