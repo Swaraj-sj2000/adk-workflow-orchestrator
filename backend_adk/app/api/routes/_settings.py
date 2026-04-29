@@ -130,15 +130,24 @@ def submit_support(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        return SettingsService.submit_support_ticket(
+        ticket = SettingsService.submit_support_ticket(
             db,
             current_user,
             payload.subject,
             payload.body,
             priority=payload.priority,
         )
+        return {
+            "id": ticket.id,
+            "subject": ticket.subject,
+            "status": ticket.status,
+            "priority": ticket.priority,
+            "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to submit ticket: {exc}")
 
 
 @router.get("/export")

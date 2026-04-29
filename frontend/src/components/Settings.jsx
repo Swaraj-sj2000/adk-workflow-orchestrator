@@ -360,7 +360,10 @@ export default function Settings({ currentUser, API_BASE_URL, initialTab = 'prof
       }),
     });
     if (res.ok) setBillingMsg(`Upgrade request for ${label} submitted — the platform owner will activate it shortly.`);
-    else setBillingMsg('Could not submit request. Please try again or contact support.');
+    else {
+      const err = await res.json().catch(() => ({}));
+      setBillingMsg(`Could not submit request: ${err.detail || res.status}`);
+    }
   };
 
   const tabs = [
