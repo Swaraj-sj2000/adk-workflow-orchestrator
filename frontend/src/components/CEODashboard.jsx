@@ -449,7 +449,7 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                   value={brief}
                   onChange={e => setBrief(e.target.value)}
                   placeholder="e.g. Priya has 5 years of experience in Python and FastAPI, worked on 3 SaaS products, strong in backend systems and databases, joining us as a senior developer from Jan 2024..."
-                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--bg-primary, #fff)', color: 'var(--text-primary)', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
+                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
                 />
                 {(parsingBrief) && (
                   <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden', margin: '8px 0' }}>

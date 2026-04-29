@@ -183,8 +183,7 @@ def parse_employee_brief(
     import re
 
     try:
-        from app.services._llm_service import LLMService
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from app.services._llm_service import LLMService, HumanMessage, SystemMessage
 
         llm = LLMService()
         if not llm.enabled:
