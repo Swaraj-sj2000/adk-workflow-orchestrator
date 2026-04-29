@@ -52,6 +52,11 @@ def _additive_columns(engine):
             "duty_end_hour": "FLOAT",
             "deleted_at": ts,
             "demonstrated_skills": "TEXT",
+            "xp": "INTEGER DEFAULT 0",
+            "level": "INTEGER DEFAULT 1",
+            "joining_date": "DATE",
+            "years_experience": "FLOAT DEFAULT 0",
+            "pending_skills": "TEXT",
         },
         "client_profiles": {
             "tenant_id": "INTEGER",

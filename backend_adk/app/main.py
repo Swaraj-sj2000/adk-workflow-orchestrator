@@ -62,6 +62,7 @@ from app.models import (
     _user_preferences, _tenant_settings, _support_ticket,
     _scheduled_agent_job, _email_delivery_log,
     _refresh_token, _change_request,
+    _skill_change_request,
 )
 
 

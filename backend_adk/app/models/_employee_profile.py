@@ -1,5 +1,5 @@
 # app/models/_employee_profile.py
-from sqlalchemy import Column, DateTime, Integer, String, ForeignKey, Float, JSON
+from sqlalchemy import Column, Date, DateTime, Integer, String, ForeignKey, Float, JSON
 from sqlalchemy.orm import relationship
 from app.db._database import Base
 
@@ -11,15 +11,27 @@ class EmployeeProfile(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     skills = Column(JSON, nullable=False, default={})  # {"python": 0.9, "fastapi": 0.8, ...}
-    max_capacity = Column(Float, default=40.0)  # hours per sprint (1 work week)
-    current_load = Column(Float, default=0.0)  # hours currently assigned
+    max_capacity = Column(Float, default=40.0)
+    current_load = Column(Float, default=0.0)
     department = Column(String, nullable=True)
-    availability_status = Column(String, default="available")  # available / on-leave / busy
+    availability_status = Column(String, default="available")
     duty_start_hour = Column(Float, nullable=True, default=9.0)
     duty_end_hour = Column(Float, nullable=True, default=18.0)
-    # Skill growth: tracks confidence scores from completed tasks
-    # {"python": {"score": 0.85, "tasks_done": 5, "last_updated": "2026-01-01"}}
     demonstrated_skills = Column(JSON, nullable=True, default={})
+
+    # XP & levelling
+    xp = Column(Integer, default=0, nullable=False)
+    level = Column(Integer, default=1, nullable=False)
+
+    # Joining date (set by CEO at registration — used for in-company tenure)
+    joining_date = Column(Date, nullable=True)
+
+    # Years of experience declared at registration
+    years_experience = Column(Float, nullable=True, default=0.0)
+
+    # Pending skill change requests from the employee
+    # {"python": {"current": 0.8, "requested": 0.9, "request_id": 42}}
+    pending_skills = Column(JSON, nullable=True, default={})
 
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)

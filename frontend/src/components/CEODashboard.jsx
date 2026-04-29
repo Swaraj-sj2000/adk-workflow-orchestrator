@@ -33,9 +33,25 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   const [teamTab, setTeamTab] = useState('direct'); // 'direct' | 'invite'
 
   // Direct add state
-  const [directForm, setDirectForm] = useState({ email: '', full_name: '', role: 'employee', role_title: '' });
-  const [directMsg, setDirectMsg] = useState(null); // null | { type: 'success'|'error', text, creds }
+  const emptyDirectForm = {
+    email: '', full_name: '', role: 'employee', role_title: '',
+    skills: [], reliability: 0.5, years_experience: 0, joining_date: '',
+  };
+  const [directForm, setDirectForm] = useState(emptyDirectForm);
+  const [directMsg, setDirectMsg] = useState(null);
   const [addingDirect, setAddingDirect] = useState(false);
+  const [emailAvailable, setEmailAvailable] = useState(null); // null | true | false
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const emailCheckRef = React.useRef(null);
+
+  // LLM brief state
+  const [brief, setBrief] = useState('');
+  const [parsingBrief, setParsingBrief] = useState(false);
+  const [briefError, setBriefError] = useState('');
+
+  // Skill approval state
+  const [skillApprovals, setSkillApprovals] = useState([]);
+  const [showApprovals, setShowApprovals] = useState(false);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -132,15 +148,72 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
     }
   };
 
+  const companyDomain = (companyProfile?.contact_email || '').split('@')[1]
+    || (currentUser?.email || '').split('@')[1]
+    || 'company.com';
+
+  const checkEmailAvailability = (email) => {
+    clearTimeout(emailCheckRef.current);
+    if (!email || !email.includes('@')) { setEmailAvailable(null); return; }
+    setCheckingEmail(true);
+    emailCheckRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/invite/check-email?email=${encodeURIComponent(email)}`, { headers });
+        const data = await res.json();
+        setEmailAvailable(data.available);
+      } catch { setEmailAvailable(null); }
+      setCheckingEmail(false);
+    }, 500);
+  };
+
+  const handleParseBrief = async () => {
+    if (!brief.trim()) return;
+    setParsingBrief(true);
+    setBriefError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/invite/llm-brief`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ brief, company_domain: companyDomain }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Parse failed');
+      setDirectForm({
+        full_name: data.full_name || '',
+        email: data.email || '',
+        role: data.role || 'employee',
+        role_title: data.role_title || '',
+        skills: (data.skills || []).map(s => ({ name: s.name, rating: s.rating })),
+        reliability: 0.5,
+        years_experience: data.years_experience || 0,
+        joining_date: data.joining_date || new Date().toISOString().split('T')[0],
+        suggested_password: data.suggested_password || '',
+      });
+      if (data.email) checkEmailAvailability(data.email);
+    } catch (err) {
+      setBriefError(err.message);
+    } finally {
+      setParsingBrief(false);
+    }
+  };
+
   const handleDirectAdd = async (e) => {
     e.preventDefault();
+    if (emailAvailable === false) return;
     setAddingDirect(true);
     setDirectMsg(null);
     try {
       const res = await fetch(`${API_BASE_URL}/invite/direct-add`, {
-        method: 'POST',
-        headers: jsonHeaders,
-        body: JSON.stringify(directForm),
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({
+          email: directForm.email,
+          full_name: directForm.full_name,
+          role: directForm.role,
+          role_title: directForm.role_title,
+          skills: directForm.skills,
+          reliability: directForm.reliability,
+          years_experience: directForm.years_experience,
+          joining_date: directForm.joining_date || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed to add member');
@@ -149,7 +222,9 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
         text: `${data.full_name} added successfully.`,
         creds: { email: data.email, password: data.temp_password, role: data.role },
       });
-      setDirectForm({ email: '', full_name: '', role: 'employee', role_title: '' });
+      setDirectForm(emptyDirectForm);
+      setBrief('');
+      setEmailAvailable(null);
       fetch(`${API_BASE_URL}/invite/talent-pool`, { headers })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => d && setTalentPool(d));
@@ -158,6 +233,32 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
     } finally {
       setAddingDirect(false);
     }
+  };
+
+  const handleDeleteMember = async (userId, name) => {
+    if (!window.confirm(`Remove ${name} from the organisation? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/invite/direct-add/${userId}`, { method: 'DELETE', headers });
+      if (!res.ok) { const d = await res.json(); alert(d.detail || 'Delete failed'); return; }
+      fetch(`${API_BASE_URL}/invite/talent-pool`, { headers })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setTalentPool(d));
+    } catch { alert('Could not remove member.'); }
+  };
+
+  const fetchSkillApprovals = () => {
+    fetch(`${API_BASE_URL}/skills/approvals`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(setSkillApprovals)
+      .catch(() => {});
+  };
+
+  const handleSkillAction = async (requestId, action, message = null) => {
+    const res = await fetch(`${API_BASE_URL}/skills/approvals/${requestId}/action`, {
+      method: 'POST', headers: jsonHeaders,
+      body: JSON.stringify({ action, message }),
+    });
+    if (res.ok) fetchSkillApprovals();
   };
 
   if (ceoMode) {
@@ -336,81 +437,150 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
 
           {/* Direct Add form */}
           {teamTab === 'direct' && (
-            <form onSubmit={handleDirectAdd} style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Full Name *</label>
-                  <input
-                    required
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
-                    value={directForm.full_name}
-                    onChange={(e) => setDirectForm((f) => ({ ...f, full_name: e.target.value }))}
-                    placeholder="Priya Sharma"
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Email *</label>
-                  <input
-                    type="email"
-                    required
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
-                    value={directForm.email}
-                    onChange={(e) => setDirectForm((f) => ({ ...f, email: e.target.value }))}
-                    placeholder="priya@goldmine.ai"
-                  />
-                </div>
+            <div style={{ display: 'grid', gap: 20, maxWidth: 640 }}>
+
+              {/* LLM Brief */}
+              <div style={{ padding: '16px', background: 'var(--surface-soft)', borderRadius: 10, border: '1px solid var(--border-soft)' }}>
+                <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Generate from Brief</p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  Describe the person — experience, skills, past work. The AI fills the form automatically.
+                </p>
+                <textarea
+                  value={brief}
+                  onChange={e => setBrief(e.target.value)}
+                  placeholder="e.g. Priya has 5 years of experience in Python and FastAPI, worked on 3 SaaS products, strong in backend systems and databases, joining us as a senior developer from Jan 2024..."
+                  style={{ width: '100%', minHeight: 90, padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--bg-primary, #fff)', color: 'var(--text-primary)', fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }}
+                />
+                {(parsingBrief) && (
+                  <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden', margin: '8px 0' }}>
+                    <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
+                    <style>{`@keyframes indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}`}</style>
+                  </div>
+                )}
+                {briefError && <p style={{ fontSize: 12, color: '#dc2626', margin: '4px 0' }}>{briefError}</p>}
+                <button
+                  className="btn btn-secondary"
+                  style={{ marginTop: 8, fontSize: 13 }}
+                  disabled={parsingBrief || !brief.trim()}
+                  onClick={handleParseBrief}
+                >
+                  {parsingBrief ? 'Analysing…' : '✨ Generate Form from Brief'}
+                </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+
+              {/* The form */}
+              <form onSubmit={handleDirectAdd} style={{ display: 'grid', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Full Name *</label>
+                    <input required style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.full_name}
+                      onChange={e => setDirectForm(f => ({ ...f, full_name: e.target.value }))}
+                      placeholder="Priya Sharma" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Login Email *</label>
+                    <input type="email" required
+                      style={{ width: '100%', padding: '10px 12px', border: `1px solid ${emailAvailable === false ? '#dc2626' : emailAvailable === true ? '#15803d' : 'var(--border-soft)'}`, borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.email}
+                      onChange={e => { setDirectForm(f => ({ ...f, email: e.target.value })); checkEmailAvailability(e.target.value); }}
+                      placeholder={`priya.sharma@${companyDomain}`} />
+                    {checkingEmail && <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '2px 0 0' }}>Checking…</p>}
+                    {!checkingEmail && emailAvailable === false && <p style={{ fontSize: 11, color: '#dc2626', margin: '2px 0 0' }}>This email is already in use — choose a different one.</p>}
+                    {!checkingEmail && emailAvailable === true && <p style={{ fontSize: 11, color: '#15803d', margin: '2px 0 0' }}>Available ✓</p>}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role *</label>
+                    <select style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
+                      value={directForm.role} onChange={e => setDirectForm(f => ({ ...f, role: e.target.value }))}>
+                      <option value="employee">Employee</option>
+                      <option value="admin">Admin</option>
+                      <option value="client">Client</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Job Title</label>
+                    <input style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.role_title} onChange={e => setDirectForm(f => ({ ...f, role_title: e.target.value }))}
+                      placeholder="Senior Developer" />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Joining Date *</label>
+                    <input type="date" required style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.joining_date} onChange={e => setDirectForm(f => ({ ...f, joining_date: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Years Experience</label>
+                    <input type="number" min="0" max="50" step="0.5" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.years_experience} onChange={e => setDirectForm(f => ({ ...f, years_experience: parseFloat(e.target.value) || 0 }))} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Reliability (0–1)</label>
+                    <input type="number" min="0" max="1" step="0.05" style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                      value={directForm.reliability} onChange={e => setDirectForm(f => ({ ...f, reliability: parseFloat(e.target.value) || 0.5 }))} />
+                  </div>
+                </div>
+
+                {/* Skills */}
                 <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Role *</label>
-                  <select
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14 }}
-                    value={directForm.role}
-                    onChange={(e) => setDirectForm((f) => ({ ...f, role: e.target.value }))}
-                  >
-                    <option value="employee">Employee</option>
-                    <option value="admin">Admin</option>
-                    <option value="client">Client</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Job Title (optional)</label>
-                  <input
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 8, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
-                    value={directForm.role_title}
-                    onChange={(e) => setDirectForm((f) => ({ ...f, role_title: e.target.value }))}
-                    placeholder="Senior Developer"
-                  />
-                </div>
-              </div>
-              {addingDirect && (
-                <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
-                  <style>{`@keyframes indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}`}</style>
-                </div>
-              )}
-              <button type="submit" className="btn btn-primary" disabled={addingDirect} style={{ width: 'fit-content' }}>
-                {addingDirect ? 'Adding…' : 'Add Member'}
-              </button>
-              {directMsg && (
-                <div style={{
-                  padding: '12px 16px', borderRadius: 8, fontSize: 13,
-                  background: directMsg.type === 'success' ? 'rgba(21,128,61,0.08)' : 'rgba(220,38,38,0.08)',
-                  color: directMsg.type === 'success' ? '#15803d' : '#dc2626',
-                  border: `1px solid ${directMsg.type === 'success' ? 'rgba(21,128,61,0.2)' : 'rgba(220,38,38,0.2)'}`,
-                }}>
-                  <strong>{directMsg.text}</strong>
-                  {directMsg.creds && (
-                    <div style={{ marginTop: 8, fontFamily: 'monospace', display: 'grid', gap: 2 }}>
-                      <span>Email: {directMsg.creds.email}</span>
-                      <span>Password: {directMsg.creds.password}</span>
-                      <span>Role: {directMsg.creds.role}</span>
-                      <span style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Share these credentials with the new member. They can change the password after login.</span>
-                    </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <label style={{ fontSize: 13, fontWeight: 600 }}>Skills</label>
+                    <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }}
+                      onClick={() => setDirectForm(f => ({ ...f, skills: [...f.skills, { name: '', rating: 0.5 }] }))}>
+                      + Add Skill
+                    </button>
+                  </div>
+                  {directForm.skills.length === 0 && (
+                    <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>No skills added yet. Use the brief generator or add manually.</p>
                   )}
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {directForm.skills.map((skill, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 32px', gap: 8, alignItems: 'center' }}>
+                        <input
+                          style={{ padding: '8px 10px', border: '1px solid var(--border-soft)', borderRadius: 6, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13 }}
+                          value={skill.name} placeholder="Skill name (e.g. Python)"
+                          onChange={e => setDirectForm(f => { const s = [...f.skills]; s[i] = { ...s[i], name: e.target.value }; return { ...f, skills: s }; })} />
+                        <input type="number" min="0" max="1" step="0.05"
+                          style={{ padding: '8px 10px', border: '1px solid var(--border-soft)', borderRadius: 6, background: 'var(--surface-soft)', color: 'var(--text-primary)', fontSize: 13 }}
+                          value={skill.rating}
+                          onChange={e => setDirectForm(f => { const s = [...f.skills]; s[i] = { ...s[i], rating: parseFloat(e.target.value) || 0 }; return { ...f, skills: s }; })} />
+                        <button type="button" onClick={() => setDirectForm(f => ({ ...f, skills: f.skills.filter((_, j) => j !== i) }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1 }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </form>
+
+                {addingDirect && (
+                  <div style={{ height: 3, background: 'var(--border-soft)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: '40%', background: 'var(--accent)', borderRadius: 2, animation: 'indeterminate 1.4s ease-in-out infinite' }} />
+                  </div>
+                )}
+                <button type="submit" className="btn btn-primary" disabled={addingDirect || emailAvailable === false} style={{ width: 'fit-content' }}>
+                  {addingDirect ? 'Adding…' : 'Add Member'}
+                </button>
+
+                {directMsg && (
+                  <div style={{ padding: '12px 16px', borderRadius: 8, fontSize: 13, background: directMsg.type === 'success' ? 'rgba(21,128,61,0.08)' : 'rgba(220,38,38,0.08)', color: directMsg.type === 'success' ? '#15803d' : '#dc2626', border: `1px solid ${directMsg.type === 'success' ? 'rgba(21,128,61,0.2)' : 'rgba(220,38,38,0.2)'}` }}>
+                    <strong>{directMsg.text}</strong>
+                    {directMsg.creds && (
+                      <div style={{ marginTop: 8, fontFamily: 'monospace', display: 'grid', gap: 2 }}>
+                        <span>Email: {directMsg.creds.email}</span>
+                        <span>Password: {directMsg.creds.password}</span>
+                        <span>Role: {directMsg.creds.role}</span>
+                        <span style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>Share these credentials with the new member. They can change their password in Settings → Security.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </form>
+            </div>
           )}
 
           {/* Email Invite form */}
@@ -484,7 +654,14 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
                       {m.full_name && <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--text-secondary)' }}>{m.email}</span>}
                       {m.role_title && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--accent)' }}>{m.role_title}</span>}
                     </div>
-                    <span className="status-badge status-available">{m.status}</span>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span className="status-badge status-available">{m.status}</span>
+                      <button
+                        onClick={() => handleDeleteMember(m.user_id, m.full_name || m.email)}
+                        style={{ background: 'none', border: '1px solid #dc262633', borderRadius: 6, color: '#dc2626', fontSize: 12, padding: '3px 8px', cursor: 'pointer' }}>
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -174,6 +174,19 @@ def update_status(db: Session, task_id: int, status: TaskStatus, actor: User) ->
     progress.status_notes = "Completed manually" if status.value == "done" else "Reset manually"
     db.add(progress)
     db.add(task)
+
+    # Award XP to all assigned employees when task is marked done
+    if status.value == "done":
+        try:
+            from app.models._task_assignment import TaskAssignment
+            from app.services._xp_engine import award_xp
+            priority = getattr(task, "priority", "medium") or "medium"
+            assignments = db.query(TaskAssignment).filter(TaskAssignment.task_id == task.id).all()
+            for assignment in assignments:
+                award_xp(db, assignment.employee_id, priority)
+        except Exception:
+            pass  # XP errors must never block task updates
+
     if task.parent_task_id is None:
         _sync_children_from_parent(db, task)
         _sync_assignment_status(db, task)
