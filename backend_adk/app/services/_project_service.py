@@ -964,7 +964,11 @@ def build_team_dashboard(db: Session, admin: User):
         active_assignments = [
             assignment
             for assignment in employee.assignments
-            if assignment.task and assignment.task.project and assignment.task.project.status != "completed"
+            if assignment.task
+            and assignment.task.deleted_at is None
+            and assignment.task.project
+            and assignment.task.project.deleted_at is None
+            and assignment.task.project.status != "completed"
         ]
         performance_entry = performance.get(employee.id, {})
         members.append(
@@ -3011,7 +3015,13 @@ def build_employee_workspace(db: Session, user: User):
     assignments = (
         db.query(TaskAssignment)
         .options(joinedload(TaskAssignment.task).joinedload(Task.project).joinedload(Project.client))
-        .filter(TaskAssignment.employee_id == profile.id)
+        .join(Task, Task.id == TaskAssignment.task_id)
+        .join(Project, Project.id == Task.project_id)
+        .filter(
+            TaskAssignment.employee_id == profile.id,
+            Task.deleted_at.is_(None),
+            Project.deleted_at.is_(None),
+        )
         .order_by(TaskAssignment.assigned_at.desc())
         .all()
     )
@@ -3103,7 +3113,7 @@ def build_employee_workspace(db: Session, user: User):
             continue
 
         project = task.project
-        if project.tenant_id != user.tenant_id:
+        if task.deleted_at is not None or project.deleted_at is not None or project.tenant_id != user.tenant_id:
             continue
         meta = _refresh_project_team_metadata(db, project)
         progress = db.query(TaskProgress).filter(TaskProgress.task_id == task.id).first()
@@ -3207,7 +3217,13 @@ def build_employee_workspace(db: Session, user: User):
                 db.query(TaskAssignment)
                 .options(joinedload(TaskAssignment.task))
                 .join(Task, Task.id == TaskAssignment.task_id)
-                .filter(Task.project_id == project.id, TaskAssignment.employee_id == profile.id)
+                .join(Project, Project.id == Task.project_id)
+                .filter(
+                    Task.project_id == project.id,
+                    TaskAssignment.employee_id == profile.id,
+                    Task.deleted_at.is_(None),
+                    Project.deleted_at.is_(None),
+                )
                 .all()
             )
             total_mine = len(proj_assignments)
@@ -3246,7 +3262,11 @@ def build_employee_workspace(db: Session, user: User):
     active_load = sum(
         float(a.estimated_hours or (a.task.estimated_time if a.task else 0) or 0)
         for a in assignments
-        if a.task and a.task.status not in ("done", "completed", "cancelled")
+        if a.task
+        and a.task.deleted_at is None
+        and a.task.project
+        and a.task.project.deleted_at is None
+        and a.task.status not in ("done", "completed", "cancelled")
         and a.status not in ("completed", "cancelled")
     )
     active_load = round(active_load, 1)
@@ -3494,6 +3514,9 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
         for assignment in assignments:
             employee_loads.setdefault(assignment.employee_id, 0.0)
             employee_loads[assignment.employee_id] += assignment.estimated_hours or 0.0
+            if assignment.status not in ("completed", "cancelled", "failed"):
+                assignment.status = "cancelled"
+                db.add(assignment)
 
         employees = (
             db.query(EmployeeProfile)
