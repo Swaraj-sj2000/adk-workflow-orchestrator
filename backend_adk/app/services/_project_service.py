@@ -943,7 +943,12 @@ def build_team_dashboard(db: Session, admin: User):
         db.query(TeamInvite, Team, Project)
         .join(Team, Team.id == TeamInvite.team_id)
         .join(Project, Project.id == Team.project_id)
-        .filter(TeamInvite.tenant_id == admin.tenant_id, TeamInvite.status == "pending")
+        .filter(
+            TeamInvite.tenant_id == admin.tenant_id,
+            TeamInvite.status == "pending",
+            Project.admin_id == admin.id,
+            Project.deleted_at.is_(None),
+        )
         .order_by(TeamInvite.created_at.desc())
         .all()
     )

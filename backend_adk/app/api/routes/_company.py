@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +17,7 @@ from app.services._llm_service import LLMService, HumanMessage, SystemMessage
 router = APIRouter(tags=["Company"])
 
 _llm = LLMService()
+TEAM_SIZE_REQUEST_EXPIRY_HOURS = 24
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -65,6 +66,90 @@ def _name(user: Optional[User]) -> str:
     if not user:
         return "Unknown"
     return user.full_name or user.email
+
+
+def _expire_stale_team_size_requests(db: Session, tenant_id: int) -> list[TeamSizeRequest]:
+    cutoff = datetime.utcnow() - timedelta(hours=TEAM_SIZE_REQUEST_EXPIRY_HOURS)
+    stale_requests = (
+        db.query(TeamSizeRequest)
+        .filter(
+            TeamSizeRequest.tenant_id == tenant_id,
+            TeamSizeRequest.status == "pending",
+            TeamSizeRequest.created_at.is_not(None),
+            TeamSizeRequest.created_at <= cutoff,
+        )
+        .all()
+    )
+
+    expired: list[TeamSizeRequest] = []
+    for req in stale_requests:
+        req.status = "expired"
+        req.updated_at = datetime.utcnow()
+        if not req.rejection_reason:
+            req.rejection_reason = (
+                f"No CEO action was taken within {TEAM_SIZE_REQUEST_EXPIRY_HOURS} hours. "
+                "You can submit a new request."
+            )
+        db.add(req)
+        expired.append(req)
+
+        admin_profile = db.query(EmployeeProfile).filter(EmployeeProfile.id == req.admin_profile_id).first()
+        admin_user = _user_of(db, admin_profile)
+        if admin_user:
+            _notify(
+                db,
+                tenant_id,
+                admin_user.id,
+                "fyi",
+                "Your team size request expired",
+                req.rejection_reason,
+                "team_size_request",
+                req.id,
+            )
+
+    return expired
+
+
+def _team_size_request_is_actionable(req: Optional[TeamSizeRequest], current_user: User) -> bool:
+    return bool(
+        req
+        and req.tenant_id == current_user.tenant_id
+        and req.status == "pending"
+        and current_user.role == "ceo"
+    )
+
+
+def _team_invite_request_is_actionable(
+    db: Session,
+    invite: Optional[TeamInviteRequest],
+    current_user: User,
+) -> bool:
+    if not invite or invite.tenant_id != current_user.tenant_id:
+        return False
+
+    if current_user.role == "ceo":
+        return invite.status == "pending_ceo"
+
+    my_profile = _profile_of(db, current_user.id, current_user.tenant_id)
+    if current_user.role == "admin":
+        return bool(my_profile and invite.status == "pending_manager" and invite.current_manager_id == my_profile.id)
+
+    return bool(my_profile and invite.status == "pending_employee" and invite.employee_id == my_profile.id)
+
+
+def _notification_action_required(db: Session, current_user: User, notification: Notification) -> bool:
+    if not notification.reference_id or not notification.reference_type:
+        return False
+
+    if notification.reference_type == "team_size_request":
+        req = db.query(TeamSizeRequest).filter(TeamSizeRequest.id == notification.reference_id).first()
+        return _team_size_request_is_actionable(req, current_user)
+
+    if notification.reference_type == "team_invite_request":
+        invite = db.query(TeamInviteRequest).filter(TeamInviteRequest.id == notification.reference_id).first()
+        return _team_invite_request_is_actionable(db, invite, current_user)
+
+    return False
 
 
 def _invite_summary(db: Session, inv: TeamInviteRequest) -> dict:
@@ -490,6 +575,10 @@ def list_notifications(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    expired = _expire_stale_team_size_requests(db, current_user.tenant_id)
+    if expired:
+        db.commit()
+
     notifs = (
         db.query(Notification)
         .filter(
@@ -509,6 +598,7 @@ def list_notifications(
             "llm_annotation": n.llm_annotation,
             "reference_type": n.reference_type,
             "reference_id": n.reference_id,
+            "action_required": _notification_action_required(db, current_user, n),
             "read": n.read_at is not None,
             "created_at": n.created_at.isoformat() if n.created_at else None,
         }
@@ -572,6 +662,10 @@ def my_team_limit(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_ceo_or_admin),
 ):
+    expired = _expire_stale_team_size_requests(db, current_user.tenant_id)
+    if expired:
+        db.commit()
+
     my_profile = _profile_of(db, current_user.id, current_user.tenant_id)
     if not my_profile:
         raise HTTPException(status_code=400, detail="Employee profile not found.")
@@ -613,6 +707,10 @@ def request_team_size_increase(
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can request a team size increase.")
+
+    expired = _expire_stale_team_size_requests(db, current_user.tenant_id)
+    if expired:
+        db.commit()
 
     my_profile = _profile_of(db, current_user.id, current_user.tenant_id)
     if not my_profile:
@@ -661,6 +759,10 @@ def list_team_size_requests(
 ):
     if current_user.role != "ceo":
         raise HTTPException(status_code=403, detail="CEO only.")
+
+    expired = _expire_stale_team_size_requests(db, current_user.tenant_id)
+    if expired:
+        db.commit()
 
     requests = (
         db.query(TeamSizeRequest)

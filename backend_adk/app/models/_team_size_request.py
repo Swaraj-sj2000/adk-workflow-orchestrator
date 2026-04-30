@@ -13,7 +13,7 @@ class TeamSizeRequest(Base):
     requested_size = Column(Integer, nullable=False)
     current_limit = Column(Integer, nullable=False)
     reason = Column(Text, nullable=True)
-    status = Column(String, default="pending", nullable=False)  # pending | approved | rejected
+    status = Column(String, default="pending", nullable=False)  # pending | approved | rejected | expired
     approved_size = Column(Integer, nullable=True)
     rejection_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
