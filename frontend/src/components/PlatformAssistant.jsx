@@ -22,6 +22,7 @@ export default function PlatformAssistant({ currentUser }) {
   const [unread, setUnread] = useState(0);
   const prevUnreadRef = useRef(0);
   const [actionLoading, setActionLoading] = useState(null);
+  const [actionError, setActionError] = useState({});
   const [showReason, setShowReason] = useState({});
   const [reasonText, setReasonText] = useState({});
 
@@ -112,31 +113,68 @@ export default function PlatformAssistant({ currentUser }) {
     setUnread(0);
   };
 
-  const doInviteAction = async (notif, positive, reason = '') => {
+  const getNotificationActionConfig = (notif, positive, reason = '') => {
     const refId = notif.reference_id;
-    if (!refId) return;
+    if (!refId) return null;
+
+    if (notif.type === 'invite_received') {
+      return {
+        endpoint: `/company/invite-request/${refId}/employee-action`,
+        body: { accepted: positive, reason: reason || null },
+      };
+    }
+
+    if (notif.reference_type === 'team_size_request') {
+      return {
+        endpoint: `/company/team-size-request/${refId}/ceo-action`,
+        body: positive
+          ? { approved: true }
+          : { approved: false, rejection_reason: reason || null },
+      };
+    }
+
+    if (currentUser?.role === 'ceo') {
+      return {
+        endpoint: `/company/invite-request/${refId}/ceo-action`,
+        body: { approved: positive, reason: reason || null },
+      };
+    }
+
+    return {
+      endpoint: `/company/invite-request/${refId}/manager-action`,
+      body: { approved: positive, reason: reason || null },
+    };
+  };
+
+  const doInviteAction = async (notif, positive, reason = '') => {
+    const actionConfig = getNotificationActionConfig(notif, positive, reason);
+    if (!actionConfig) return;
+
     setActionLoading(notif.id);
+    setActionError(s => ({ ...s, [notif.id]: '' }));
     try {
-      let endpoint, body;
-      if (notif.type === 'invite_received') {
-        endpoint = `/company/invite-request/${refId}/employee-action`;
-        body = { accepted: positive, reason: reason || null };
-      } else if (currentUser?.role === 'ceo') {
-        endpoint = `/company/invite-request/${refId}/ceo-action`;
-        body = { approved: positive, reason: reason || null };
-      } else {
-        endpoint = `/company/invite-request/${refId}/manager-action`;
-        body = { approved: positive, reason: reason || null };
-      }
-      const r = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST', headers: getJsonHeaders(), body: JSON.stringify(body),
+      const r = await fetch(`${API_BASE_URL}${actionConfig.endpoint}`, {
+        method: 'POST',
+        headers: getJsonHeaders(),
+        body: JSON.stringify(actionConfig.body),
       });
       if (r.ok) {
         if (!notif.read) await markRead(notif.id);
         await fetchNotifications();
         await fetchCount();
+      } else {
+        const data = await r.json().catch(() => null);
+        setActionError(s => ({
+          ...s,
+          [notif.id]: data?.detail || 'This action could not be completed. Please refresh and try again.',
+        }));
       }
-    } catch {}
+    } catch {
+      setActionError(s => ({
+        ...s,
+        [notif.id]: 'Network error while submitting this action. Please try again.',
+      }));
+    }
     setActionLoading(null);
     setShowReason(s => ({ ...s, [notif.id]: false }));
   };
@@ -358,6 +396,11 @@ export default function PlatformAssistant({ currentUser }) {
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, opacity: 0.7 }}>
                             {n.created_at ? new Date(n.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
                           </div>
+                          {actionError[n.id] && (
+                            <div style={{ fontSize: 11, color: '#dc2626', marginTop: 6, lineHeight: 1.4 }}>
+                              {actionError[n.id]}
+                            </div>
+                          )}
 
                           {isActionable && !isShowingReason && (
                             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
