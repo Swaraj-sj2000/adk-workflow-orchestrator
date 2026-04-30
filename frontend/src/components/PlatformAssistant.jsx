@@ -367,7 +367,7 @@ export default function PlatformAssistant({ currentUser }) {
                     No notifications yet.
                   </p>
                 ) : notifications.map(n => {
-                  const isActionable = ['approval_needed', 'invite_received'].includes(n.type) && n.reference_id && !n.read;
+                  const isActionable = Boolean(n.action_required);
                   const isLoading = actionLoading === n.id;
                   const isShowingReason = !!showReason[n.id];
                   const posLabel = n.type === 'invite_received' ? 'Accept' : 'Approve';
