@@ -36,6 +36,9 @@ class EmployeeProfile(Base):
     # Manager assignment (set when employee accepts a team invite)
     manager_id = Column(Integer, ForeignKey("employee_profiles.id"), nullable=True)
 
+    # Maximum direct reports allowed (CEO-controlled, default 10)
+    max_team_size = Column(Integer, nullable=True, default=10)
+
     # Soft delete
     deleted_at = Column(DateTime, nullable=True)
 

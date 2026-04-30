@@ -66,6 +66,7 @@ from app.models import (
     _skill_change_request,
     _team_invite_request,
     _notification,
+    _team_size_request,
 )
 
 

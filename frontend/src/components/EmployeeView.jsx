@@ -8,12 +8,6 @@ const initialConcernForm = {
   description: '',
 };
 
-const initialInviteForm = {
-  projectId: '',
-  email: '',
-  roleTitle: '',
-};
-
 const initialProfileForm = {
   skillsText: '',
   dutyStart: '09:00',
@@ -36,8 +30,10 @@ export default function EmployeeView({ role }) {
   const [selectedMember, setSelectedMember] = useState(null);
   const [concernForm, setConcernForm] = useState(initialConcernForm);
   const [inviteNotes, setInviteNotes] = useState({});
-  const [inviteForm, setInviteForm] = useState(initialInviteForm);
   const [profileForm, setProfileForm] = useState(initialProfileForm);
+  const [teamLimit, setTeamLimit] = useState(null);
+  const [sizeRequestForm, setSizeRequestForm] = useState({ requested_size: '', reason: '' });
+  const [showSizeRequest, setShowSizeRequest] = useState(false);
   const [taskChangeForm, setTaskChangeForm] = useState(initialTaskChangeForm);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -60,13 +56,15 @@ export default function EmployeeView({ role }) {
     setLoading(true);
     try {
       const endpoint = role === 'admin' ? `${API}/system/team-dashboard` : `${API}/employees/my-work`;
-      const [res, invRes] = await Promise.all([
-        fetch(endpoint, { headers }),
-        fetch(`${API}/my-invites`, { headers }),
-      ]);
+      const fetches = [fetch(endpoint, { headers }), fetch(`${API}/my-invites`, { headers })];
+      if (role === 'admin') fetches.push(fetch(`${API}/company/my-team-limit`, { headers }));
+      const [res, invRes, limitRes] = await Promise.all(fetches);
       if (invRes.ok) {
         const invData = await invRes.json();
         setOrgInvites(Array.isArray(invData) ? invData : []);
+      }
+      if (limitRes?.ok) {
+        setTeamLimit(await limitRes.json());
       }
       if (res.ok) {
         const nextData = await res.json();
@@ -76,10 +74,6 @@ export default function EmployeeView({ role }) {
             const refreshedMember = (nextData.members || []).find((member) => member.employee_id === selectedMember.employee_id);
             setSelectedMember(refreshedMember || null);
           }
-          setInviteForm((current) => ({
-            ...current,
-            projectId: current.projectId || String(nextData.invite_targets?.[0]?.project_id || ''),
-          }));
         } else {
           if (selectedTask) {
             const refreshedTask = (nextData.tasks || []).find((task) => task.assignment_id === selectedTask.assignment_id);
@@ -295,36 +289,26 @@ export default function EmployeeView({ role }) {
     }
   };
 
-  const inviteMember = async (event) => {
+  const submitSizeRequest = async (event) => {
     event.preventDefault();
-    if (!inviteForm.email.trim()) return;
     if (actionKey) return;
-    const isOrgInvite = !inviteForm.projectId;
-    setActionKey(`invite-${inviteForm.projectId || 'org'}`);
-
+    setActionKey('size-request');
     try {
-      const endpoint = isOrgInvite ? `${API}/invite/org` : `${API}/invite`;
-      const res = await fetch(endpoint, {
+      const res = await fetch(`${API}/company/team-size-request`, {
         method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
+        headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(isOrgInvite ? {} : { project_id: Number(inviteForm.projectId) }),
-          email: inviteForm.email.trim().toLowerCase(),
-          role_title: inviteForm.roleTitle.trim() || null,
+          requested_size: Number(sizeRequestForm.requested_size),
+          reason: sizeRequestForm.reason || null,
         }),
       });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.detail || 'Could not create invite');
-      }
-      setInviteForm((current) => ({ ...current, email: '', roleTitle: '' }));
-      setMessage(payload.existing_user ? 'Invite created. The employee can now accept it from their dashboard.' : 'Pending invite created. It will attach automatically when the user registers.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not submit request');
+      setMessage('Size increase request submitted to CEO.');
+      setShowSizeRequest(false);
+      setSizeRequestForm({ requested_size: '', reason: '' });
       await fetchData();
     } catch (error) {
-      console.error(error);
       setMessage(error.message);
     } finally {
       setActionKey('');
@@ -376,7 +360,6 @@ export default function EmployeeView({ role }) {
   if (role === 'admin') {
     const members = data?.members || [];
     const summary = data?.summary || {};
-    const inviteTargets = data?.invite_targets || [];
     const pendingInvites = data?.pending_invites || [];
 
     return (
@@ -432,52 +415,6 @@ export default function EmployeeView({ role }) {
         </div>
 
         <div className="card">
-          <h2>Invite Member to Company</h2>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
-            Invite someone directly to your talent pool — no project needed. Once accepted you can assign them to any project.
-          </p>
-          <form className="project-create-form" onSubmit={inviteMember}>
-            <div className="form-group">
-              <label>Assign to Project (optional)</label>
-              <select
-                value={inviteForm.projectId}
-                onChange={(event) => setInviteForm((current) => ({ ...current, projectId: event.target.value }))}
-              >
-                <option value="">Org talent pool (no project)</option>
-                {inviteTargets.map((project) => (
-                  <option key={project.project_id} value={project.project_id}>
-                    {project.name} ({project.status})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Employee Email</label>
-              <input
-                type="email"
-                value={inviteForm.email}
-                onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="nitin@orchestrator.ai"
-                required
-              />
-            </div>
-            <div className="form-group form-span-2">
-              <label>Role Title</label>
-              <input
-                value={inviteForm.roleTitle}
-                onChange={(event) => setInviteForm((current) => ({ ...current, roleTitle: event.target.value }))}
-                placeholder="Backend Engineer"
-              />
-            </div>
-            <div className="form-actions form-span-2">
-              <button className="btn btn-primary" type="submit" disabled={Boolean(actionKey)}>
-                {actionKey === `invite-${inviteForm.projectId || 'org'}` ? 'Sending...' : 'Send Invite'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="card">
           <h2>Pending Team Invites</h2>
           <div className="list">
             {pendingInvites.length > 0 ? pendingInvites.map((invite) => (
@@ -500,7 +437,61 @@ export default function EmployeeView({ role }) {
         </div>
 
         <div className="card">
-          <h2>Team Members</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <h2 style={{ margin: 0 }}>Team Members</h2>
+            {teamLimit && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontSize: 13,
+                  color: teamLimit.current_count >= teamLimit.limit ? '#dc2626' : 'var(--text-secondary)',
+                  fontWeight: 500,
+                }}>
+                  {teamLimit.current_count} / {teamLimit.limit} slots used
+                </span>
+                {teamLimit.pending_request ? (
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'var(--surface-soft)', padding: '3px 8px', borderRadius: 6 }}>
+                    Request pending
+                  </span>
+                ) : (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                    onClick={() => setShowSizeRequest((v) => !v)}
+                  >
+                    {showSizeRequest ? 'Cancel' : 'Request Increase'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {showSizeRequest && (
+            <form className="project-create-form" onSubmit={submitSizeRequest} style={{ marginBottom: 16 }}>
+              <div className="form-group">
+                <label>Requested Team Size</label>
+                <input
+                  type="number"
+                  min={(teamLimit?.limit || 10) + 1}
+                  value={sizeRequestForm.requested_size}
+                  onChange={(e) => setSizeRequestForm((f) => ({ ...f, requested_size: e.target.value }))}
+                  placeholder={String((teamLimit?.limit || 10) + 5)}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Reason (optional)</label>
+                <input
+                  value={sizeRequestForm.reason}
+                  onChange={(e) => setSizeRequestForm((f) => ({ ...f, reason: e.target.value }))}
+                  placeholder="Growing project requires a larger team..."
+                />
+              </div>
+              <div className="form-actions form-span-2">
+                <button className="btn btn-primary" type="submit" disabled={Boolean(actionKey)}>
+                  {actionKey === 'size-request' ? 'Submitting...' : 'Submit to CEO'}
+                </button>
+              </div>
+            </form>
+          )}
           <div className="list">
             {members.map((member) => (
               <div
@@ -508,8 +499,8 @@ export default function EmployeeView({ role }) {
                 className="list-item"
                 onClick={() => setSelectedMember(member)}
                 style={{
-                  background: selectedMember?.employee_id === member.employee_id ? '#eef7f3' : '#f9faf8',
-                  borderLeftColor: selectedMember?.employee_id === member.employee_id ? '#2f7d62' : '#d5dcd8',
+                  background: selectedMember?.employee_id === member.employee_id ? 'var(--surface-pill)' : 'var(--surface-soft)',
+                  borderLeftColor: selectedMember?.employee_id === member.employee_id ? 'var(--accent)' : 'var(--border-soft)',
                 }}
               >
                 <div className="task-line">

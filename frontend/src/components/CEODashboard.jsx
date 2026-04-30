@@ -57,14 +57,29 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
   // People & Teams panel
   const [showPeoplePanel, setShowPeoplePanel] = useState(false);
   const [pendingInviteRequests, setPendingInviteRequests] = useState([]);
-  const [actioningInvite, setActioningInvite] = useState(null); // { id, reason }
+  const [actioningInvite, setActioningInvite] = useState(null);
+  const [adminTeamLimits, setAdminTeamLimits] = useState([]);
+  const [sizeRequests, setSizeRequests] = useState([]);
+  const [actioningSizeReq, setActioningSizeReq] = useState(null);
+  const [limitEdits, setLimitEdits] = useState({}); // { [admin_profile_id]: new_limit_string }
+  const [sizeReqActions, setSizeReqActions] = useState({}); // { [req_id]: { approved_size, rejection_reason } }
 
-  const fetchPendingInviteRequests = () => {
+  const fetchPeopleData = () => {
     fetch(`${API_BASE_URL}/company/invite-requests/pending`, { headers })
       .then(r => r.ok ? r.json() : [])
       .then(setPendingInviteRequests)
       .catch(() => {});
+    fetch(`${API_BASE_URL}/company/admin-team-limits`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(setAdminTeamLimits)
+      .catch(() => {});
+    fetch(`${API_BASE_URL}/company/team-size-requests`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(setSizeRequests)
+      .catch(() => {});
   };
+
+  const fetchPendingInviteRequests = fetchPeopleData;
 
   const handleInviteAction = async (requestId, approved, reason = '') => {
     setActioningInvite(requestId);
@@ -754,6 +769,117 @@ export default function CEODashboard({ currentUser, API_BASE_URL, onNavigate, te
 
           {pendingInviteRequests.length === 0 && (
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>No pending approvals.</p>
+          )}
+
+          {/* Pending team size requests */}
+          {sizeRequests.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-secondary)' }}>
+                Team Size Increase Requests ({sizeRequests.length})
+              </h3>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {sizeRequests.map(req => {
+                  const acting = actioningSizeReq === req.id;
+                  const local = sizeReqActions[req.id] || {};
+                  return (
+                    <div key={req.id} style={{ padding: '14px 16px', border: '1px solid var(--border-soft)', borderRadius: 10, background: 'var(--surface-soft)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+                        <div>
+                          <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>
+                            {req.admin_name} — {req.current_team_size}/{req.current_limit} → {req.requested_size}
+                          </p>
+                          {req.reason && (
+                            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '4px 0 0' }}>{req.reason}</p>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <input
+                            type="number"
+                            min={req.current_limit + 1}
+                            placeholder={String(req.requested_size)}
+                            value={local.approved_size || ''}
+                            onChange={e => setSizeReqActions(s => ({ ...s, [req.id]: { ...s[req.id], approved_size: e.target.value } }))}
+                            style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-soft)', background: 'var(--surface-pill)', color: 'var(--text-primary)', fontSize: 13 }}
+                          />
+                          <button className="btn btn-primary" style={{ fontSize: 12, padding: '6px 14px' }}
+                            disabled={acting}
+                            onClick={async () => {
+                              setActioningSizeReq(req.id);
+                              const approvedSize = local.approved_size ? Number(local.approved_size) : req.requested_size;
+                              const res = await fetch(`${API_BASE_URL}/company/team-size-request/${req.id}/ceo-action`, {
+                                method: 'POST', headers: jsonHeaders,
+                                body: JSON.stringify({ approved: true, approved_size: approvedSize }),
+                              }).catch(() => null);
+                              if (res?.ok) fetchPeopleData();
+                              setActioningSizeReq(null);
+                            }}>
+                            {acting ? '…' : 'Approve'}
+                          </button>
+                          <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 14px', color: '#dc2626' }}
+                            disabled={acting}
+                            onClick={async () => {
+                              const reason = window.prompt(`Reason for rejecting ${req.admin_name}'s request?`);
+                              if (reason === null) return;
+                              setActioningSizeReq(req.id);
+                              const res = await fetch(`${API_BASE_URL}/company/team-size-request/${req.id}/ceo-action`, {
+                                method: 'POST', headers: jsonHeaders,
+                                body: JSON.stringify({ approved: false, rejection_reason: reason || null }),
+                              }).catch(() => null);
+                              if (res?.ok) fetchPeopleData();
+                              setActioningSizeReq(null);
+                            }}>
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Admin team size limits */}
+          {adminTeamLimits.length > 0 && (
+            <div style={{ marginBottom: 28 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10, color: 'var(--text-secondary)' }}>Admin Team Limits</h3>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {adminTeamLimits.map(a => (
+                  <div key={a.admin_profile_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', border: '1px solid var(--border-soft)', borderRadius: 10, background: 'var(--surface-soft)', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <strong style={{ fontSize: 14 }}>{a.name}</strong>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-secondary)' }}>{a.email}</span>
+                      <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+                        {a.current_team_size} / {a.limit} members
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="number"
+                        min={1}
+                        value={limitEdits[a.admin_profile_id] ?? a.limit}
+                        onChange={e => setLimitEdits(le => ({ ...le, [a.admin_profile_id]: e.target.value }))}
+                        style={{ width: 72, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border-soft)', background: 'var(--surface-pill)', color: 'var(--text-primary)', fontSize: 13 }}
+                      />
+                      <button className="btn btn-primary" style={{ fontSize: 12, padding: '5px 12px' }}
+                        onClick={async () => {
+                          const newLimit = Number(limitEdits[a.admin_profile_id] ?? a.limit);
+                          const res = await fetch(`${API_BASE_URL}/company/admin-team-limit/${a.admin_profile_id}`, {
+                            method: 'PATCH', headers: jsonHeaders,
+                            body: JSON.stringify({ max_team_size: newLimit }),
+                          }).catch(() => null);
+                          if (res?.ok) {
+                            setAdminTeamLimits(prev => prev.map(x => x.admin_profile_id === a.admin_profile_id ? { ...x, limit: newLimit } : x));
+                            setLimitEdits(le => { const n = { ...le }; delete n[a.admin_profile_id]; return n; });
+                          }
+                        }}>
+                        Update
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Company directory */}

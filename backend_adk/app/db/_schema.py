@@ -58,6 +58,7 @@ def _additive_columns(engine):
             "years_experience": "FLOAT DEFAULT 0",
             "pending_skills": "TEXT",
             "manager_id": "INTEGER",
+            "max_team_size": "INTEGER DEFAULT 10",
         },
         "client_profiles": {
             "tenant_id": "INTEGER",

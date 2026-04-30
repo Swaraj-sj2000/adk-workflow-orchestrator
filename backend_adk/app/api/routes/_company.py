@@ -10,6 +10,7 @@ from app.db._database import get_db
 from app.models._employee_profile import EmployeeProfile
 from app.models._notification import Notification
 from app.models._team_invite_request import TeamInviteRequest
+from app.models._team_size_request import TeamSizeRequest
 from app.models._user import User
 from app.services._llm_service import LLMService, HumanMessage, SystemMessage
 
@@ -192,6 +193,20 @@ def send_invite_request(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="A pending invite already exists for this person.")
+
+    # Team size enforcement for admins
+    if current_user.role == "admin":
+        team_count = db.query(EmployeeProfile).filter(
+            EmployeeProfile.tenant_id == current_user.tenant_id,
+            EmployeeProfile.manager_id == my_profile.id,
+            EmployeeProfile.deleted_at.is_(None),
+        ).count()
+        limit = my_profile.max_team_size if my_profile.max_team_size is not None else 10
+        if team_count >= limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Your team is at its size limit ({limit} members). Submit a size increase request to your CEO.",
+            )
 
     emp_user = _user_of(db, emp_profile)
     emp_name = _name(emp_user)
@@ -548,3 +563,258 @@ def mark_all_read(
     ).update({"read_at": datetime.utcnow()})
     db.commit()
     return {"ok": True}
+
+
+# ── Team size limit ───────────────────────────────────────────────────────────
+
+@router.get("/company/my-team-limit")
+def my_team_limit(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_ceo_or_admin),
+):
+    my_profile = _profile_of(db, current_user.id, current_user.tenant_id)
+    if not my_profile:
+        raise HTTPException(status_code=400, detail="Employee profile not found.")
+
+    current_count = db.query(EmployeeProfile).filter(
+        EmployeeProfile.tenant_id == current_user.tenant_id,
+        EmployeeProfile.manager_id == my_profile.id,
+        EmployeeProfile.deleted_at.is_(None),
+    ).count()
+
+    limit = my_profile.max_team_size if my_profile.max_team_size is not None else 10
+
+    pending = db.query(TeamSizeRequest).filter(
+        TeamSizeRequest.admin_profile_id == my_profile.id,
+        TeamSizeRequest.status == "pending",
+    ).order_by(TeamSizeRequest.created_at.desc()).first()
+
+    return {
+        "current_count": current_count,
+        "limit": limit,
+        "pending_request": {
+            "id": pending.id,
+            "requested_size": pending.requested_size,
+            "status": pending.status,
+        } if pending else None,
+    }
+
+
+class TeamSizeRequestPayload(BaseModel):
+    requested_size: int
+    reason: Optional[str] = None
+
+
+@router.post("/company/team-size-request")
+def request_team_size_increase(
+    payload: TeamSizeRequestPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_ceo_or_admin),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can request a team size increase.")
+
+    my_profile = _profile_of(db, current_user.id, current_user.tenant_id)
+    if not my_profile:
+        raise HTTPException(status_code=400, detail="Employee profile not found.")
+
+    current_limit = my_profile.max_team_size if my_profile.max_team_size is not None else 10
+
+    if payload.requested_size <= current_limit:
+        raise HTTPException(status_code=400, detail=f"Requested size must be greater than current limit ({current_limit}).")
+
+    existing = db.query(TeamSizeRequest).filter(
+        TeamSizeRequest.admin_profile_id == my_profile.id,
+        TeamSizeRequest.status == "pending",
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="You already have a pending size increase request.")
+
+    req = TeamSizeRequest(
+        tenant_id=current_user.tenant_id,
+        admin_profile_id=my_profile.id,
+        requested_size=payload.requested_size,
+        current_limit=current_limit,
+        reason=payload.reason,
+        status="pending",
+    )
+    db.add(req)
+    db.flush()
+
+    ceo = _get_ceo(db, current_user.tenant_id)
+    if ceo:
+        _notify(db, current_user.tenant_id, ceo.id,
+            "approval_needed",
+            f"{_name(current_user)} requests team size increase",
+            f"{_name(current_user)} wants to grow their team from {current_limit} to {payload.requested_size} members."
+            + (f" Reason: {payload.reason}" if payload.reason else ""),
+            "team_size_request", req.id)
+
+    db.commit()
+    return {"id": req.id, "status": req.status}
+
+
+@router.get("/company/team-size-requests")
+def list_team_size_requests(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="CEO only.")
+
+    requests = (
+        db.query(TeamSizeRequest)
+        .filter(
+            TeamSizeRequest.tenant_id == current_user.tenant_id,
+            TeamSizeRequest.status == "pending",
+        )
+        .order_by(TeamSizeRequest.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for r in requests:
+        admin_profile = db.query(EmployeeProfile).filter(EmployeeProfile.id == r.admin_profile_id).first()
+        admin_user = _user_of(db, admin_profile)
+        team_count = db.query(EmployeeProfile).filter(
+            EmployeeProfile.manager_id == r.admin_profile_id,
+            EmployeeProfile.deleted_at.is_(None),
+        ).count() if admin_profile else 0
+        result.append({
+            "id": r.id,
+            "admin_name": _name(admin_user),
+            "admin_profile_id": r.admin_profile_id,
+            "current_team_size": team_count,
+            "current_limit": r.current_limit,
+            "requested_size": r.requested_size,
+            "reason": r.reason,
+            "status": r.status,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+    return result
+
+
+@router.get("/company/admin-team-limits")
+def admin_team_limits(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="CEO only.")
+
+    admins = db.query(User).filter(
+        User.tenant_id == current_user.tenant_id,
+        User.role == "admin",
+        User.deleted_at.is_(None),
+    ).all()
+
+    result = []
+    for admin in admins:
+        profile = _profile_of(db, admin.id, current_user.tenant_id)
+        if not profile:
+            continue
+        team_count = db.query(EmployeeProfile).filter(
+            EmployeeProfile.manager_id == profile.id,
+            EmployeeProfile.deleted_at.is_(None),
+        ).count()
+        result.append({
+            "admin_user_id": admin.id,
+            "admin_profile_id": profile.id,
+            "name": _name(admin),
+            "email": admin.email,
+            "current_team_size": team_count,
+            "limit": profile.max_team_size if profile.max_team_size is not None else 10,
+        })
+    return result
+
+
+class SizeRequestActionPayload(BaseModel):
+    approved: bool
+    approved_size: Optional[int] = None
+    rejection_reason: Optional[str] = None
+
+
+@router.post("/company/team-size-request/{request_id}/ceo-action")
+def ceo_size_request_action(
+    request_id: int,
+    payload: SizeRequestActionPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="CEO only.")
+
+    req = db.query(TeamSizeRequest).filter(
+        TeamSizeRequest.id == request_id,
+        TeamSizeRequest.tenant_id == current_user.tenant_id,
+        TeamSizeRequest.status == "pending",
+    ).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found or already resolved.")
+
+    admin_profile = db.query(EmployeeProfile).filter(EmployeeProfile.id == req.admin_profile_id).first()
+    admin_user = _user_of(db, admin_profile)
+    admin_name = _name(admin_user)
+
+    if payload.approved:
+        new_size = payload.approved_size or req.requested_size
+        req.status = "approved"
+        req.approved_size = new_size
+        if admin_profile:
+            admin_profile.max_team_size = new_size
+            db.add(admin_profile)
+        if admin_user:
+            _notify(db, current_user.tenant_id, admin_user.id,
+                "accepted",
+                "Your team size request was approved",
+                f"CEO approved your request. Your team can now have up to {new_size} members.",
+                "team_size_request", req.id)
+    else:
+        req.status = "rejected"
+        req.rejection_reason = payload.rejection_reason
+        if admin_user:
+            _notify(db, current_user.tenant_id, admin_user.id,
+                "rejection_record",
+                "Your team size request was rejected",
+                payload.rejection_reason or "No reason provided.",
+                "team_size_request", req.id)
+
+    req.updated_at = datetime.utcnow()
+    db.add(req)
+    db.commit()
+    return {"status": req.status}
+
+
+class AdminLimitPayload(BaseModel):
+    max_team_size: int
+
+
+@router.patch("/company/admin-team-limit/{admin_profile_id}")
+def set_admin_team_limit(
+    admin_profile_id: int,
+    payload: AdminLimitPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "ceo":
+        raise HTTPException(status_code=403, detail="CEO only.")
+
+    if payload.max_team_size < 1:
+        raise HTTPException(status_code=400, detail="Limit must be at least 1.")
+
+    profile = db.query(EmployeeProfile).filter(
+        EmployeeProfile.id == admin_profile_id,
+        EmployeeProfile.tenant_id == current_user.tenant_id,
+        EmployeeProfile.deleted_at.is_(None),
+    ).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Admin profile not found.")
+
+    admin_user = _user_of(db, profile)
+    if not admin_user or admin_user.role != "admin":
+        raise HTTPException(status_code=400, detail="Target must be an admin.")
+
+    profile.max_team_size = payload.max_team_size
+    db.add(profile)
+    db.commit()
+    return {"admin_profile_id": admin_profile_id, "max_team_size": payload.max_team_size}
