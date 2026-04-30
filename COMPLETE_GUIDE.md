@@ -1,6 +1,6 @@
 # AI Workforce Orchestrator — Complete Project Guide
 > Single source of truth for architecture, usage, deployment, and development.
-> Last updated: 2026-04-27 | Branch: main | Latest commit: 72cb644 (phase-12)
+> Last updated: 2026-04-30 | Branch: main | Latest commit: 72cb644 (phase-12)
 
 ---
 
@@ -1680,7 +1680,7 @@ Billing:     01E336-987ED9-6B9D22
 ```bash
 # Clone if needed
 git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
-cd agentic_orchestrator && git pull origin main
+cd ~/adk-workflow-orchestrator && git pull origin main
 
 # Backend (--source handles build + Artifact Registry push automatically)
 cd backend_adk
