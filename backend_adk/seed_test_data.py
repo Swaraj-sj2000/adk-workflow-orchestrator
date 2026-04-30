@@ -460,9 +460,12 @@ def _ensure_prefs(db, user_id, **kwargs):
     db.flush()
 
 
-def _ensure_employee(db, user, skills, department, load=0.0, status="available"):
+def _ensure_employee(db, user, skills, department, load=0.0, status="available", manager_id=None):
     existing = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
     if existing:
+        if manager_id is not None and existing.manager_id is None:
+            existing.manager_id = manager_id
+            db.flush()
         return existing
     p = EmployeeProfile(
         tenant_id=user.tenant_id,
@@ -474,6 +477,7 @@ def _ensure_employee(db, user, skills, department, load=0.0, status="available")
         availability_status=status,
         duty_start_hour=0.0,   # 24/7 for demo — never "off-duty"
         duty_end_hour=24.0,
+        manager_id=manager_id,
     )
     db.add(p)
     db.flush()
@@ -614,6 +618,7 @@ def seed_tenant(db, spec):
 
     # Admins + their department teams
     admin_objects = {}
+    admin_profile_map = {} # dept -> profile_id
     for admin_spec in spec["admins"]:
         admin, admin_created = _upsert_user(
             db,
@@ -629,6 +634,14 @@ def seed_tenant(db, spec):
                 user_id=admin.id, token=generate_refresh_token(),
                 expires_at=datetime.utcnow() + timedelta(days=30), revoked=False,
             ))
+
+        # Create EmployeeProfile for admin so they can manage others and appear in dashboards
+        ap = _ensure_employee(
+            db, admin,
+            skills={"architecture": 0.5, "project-management": 0.9, "delivery": 0.8},
+            department=admin_spec["department"]
+        )
+        admin_profile_map[admin_spec["department"]] = ap.id
 
         dept = admin_spec["department"]
         admin_objects[admin.email] = (admin, dept)
@@ -648,19 +661,38 @@ def seed_tenant(db, spec):
             tenant_id=tenant.id,
         )
         _ensure_prefs(db, u.id, timezone="UTC", onboarding_complete=True)
+
+        # Link employees to their respective department admin
+        dept = emp_spec["department"]
+        m_id = admin_profile_map.get(dept)
+
         ep = _ensure_employee(
             db, u,
             skills=emp_spec["skills"],
-            department=emp_spec["department"],
+            department=dept,
             load=emp_spec.get("load", 0.0),
             status=emp_spec.get("status", "available"),
+            manager_id=m_id,
         )
         emp_profile_map[emp_spec["email"]] = (u, ep)
 
-    # Assign employees to their department team + admin as team member
+    # Assign employees to their department team (org-pool)
+    # We leave 2 employees per department out of the initial pool 
+    # so they are available for manual invitation via the directory.
     dept_team_cache = {}
+    dept_assigned_count = {}
     for emp_email, (u, ep) in emp_profile_map.items():
         dept = ep.department
+        if dept not in dept_assigned_count:
+            dept_assigned_count[dept] = 0
+            
+        # Seed the first 4 as ready-to-work, leave the rest for manual invitation flow
+        if dept_assigned_count[dept] >= 4:
+            # Remove manager link for "uninvited" directory members to simulate new hires
+            ep.manager_id = None
+            db.add(ep)
+            continue
+
         if dept not in dept_team_cache:
             team = (
                 db.query(Team)
@@ -671,6 +703,7 @@ def seed_tenant(db, spec):
         team = dept_team_cache[dept]
         if team:
             _add_team_member(db, team, u, ep)
+            dept_assigned_count[dept] += 1
 
     # Also add each admin as a member of their own team
     for admin_email, (admin, dept) in admin_objects.items():
