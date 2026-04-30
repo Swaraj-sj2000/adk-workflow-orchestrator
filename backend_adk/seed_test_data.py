@@ -19,131 +19,77 @@ Flags:
 
 from __future__ import annotations
 
-import argparse
 import os
 import sys
+import argparse
 from datetime import datetime, timedelta
+
+# ─────────────────────────────────────────────────────────────
+# MODE SETUP
+# ─────────────────────────────────────────────────────────────
 
 _LOCAL_MODE = "--local" in sys.argv
 
 if _LOCAL_MODE:
     os.environ.setdefault("DATABASE_URL", "sqlite:///./app.db")
     os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
-    DATABASE_URL = os.environ["DATABASE_URL"]
-    GCP_PROJECT  = "local-dev"
-    GCP_REGION   = "local"
-    GEMINI_MODEL = os.environ["GEMINI_MODEL"]
-else:
-    _REQUIRED = {
-        "DATABASE_URL":             "Cloud SQL PostgreSQL connection string",
-        "GOOGLE_CLOUD_PROJECT":     "GCP project ID",
-        "GOOGLE_CLOUD_LOCATION":    "GCP region",
-        "GOOGLE_GENAI_USE_VERTEXAI":"Must be 'true'",
-    }
-    _missing = [k for k in _REQUIRED if not os.getenv(k)]
-    if _missing:
-        print("\nERROR: Missing env vars:\n")
-        for k in _missing:
-            print(f"  {k}  —  {_REQUIRED[k]}")
-        print("\nFor local testing run:  python seed_test_data.py --local\n")
+
+DATABASE_URL = os.environ["DATABASE_URL"]
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+if not _LOCAL_MODE:
+    required = [
+        "DATABASE_URL",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+    ]
+    missing = [k for k in required if not os.getenv(k)]
+    if missing:
+        print("\nMissing env vars:")
+        for k in missing:
+            print(" -", k)
         sys.exit(1)
 
-    DATABASE_URL = os.environ["DATABASE_URL"]
-    GCP_PROJECT  = os.environ["GOOGLE_CLOUD_PROJECT"]
-    GCP_REGION   = os.environ["GOOGLE_CLOUD_LOCATION"]
-
-    if DATABASE_URL.startswith("sqlite"):
-        print("ERROR: SQLite not allowed in production mode.")
-        sys.exit(1)
-
-    os.environ.setdefault("GEMINI_MODEL", "gemini-2.5-flash")
-    GEMINI_MODEL = os.environ["GEMINI_MODEL"]
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--local",  action="store_true")
-parser.add_argument("--check",  action="store_true")
-parser.add_argument("--reset",  action="store_true")
-args = parser.parse_args()
+# ─────────────────────────────────────────────────────────────
+# PATH SETUP
+# ─────────────────────────────────────────────────────────────
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-
-def _preflight():
-    ok = True
-    host_display = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-    print(f"\n── Pre-flight ({host_display}) ────────────────────────────────")
-    try:
-        import psycopg2
-        raw = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
-        conn = psycopg2.connect(raw, connect_timeout=10)
-        conn.close()
-        print("    ✓ Cloud SQL connected")
-    except Exception as e:
-        print(f"    ✗ Cloud SQL FAILED: {e}")
-        ok = False
-    try:
-        from google import genai  # noqa
-        print("    ✓ google-genai importable")
-    except ImportError as e:
-        print(f"    ✗ google-genai FAILED: {e}")
-        ok = False
-    return ok
-
-
-if args.check:
-    if _LOCAL_MODE:
-        print("--check is for production only.")
-        sys.exit(0)
-    sys.exit(0 if _preflight() else 1)
-
-if not _LOCAL_MODE:
-    if not _preflight():
-        sys.exit(1)
-
-import pyotp
+# ─────────────────────────────────────────────────────────────
+# IMPORTS
+# ─────────────────────────────────────────────────────────────
 
 from app.core._security import generate_refresh_token, hash_password
 from app.db._database import Base, SessionLocal, engine
 from app.db._schema import ensure_runtime_schema
+
+# Import all models to ensure they're registered with SQLAlchemy
+# This must happen before any model queries
 from app.models import (
     _agent, _agent_run, _audit_log, _availability, _blocker, _checkpoint,
-    _client_profile, _communication, _decision_log, _email_delivery_log,
-    _employee_metrics, _employee_profile, _event_queue, _meeting,
-    _performance_point, _platform_audit_log, _project, _refresh_token,
-    _scheduled_agent_job, _support_ticket, _task, _task_assignment,
-    _task_dependency, _task_progress, _team, _team_invite, _tenant,
-    _tenant_settings, _user, _user_preferences, _workflow_run,
+    _client_profile, _communication, _decision_log, _employee_metrics,
+    _employee_profile, _event_queue, _meeting, _performance_point,
+    _project, _task, _task_assignment, _task_dependency, _task_progress,
+    _team, _team_invite, _team_invite_request, _tenant, _user, _workflow_run,
 )
+
 from app.models._agent import Agent
 from app.models._client_profile import ClientProfile
 from app.models._employee_metrics import EmployeeMetrics
 from app.models._employee_profile import EmployeeProfile
 from app.models._refresh_token import RefreshToken
-from app.models._scheduled_agent_job import ScheduledAgentJob
 from app.models._team import Team, TeamMember
 from app.models._tenant import Tenant
 from app.models._tenant_settings import TenantSettings
 from app.models._user import User
 from app.models._user_preferences import UserPreferences
 
-# ── Agent definitions ─────────────────────────────────────────────────────────
+import pyotp
 
-AGENT_DEFINITIONS = [
-    {"name": "IntakeAgent",                "role": "intake",         "capability": f"Parse project intake via {GEMINI_MODEL}"},
-    {"name": "PlanningAgent",              "role": "planning",       "capability": f"Generate execution plan via {GEMINI_MODEL}"},
-    {"name": "StaffingAgent",              "role": "staffing",       "capability": f"Score + assign team members via {GEMINI_MODEL}"},
-    {"name": "RiskAgent",                  "role": "risk",           "capability": f"Evaluate timeline/budget risk via {GEMINI_MODEL}"},
-    {"name": "ExecutionCoordinatorAgent",  "role": "coordination",   "capability": f"Finalise execution plan via {GEMINI_MODEL}"},
-    {"name": "CommunicationAgent",         "role": "communication",  "capability": f"Draft client/admin emails via {GEMINI_MODEL}"},
-    {"name": "EscalationAgent",            "role": "escalation",     "capability": "Escalate to humans when confidence < 0.6"},
-    {"name": "ProjectObserverAgent",       "role": "observation",    "capability": f"Monitor project health via {GEMINI_MODEL}"},
-    {"name": "DeliveryReviewAgent",        "role": "review",         "capability": f"Review deliverables via {GEMINI_MODEL}"},
-    {"name": "RebalanceAgent",             "role": "rebalance",      "capability": f"Rebalance assignments via {GEMINI_MODEL}"},
-    {"name": "LoopCommunicationAgent",     "role": "loop_comms",     "capability": f"Update stakeholder comms via {GEMINI_MODEL}"},
-    {"name": "LoopEscalationAgent",        "role": "loop_escalation","capability": "Escalate loop blockers to admin"},
-]
-
-# ── Platform owner ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# PLATFORM OWNER
+# ─────────────────────────────────────────────────────────────
 
 PLATFORM_OWNER = {
     "email": "swaraj@orchestrator.ai",
@@ -151,6 +97,18 @@ PLATFORM_OWNER = {
     "full_name": "Swaraj Menon",
     "role": "platform_owner",
 }
+
+# ─────────────────────────────────────────────────────────────
+# AGENTS
+# ─────────────────────────────────────────────────────────────
+
+AGENT_DEFINITIONS = [
+    {"name": "IntakeAgent", "role": "intake", "capability": f"Parse intake via {GEMINI_MODEL}"},
+    {"name": "PlanningAgent", "role": "planning", "capability": f"Planning via {GEMINI_MODEL}"},
+    {"name": "StaffingAgent", "role": "staffing", "capability": f"Staffing via {GEMINI_MODEL}"},
+    {"name": "RiskAgent", "role": "risk", "capability": f"Risk evaluation via {GEMINI_MODEL}"},
+]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TENANT DATA DEFINITIONS
@@ -196,14 +154,29 @@ TENANTS = [
             {"email": "neha.gupta@technova.ai",    "full_name": "Neha Gupta",      "department": "Engineering",  "skills": {"backend": 0.93, "api": 0.90, "python": 0.88},                     "load": 4.0, "status": "available"},
             {"email": "yash.patel@technova.ai",    "full_name": "Yash Patel",      "department": "Engineering",  "skills": {"frontend": 0.91, "react": 0.89, "design-systems": 0.74},          "load": 2.0, "status": "available"},
             {"email": "dev.sharma@technova.ai",    "full_name": "Dev Sharma",      "department": "Engineering",  "skills": {"devops": 0.88, "cloud": 0.85, "security": 0.72},                  "load": 6.0, "status": "available"},
-            {"email": "preet.kaur@technova.ai",    "full_name": "Preet Kaur",      "department": "Engineering",  "skills": {"backend": 0.87, "api": 0.84},                                     "load": 0.0, "status": "available"},
+            {"email": "preet.kaur@technova.ai",    "full_name": "Preet Kaur",      "department": "Engineering",  "skills": {"backend": 0.87, "api": 0.84, "delivery": 0.60},                   "load": 0.0, "status": "available"},
+            {"email": "fatima.z@technova.ai",      "full_name": "Fatima Zahra",    "department": "Engineering",  "skills": {"backend": 0.85, "python": 0.80, "api": 0.75},                     "load": 1.0, "status": "available"},
+            {"email": "robert.k@technova.ai",      "full_name": "Robert King",     "department": "Engineering",  "skills": {"devops": 0.92, "cloud": 0.90, "security": 0.85},                  "load": 0.0, "status": "available"},
+            {"email": "priya3.m@technova.ai",      "full_name": "Priya Mishra",    "department": "Engineering",  "skills": {"frontend": 0.88, "react": 0.85, "vue": 0.70},                    "load": 2.5, "status": "available"},
+            {"email": "samuel.l@technova.ai",      "full_name": "Samuel Lucas",    "department": "Engineering",  "skills": {"qa": 0.90, "testing": 0.88, "automation": 0.85},                 "load": 0.0, "status": "available"},
+            {"email": "vikram.s@technova.ai",      "full_name": "Vikram Singh",    "department": "Engineering",  "skills": {"backend": 0.82, "api": 0.80, "frontend": 0.75},                  "load": 3.0, "status": "available"},
+            {"email": "lina.v@technova.ai",        "full_name": "Lina Verma",      "department": "Engineering",  "skills": {"architecture": 0.85, "infra": 0.90, "cloud": 0.88},              "load": 0.0, "status": "available"},
+            {"email": "omar.h@technova.ai",        "full_name": "Omar Hashmi",     "department": "Engineering",  "skills": {"security": 0.95, "backend": 0.70},                               "load": 1.0, "status": "available"},
+            {"email": "ananya2.d@technova.ai",     "full_name": "Ananya Datta",    "department": "Engineering",  "skills": {"frontend": 0.80, "react": 0.82},                                 "load": 0.0, "status": "available"},
             # Product & AI (Kavya)
             {"email": "sofia.dsouza@technova.ai",  "full_name": "Sofia D'Souza",   "department": "Product & AI", "skills": {"qa": 0.94, "testing": 0.91, "automation": 0.87},                  "load": 3.5, "status": "available"},
-            {"email": "rahul.joshi@technova.ai",   "full_name": "Rahul Joshi",     "department": "Product & AI", "skills": {"llm": 0.92, "prompting": 0.88, "modeling": 0.82},                 "load": 7.0, "status": "available"},
+            {"email": "rahul.joshi@technova.ai",   "full_name": "Rahul Joshi",     "department": "Product & AI", "skills": {"llm": 0.92, "prompting": 0.88, "modeling": 0.82},                 "load": 4.0, "status": "available"},
             {"email": "meera.pillai@technova.ai",  "full_name": "Meera Pillai",    "department": "Product & AI", "skills": {"prompting": 0.95, "research": 0.90, "llm": 0.75},                 "load": 2.0, "status": "available"},
             {"email": "vishal.nair@technova.ai",   "full_name": "Vishal Nair",     "department": "Product & AI", "skills": {"frontend": 0.89, "react": 0.87, "design-systems": 0.80},          "load": 5.5, "status": "available"},
             {"email": "anita.singh@technova.ai",   "full_name": "Anita Singh",     "department": "Product & AI", "skills": {"architecture": 0.90, "delivery": 0.86},                           "load": 0.0, "status": "available"},
             {"email": "karan.mehta@technova.ai",   "full_name": "Karan Mehta",     "department": "Product & AI", "skills": {"llm": 0.88, "modeling": 0.85, "research": 0.70},                  "load": 4.0, "status": "on-leave"},
+            {"email": "zain.k@technova.ai",        "full_name": "Zain Khan",       "department": "Product & AI", "skills": {"llm": 0.85, "modeling": 0.80, "python": 0.75},                    "load": 0.0, "status": "available"},
+            {"email": "maya2.s@technova.ai",       "full_name": "Maya Sharma",     "department": "Product & AI", "skills": {"prompting": 0.90, "research": 0.85},                               "load": 2.0, "status": "available"},
+            {"email": "dave.r@technova.ai",        "full_name": "Dave Rogers",     "department": "Product & AI", "skills": {"design-systems": 0.95, "frontend": 0.70},                          "load": 0.0, "status": "available"},
+            {"email": "sara.t@technova.ai",        "full_name": "Sara Tancredi",   "department": "Product & AI", "skills": {"qa": 0.88, "automation": 0.82},                                    "load": 1.5, "status": "available"},
+            {"email": "nina.g@technova.ai",        "full_name": "Nina Gupta",      "department": "Product & AI", "skills": {"llm": 0.80, "analytics": 0.85},                                    "load": 0.0, "status": "available"},
+            {"email": "leo.v@technova.ai",         "full_name": "Leo Valdes",      "department": "Product & AI", "skills": {"modeling": 0.90, "python": 0.88},                                  "load": 3.0, "status": "available"},
+            {"email": "amy.c@technova.ai",         "full_name": "Amy Chen",        "department": "Product & AI", "skills": {"delivery": 0.80, "architecture": 0.75},                            "load": 0.0, "status": "available"},
             # Operations (Aditya)
             {"email": "pooja.sharma@technova.ai",  "full_name": "Pooja Sharma",    "department": "Operations",   "skills": {"project-management": 0.93},                                       "load": 3.0, "status": "available"},
             {"email": "ravi.kumar@technova.ai",    "full_name": "Ravi Kumar",      "department": "Operations",   "skills": {"data": 0.91, "analytics": 0.88},                                  "load": 4.5, "status": "available"},
@@ -211,6 +184,13 @@ TENANTS = [
             {"email": "nitesh.gupta@technova.ai",  "full_name": "Nitesh Gupta",    "department": "Operations",   "skills": {"devops": 0.85, "cloud": 0.82, "security": 0.78},                  "load": 6.5, "status": "available"},
             {"email": "tanvi.singh@technova.ai",   "full_name": "Tanvi Singh",     "department": "Operations",   "skills": {"project-management": 0.87},                                       "load": 1.0, "status": "available"},
             {"email": "deepak.jain@technova.ai",   "full_name": "Deepak Jain",     "department": "Operations",   "skills": {"data": 0.88, "analytics": 0.85, "reporting": 0.75},               "load": 3.0, "status": "available"},
+            {"email": "clara.m@technova.ai",       "full_name": "Clara Mason",     "department": "Operations",   "skills": {"client-success": 0.85, "reporting": 0.80},                        "load": 0.0, "status": "available"},
+            {"email": "ben.w@technova.ai",         "full_name": "Ben Wright",      "department": "Operations",   "skills": {"project-management": 0.82, "delivery": 0.75},                     "load": 2.0, "status": "available"},
+            {"email": "alice.y@technova.ai",       "full_name": "Alice Yang",      "department": "Operations",   "skills": {"analytics": 0.90, "data": 0.85},                                  "load": 0.0, "status": "available"},
+            {"email": "fiona.r@technova.ai",       "full_name": "Fiona Ross",      "department": "Operations",   "skills": {"reporting": 0.92, "client-success": 0.88},                        "load": 1.5, "status": "available"},
+            {"email": "gary.o@technova.ai",        "full_name": "Gary Oldman",     "department": "Operations",   "skills": {"project-management": 0.80, "devops": 0.60},                        "load": 0.0, "status": "available"},
+            {"email": "helen.p@technova.ai",       "full_name": "Helen Page",      "department": "Operations",   "skills": {"data": 0.84, "analytics": 0.80},                                  "load": 4.0, "status": "available"},
+            {"email": "ian.m@technova.ai",         "full_name": "Ian McKellen",    "department": "Operations",   "skills": {"client-success": 0.82, "reporting": 0.75},                        "load": 0.0, "status": "available"},
             # People & HR (Shruti)
             {"email": "ashish.verma@technova.ai",  "full_name": "Ashish Verma",    "department": "People & HR",  "skills": {"client-success": 0.89, "reporting": 0.84},                        "load": 2.5, "status": "available"},
             {"email": "lata.menon@technova.ai",    "full_name": "Lata Menon",      "department": "People & HR",  "skills": {"project-management": 0.91},                                       "load": 0.0, "status": "available"},
@@ -218,6 +198,13 @@ TENANTS = [
             {"email": "priya2.patel@technova.ai",  "full_name": "Priya Patel",     "department": "People & HR",  "skills": {"architecture": 0.88, "delivery": 0.84},                           "load": 1.5, "status": "available"},
             {"email": "rajesh.nair@technova.ai",   "full_name": "Rajesh Nair",     "department": "People & HR",  "skills": {"backend": 0.84, "api": 0.80},                                     "load": 3.5, "status": "available"},
             {"email": "swati.joshi@technova.ai",   "full_name": "Swati Joshi",     "department": "People & HR",  "skills": {"frontend": 0.87, "react": 0.85},                                  "load": 5.0, "status": "available"},
+            {"email": "jack.s@technova.ai",        "full_name": "Jack Sparrow",    "department": "People & HR",  "skills": {"project-management": 0.75, "communication": 0.90},                "load": 0.0, "status": "available"},
+            {"email": "kelly.m@technova.ai",       "full_name": "Kelly Moore",     "department": "People & HR",  "skills": {"qa": 0.70, "testing": 0.75},                                      "load": 1.0, "status": "available"},
+            {"email": "luke.h@technova.ai",        "full_name": "Luke Hobbs",      "department": "People & HR",  "skills": {"architecture": 0.65, "delivery": 0.70},                           "load": 0.0, "status": "available"},
+            {"email": "mary.j@technova.ai",        "full_name": "Mary Jane",       "department": "People & HR",  "skills": {"backend": 0.72, "api": 0.70},                                     "load": 2.0, "status": "available"},
+            {"email": "nick.f@technova.ai",        "full_name": "Nick Fury",       "department": "People & HR",  "skills": {"frontend": 0.75, "react": 0.70},                                  "load": 0.0, "status": "available"},
+            {"email": "oscar.i@technova.ai",       "full_name": "Oscar Isaac",     "department": "People & HR",  "skills": {"client-success": 0.80, "reporting": 0.75},                        "load": 1.5, "status": "available"},
+            {"email": "pam.b@technova.ai",         "full_name": "Pam Beesly",      "department": "People & HR",  "skills": {"project-management": 0.85, "communication": 0.95},                "load": 0.0, "status": "available"},
         ],
         "clients": [
             {"email": "contact@globalcorp.com",   "full_name": "Marcus Chen",   "company": "GlobalCorp Pte Ltd"},
@@ -411,14 +398,14 @@ _created = 0
 _skipped = 0
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# CORE HELPERS
+# ─────────────────────────────────────────────────────────────
 
 def _upsert_tenant(db, name, slug, industry=None, hq=None):
-    global _created, _skipped
-    existing = db.query(Tenant).filter(Tenant.slug == slug).first()
-    if existing:
-        _skipped += 1
-        return existing, False
+    t = db.query(Tenant).filter(Tenant.slug == slug).first()
+    if t:
+        return t
     t = Tenant(name=name, slug=slug)
     if industry:
         t.industry = industry
@@ -426,47 +413,31 @@ def _upsert_tenant(db, name, slug, industry=None, hq=None):
         t.headquarters = hq
     db.add(t)
     db.flush()
-    _created += 1
-    return t, True
+    return t
 
 
-def _upsert_user(db, email, password, full_name, role, tenant_id,
-                 totp_secret=None, totp_enabled=False):
-    global _created, _skipped
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        _skipped += 1
-        return existing, False
+def _upsert_user(db, email, password, full_name, role, tenant_id):
+    u = db.query(User).filter(User.email == email).first()
+    if u:
+        return u
     u = User(
-        email=email, password=hash_password(password),
-        full_name=full_name, role=role, tenant_id=tenant_id,
-        email_verified=True, email_verify_token=None,
-        totp_secret=totp_secret, totp_enabled=totp_enabled,
+        email=email,
+        password=hash_password(password),
+        full_name=full_name,
+        role=role,
+        tenant_id=tenant_id,
+        email_verified=True,
     )
     db.add(u)
     db.flush()
-    _created += 1
-    return u, True
+    return u
 
 
-def _ensure_prefs(db, user_id, **kwargs):
-    existing = db.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
-    if existing:
-        for k, v in kwargs.items():
-            setattr(existing, k, v)
-        db.flush()
-        return
-    db.add(UserPreferences(user_id=user_id, **kwargs))
-    db.flush()
+def _ensure_employee(db, user, skills, department, load=0.0, status="available"):
+    p = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
+    if p:
+        return p
 
-
-def _ensure_employee(db, user, skills, department, load=0.0, status="available", manager_id=None):
-    existing = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
-    if existing:
-        if manager_id is not None and existing.manager_id is None:
-            existing.manager_id = manager_id
-            db.flush()
-        return existing
     p = EmployeeProfile(
         tenant_id=user.tenant_id,
         user_id=user.id,
@@ -475,354 +446,254 @@ def _ensure_employee(db, user, skills, department, load=0.0, status="available",
         current_load=load,
         department=department,
         availability_status=status,
-        duty_start_hour=0.0,   # 24/7 for demo — never "off-duty"
-        duty_end_hour=24.0,
-        manager_id=manager_id,
     )
     db.add(p)
     db.flush()
-    # Vary metrics slightly per employee
-    import random
-    random.seed(user.id)
+
     db.add(EmployeeMetrics(
         employee_id=p.id,
-        efficiency_score=round(random.uniform(0.78, 0.97), 2),
-        reliability_score=round(random.uniform(0.82, 0.99), 2),
-        avg_completion_time=round(random.uniform(3.5, 8.0), 1),
-        total_tasks_completed=random.randint(6, 32),
-        total_tasks_failed=random.randint(0, 2),
-        total_tasks_delayed=random.randint(0, 3),
+        efficiency_score=0.9,
+        reliability_score=0.9,
+        avg_completion_time=5.0,
+        total_tasks_completed=10,
+        total_tasks_failed=0,
+        total_tasks_delayed=0,
     ))
     db.flush()
     return p
 
 
-def _ensure_client(db, tenant_id, email, password, full_name, company):
-    u, created = _upsert_user(db, email, password, full_name, "client", tenant_id)
-    _ensure_prefs(db, u.id, timezone="UTC", onboarding_complete=True)
-    existing = db.query(ClientProfile).filter(ClientProfile.user_id == u.id).first()
-    if not existing:
-        cp = ClientProfile(
-            tenant_id=tenant_id, user_id=u.id,
-            company_name=company, contact_person=full_name,
-        )
-        db.add(cp)
-        db.flush()
-    return u
+def _ensure_admin_profile(db, user, department):
+    """Create EmployeeProfile for admin/CEO users so they can use invite functionality."""
+    p = db.query(EmployeeProfile).filter(EmployeeProfile.user_id == user.id).first()
+    if p:
+        return p
 
-
-def _ensure_tenant_settings(db, tenant_id, plan_tier="pro"):
-    if db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant_id).first():
-        return
-    db.add(TenantSettings(
-        tenant_id=tenant_id,
-        plan_tier=plan_tier,
-        suspended=False,
-        stripe_customer_id=f"cus_seed_{tenant_id}",
-        stripe_subscription_id=f"sub_seed_{tenant_id}",
-        stripe_plan_id=f"price_{plan_tier}",
-        subscription_expires_at=datetime.utcnow() + timedelta(days=180),
-        next_billing_date=datetime.utcnow() + timedelta(days=30),
-        max_teams=-1, max_users=-1, max_projects=-1,
-        max_ai_calls_per_month=10000 if plan_tier == "enterprise" else 5000,
-    ))
+    # Admin gets a profile with management skills
+    p = EmployeeProfile(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        skills={"management": 0.95, "leadership": 0.90, "strategy": 0.85},
+        max_capacity=40.0,
+        current_load=0.0,
+        department=department,
+        availability_status="available",
+    )
+    db.add(p)
     db.flush()
 
+    db.add(EmployeeMetrics(
+        employee_id=p.id,
+        efficiency_score=0.95,
+        reliability_score=0.95,
+        avg_completion_time=3.0,
+        total_tasks_completed=25,
+        total_tasks_failed=0,
+        total_tasks_delayed=0,
+    ))
+    db.flush()
+    return p
 
-def _ensure_dept_team(db, tenant_id, department, admin_user_id):
-    """Ensure one org-pool team per department (project_id=None)."""
-    existing = (
-        db.query(Team)
-        .filter(Team.tenant_id == tenant_id, Team.name == department, Team.project_id.is_(None))
-        .first()
-    )
-    if existing:
-        return existing
+
+def _create_team_for_admin(db, admin_user, admin_profile, team_name):
+    """Create a team for an admin and return the team."""
+    team = db.query(Team).filter(
+        Team.name == team_name,
+        Team.tenant_id == admin_user.tenant_id,
+    ).first()
+    if team:
+        return team
+
     team = Team(
-        tenant_id=tenant_id,
-        project_id=None,
-        name=department,
-        created_by_user_id=admin_user_id,
+        tenant_id=admin_user.tenant_id,
+        project_id=None,  # Org pool team, no project
+        name=team_name,
+        created_by_user_id=admin_user.id,
     )
     db.add(team)
     db.flush()
     return team
 
 
-def _add_team_member(db, team, user, employee_profile):
+def _add_to_team(db, team, employee_profile, role_title="Team Member"):
+    """Add an employee to a team as a team member."""
     existing = db.query(TeamMember).filter(
         TeamMember.team_id == team.id,
-        TeamMember.user_id == user.id,
+        TeamMember.user_id == employee_profile.user_id,
     ).first()
     if existing:
-        return
-    db.add(TeamMember(
+        return existing
+
+    member = TeamMember(
         tenant_id=team.tenant_id,
         team_id=team.id,
-        user_id=user.id,
+        user_id=employee_profile.user_id,
         employee_profile_id=employee_profile.id,
-        role_title=employee_profile.department,
+        role_title=role_title,
         status="active",
-    ))
+    )
+    db.add(member)
     db.flush()
+    return member
 
 
-# ── Seed agents ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# SEED LOGIC
+# ─────────────────────────────────────────────────────────────
 
 def seed_agents(db):
-    for defn in AGENT_DEFINITIONS:
-        existing = db.query(Agent).filter(Agent.name == defn["name"]).first()
-        if not existing:
-            db.add(Agent(name=defn["name"], role=defn["role"], capability=defn["capability"]))
+    for a in AGENT_DEFINITIONS:
+        if not db.query(Agent).filter(Agent.name == a["name"]).first():
+            db.add(Agent(**a))
     db.flush()
 
 
-# ── Seed platform owner ───────────────────────────────────────────────────────
-
-def seed_platform_owner(db):
-    platform_tenant, _ = _upsert_tenant(db, "Platform", "platform")
-    owner, _ = _upsert_user(db, **PLATFORM_OWNER, tenant_id=platform_tenant.id)
-    _ensure_prefs(db, owner.id, timezone="Asia/Kolkata", theme="dark", onboarding_complete=True)
-    return owner
+def seed_owner(db):
+    platform = _upsert_tenant(db, "Platform", "platform")
+    _upsert_user(db, **PLATFORM_OWNER, tenant_id=platform.id)
 
 
-# ── Seed one tenant ───────────────────────────────────────────────────────────
-
-def seed_tenant(db, spec):
-    slug       = spec["slug"]
-    name       = spec["name"]
-    industry   = spec.get("industry")
-    hq         = spec.get("hq")
-    plan_tier  = spec.get("plan_tier", "pro")
-
-    print(f"  Seeding tenant: {name}")
-
-    tenant, _ = _upsert_tenant(db, name, slug, industry=industry, hq=hq)
-    _ensure_tenant_settings(db, tenant.id, plan_tier=plan_tier)
-
-    # CEO
-    totp_secret = spec.get("totp_secret") or (pyotp.random_base32() if spec.get("totp_for_ceo") else None)
-    ceo_data    = spec["ceo"]
-    ceo, _      = _upsert_user(
-        db,
-        email=ceo_data["email"],
-        password=ceo_data["password"],
-        full_name=ceo_data["full_name"],
-        role="ceo",
-        tenant_id=tenant.id,
-        totp_secret=totp_secret,
-        totp_enabled=bool(totp_secret),
-    )
-    _ensure_prefs(db, ceo.id, timezone="Asia/Kolkata", theme="dark",
-                  ceo_mode=True, default_landing_page="ceo-dashboard", onboarding_complete=True)
-
-    # Admins + their department teams
-    admin_objects = {}
-    admin_profile_map = {} # dept -> profile_id
-    for admin_spec in spec["admins"]:
-        admin, admin_created = _upsert_user(
-            db,
-            email=admin_spec["email"],
-            password=admin_spec["password"],
-            full_name=admin_spec["full_name"],
-            role="admin",
-            tenant_id=tenant.id,
-        )
-        _ensure_prefs(db, admin.id, timezone="UTC", theme="light", onboarding_complete=True)
-        if admin_created:
-            db.add(RefreshToken(
-                user_id=admin.id, token=generate_refresh_token(),
-                expires_at=datetime.utcnow() + timedelta(days=30), revoked=False,
-            ))
-
-        # Create EmployeeProfile for admin so they can manage others and appear in dashboards
-        ap = _ensure_employee(
-            db, admin,
-            skills={"architecture": 0.5, "project-management": 0.9, "delivery": 0.8},
-            department=admin_spec["department"]
-        )
-        admin_profile_map[admin_spec["department"]] = ap.id
-
-        dept = admin_spec["department"]
-        admin_objects[admin.email] = (admin, dept)
-
-        # Create department team (org-pool, project_id=None)
-        _ensure_dept_team(db, tenant.id, dept, admin.id)
-
-    # Employees
-    emp_profile_map = {}  # email → EmployeeProfile
-    for emp_spec in spec["employees"]:
-        u, _ = _upsert_user(
-            db,
-            email=emp_spec["email"],
-            password="team123456",
-            full_name=emp_spec["full_name"],
-            role="employee",
-            tenant_id=tenant.id,
-        )
-        _ensure_prefs(db, u.id, timezone="UTC", onboarding_complete=True)
-
-        # Link employees to their respective department admin
-        dept = emp_spec["department"]
-        m_id = admin_profile_map.get(dept)
-
-        ep = _ensure_employee(
-            db, u,
-            skills=emp_spec["skills"],
-            department=dept,
-            load=emp_spec.get("load", 0.0),
-            status=emp_spec.get("status", "available"),
-            manager_id=m_id,
-        )
-        emp_profile_map[emp_spec["email"]] = (u, ep)
-
-    # Assign employees to their department team (org-pool)
-    # We leave 2 employees per department out of the initial pool 
-    # so they are available for manual invitation via the directory.
-    dept_team_cache = {}
-    dept_assigned_count = {}
-    for emp_email, (u, ep) in emp_profile_map.items():
-        dept = ep.department
-        if dept not in dept_assigned_count:
-            dept_assigned_count[dept] = 0
-            
-        # Seed the first 4 as ready-to-work, leave the rest for manual invitation flow
-        if dept_assigned_count[dept] >= 4:
-            # Remove manager link for "uninvited" directory members to simulate new hires
-            ep.manager_id = None
-            db.add(ep)
-            continue
-
-        if dept not in dept_team_cache:
-            team = (
-                db.query(Team)
-                .filter(Team.tenant_id == tenant.id, Team.name == dept, Team.project_id.is_(None))
-                .first()
-            )
-            dept_team_cache[dept] = team
-        team = dept_team_cache[dept]
-        if team:
-            _add_team_member(db, team, u, ep)
-            dept_assigned_count[dept] += 1
-
-    # Also add each admin as a member of their own team
-    for admin_email, (admin, dept) in admin_objects.items():
-        team = dept_team_cache.get(dept)
-        if team:
-            existing = db.query(TeamMember).filter(
-                TeamMember.team_id == team.id,
-                TeamMember.user_id == admin.id,
-            ).first()
-            if not existing:
-                db.add(TeamMember(
-                    tenant_id=tenant.id,
-                    team_id=team.id,
-                    user_id=admin.id,
-                    employee_profile_id=None,
-                    role_title="Team Lead",
-                    status="active",
-                ))
-                db.flush()
-
-    # Clients
-    for client_spec in spec.get("clients", []):
-        _ensure_client(
-            db, tenant.id,
-            email=client_spec["email"],
-            password="client123456",
-            full_name=client_spec["full_name"],
-            company=client_spec["company"],
-        )
-
-    return tenant, ceo, totp_secret
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-
-def main():
-    global _created, _skipped
-
-    if _LOCAL_MODE:
-        print(f"\nLocal mode — resetting SQLite: {DATABASE_URL}")
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
-        ensure_runtime_schema(engine)
-    elif args.reset:
-        db_host = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
-        confirm = input(f"\n⚠  --reset will DELETE ALL DATA in {db_host}\nType 'yes-delete-everything': ")
-        if confirm.strip() != "yes-delete-everything":
-            print("Aborted.")
-            sys.exit(0)
-        from sqlalchemy import text
-        with engine.connect() as conn:
-            conn.execute(text("DROP SCHEMA public CASCADE"))
-            conn.execute(text("CREATE SCHEMA public"))
-            conn.commit()
-        Base.metadata.create_all(bind=engine)
-        ensure_runtime_schema(engine)
-    else:
-        Base.metadata.create_all(bind=engine)
-        ensure_runtime_schema(engine)
+def seed():
+    Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
 
     db = SessionLocal()
+
     try:
-        print("Seeding 12 agent definitions...")
         seed_agents(db)
+        seed_owner(db)
 
-        print("Seeding platform owner...")
-        seed_platform_owner(db)
+        for t in TENANTS:
+            tenant = _upsert_tenant(
+                db,
+                t["name"],
+                t["slug"],
+                industry=t.get("industry"),
+                hq=t.get("hq"),
+            )
 
-        seeded_tenants = []
-        for spec in TENANTS:
-            tenant, ceo, totp_secret = seed_tenant(db, spec)
-            seeded_tenants.append((spec, tenant.name, ceo.email, totp_secret))
+            # ── Create CEO with profile ───────────────────────────────────────
+            ceo = t["ceo"]
+            ceo_user = _upsert_user(
+                db,
+                ceo["email"],
+                ceo["password"],
+                ceo["full_name"],
+                "ceo",
+                tenant.id,
+            )
+            ceo_profile = _ensure_admin_profile(db, ceo_user, "Executive")
+            print(f"  ✓ CEO: {ceo['full_name']} (profile created)")
+
+            # ── Create admins with profiles and teams ─────────────────────────
+            admin_profiles = {}
+            for admin in t["admins"]:
+                admin_user = _upsert_user(
+                    db,
+                    admin["email"],
+                    admin["password"],
+                    admin["full_name"],
+                    "admin",
+                    tenant.id,
+                )
+                admin_profile = _ensure_admin_profile(db, admin_user, admin["department"])
+                admin_profiles[admin["email"]] = admin_profile
+
+                # Create team for this admin
+                team_name = f"{admin['department']} Team"
+                team = _create_team_for_admin(db, admin_user, admin_profile, team_name)
+                print(f"    ✓ Admin: {admin['full_name']} → {team_name}")
+
+            # ── Create employees: some in teams, some unassigned ───────────────
+            admin_employee_map = t.get("admin_employee_map", {})
+            employees_in_teams = 0
+            employees_unassigned = 0
+
+            for emp in t["employees"]:
+                user = _upsert_user(
+                    db,
+                    emp["email"],
+                    "team123456",
+                    emp["full_name"],
+                    "employee",
+                    tenant.id,
+                )
+
+                # Determine load and status from employee data
+                load = emp.get("load", 0.0)
+                status = emp.get("status", "available")
+
+                emp_profile = _ensure_employee(
+                    db,
+                    user,
+                    emp["skills"],
+                    emp["department"],
+                    load=load,
+                    status=status,
+                )
+
+                # Check which admin's department this employee belongs to
+                emp_dept = emp["department"]
+                assigned_to_team = False
+
+                # Only assign employees who don't already have a manager
+                # This ensures idempotency - running seed multiple times won't change assignment
+                if emp_profile.manager_id is None:
+                    # Only assign ~70% of unassigned employees to teams, leave 30% unassigned for invites
+                    # This allows demonstrating the invite functionality
+                    import random
+                    should_assign = random.random() < 0.70
+
+                    if should_assign:
+                        for admin_email, depts in admin_employee_map.items():
+                            if emp_dept in depts:
+                                admin_profile = admin_profiles.get(admin_email)
+                                if admin_profile:
+                                    # Set manager_id so employee is in admin's team
+                                    emp_profile.manager_id = admin_profile.id
+                                    db.add(emp_profile)
+                                    db.flush()
+
+                                    # Also add to the team
+                                    team_name = f"{emp_dept} Team"
+                                    team = db.query(Team).filter(
+                                        Team.name == team_name,
+                                        Team.tenant_id == tenant.id,
+                                    ).first()
+                                    if team:
+                                        _add_to_team(db, team, emp_profile, "Team Member")
+                                    assigned_to_team = True
+                                break
+
+                if emp_profile.manager_id is not None:
+                    employees_in_teams += 1
+                else:
+                    employees_unassigned += 1
+
+            print(f"    → {employees_in_teams} employees in teams, {employees_unassigned} unassigned (invitable)")
 
         db.commit()
-    except Exception:
+        print("\n✅ Seed completed successfully!")
+        print("   - All CEOs and admins have EmployeeProfiles")
+        print("   - Each admin has a team with members")
+        print("   - Some employees are unassigned (available for invites)")
+
+    except Exception as e:
         db.rollback()
+        print("Seed failed:", e)
         raise
+
     finally:
         db.close()
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    print("\n" + "=" * 72)
-    print("  Seed Complete — AI Workforce Orchestrator")
-    print("=" * 72)
-    print(f"  Records: {_created} created   {_skipped} skipped")
-    print(f"  Database: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
-    print(f"  AI Model: {GEMINI_MODEL}")
-    print()
 
-    print("[ Platform Owner ]")
-    print(f"  {PLATFORM_OWNER['email']}  /  {PLATFORM_OWNER['password']}")
-    print()
-
-    for spec, tenant_name, ceo_email, totp_secret in seeded_tenants:
-        print(f"[ {tenant_name} — {spec.get('plan_tier','pro').upper()} ]")
-        ceo_data = spec["ceo"]
-        line = f"  CEO  : {ceo_data['email']}  /  {ceo_data['password']}"
-        if totp_secret:
-            totp = pyotp.TOTP(totp_secret)
-            line += f"  (TOTP secret: {totp_secret} | code: {totp.now()})"
-        print(line)
-        for a in spec["admins"]:
-            print(f"  Admin: {a['email']}  /  {a['password']}")
-        for e in spec["employees"]:
-            print(f"  Emp  : {e['email']}  /  team123456  [{e['department']}]")
-        for c in spec.get("clients", []):
-            print(f"  Client: {c['email']}  /  client123456  [{c['company']}]")
-        print()
-
-    print("[ All Employees Password ]  team123456")
-    print("[ All Clients Password   ]  client123456")
-    print()
-    if _LOCAL_MODE:
-        print("[ Local endpoints ]")
-        print("  uvicorn app.main:app --reload --port 8001")
-        print("  http://localhost:8001/docs")
-        print("  http://localhost:5173  (frontend)")
-    print()
-
+# ─────────────────────────────────────────────────────────────
+# ENTRYPOINT
+# ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local", action="store_true")
+    args = parser.parse_args()
+
+    seed()
