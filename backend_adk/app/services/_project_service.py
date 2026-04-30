@@ -3501,6 +3501,21 @@ def delete_project_atomic(db: Session, project_id: int, actor: User):
             _sync_employee_capacity_state(employee)
             db.add(employee)
 
+        # Clean up pending invites for the project's team
+        from app.models._team import Team
+        from app.models._team_invite import TeamInvite
+        project_team = db.query(Team).filter(Team.project_id == project_id).first()
+        if project_team:
+            # Cancel pending invites for this team
+            pending_invites = db.query(TeamInvite).filter(
+                TeamInvite.team_id == project_team.id,
+                TeamInvite.status == "pending"
+            ).all()
+            for invite in pending_invites:
+                invite.status = "cancelled"
+                db.add(invite)
+            logger.info("Cancelled %d pending invites for deleted project %s", len(pending_invites), project_id)
+
         # Soft-delete tasks and project (preserves audit trail)
         now = datetime.utcnow()
         if task_ids:
