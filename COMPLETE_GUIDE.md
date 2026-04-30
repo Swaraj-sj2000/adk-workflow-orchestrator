@@ -750,8 +750,8 @@ error_message String nullable
 
 ## 7. API Endpoints — Complete Map
 
-**Base URL (prod):** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app`
-**Base URL (local):** `http://localhost:8001`
+**Base URL (prod):** discover with `gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)'`
+**Base URL (local):** `http://localhost:8000`
 **Auth header:** `Authorization: Bearer <JWT>` on all protected routes
 **Paginated list responses:** `{"items": [...], "total": int, "skip": int, "limit": int}`
 
@@ -1280,7 +1280,7 @@ Tabbed layout:
 
 ### config.js (updated)
 ```javascript
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://orchestrator-backend-yo2mex5f2a-ew.a.run.app';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export function formatDateInUserTimezone(isoString, timezone) {
     if (!isoString) return "—";
@@ -1340,16 +1340,16 @@ Set in Cloud Run service configuration. For local dev, put in `backend_adk/.env`
 
 ### Cloud SQL (Production)
 ```
-DATABASE_URL=postgresql://orchestrator_user:<password>@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql
+DATABASE_URL=postgresql+psycopg2://orchestrator_user:<password>@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql
 ```
 
 ### Deployed URLs
 ```
 GCP Project:    havoc-ai-prod
 Region:         europe-west1
-Backend URL:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
-Frontend URL:   https://orchestrator-frontend-974381609416.europe-west1.run.app
-API Docs:       https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
+Backend URL:    gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)'
+Frontend URL:   gcloud run services describe frontend --region europe-west1 --format='value(status.url)'
+API Docs:       {backend-url}/docs
 Cloud SQL:      havoc-ai-prod:europe-west1:orchestrator-sql
 DB Name:        orchestrator
 DB User:        orchestrator_user
@@ -1431,7 +1431,7 @@ customer.subscription.deleted → suspend tenant immediately, email admins
 
 ### Webhook URL (must register in Stripe dashboard)
 ```
-https://backend-adk-974381609416.europe-west1.run.app/billing/webhook
+{backend-url}/billing/webhook
 ```
 
 ### Suspension Flow
@@ -1667,97 +1667,233 @@ Monday 9am UTC (scheduler job "weekly_digest"):
 
 ## 17. Deployment Guide
 
-### Live URLs (production)
+### Current production resources
 ```
-Frontend:    https://orchestrator-frontend-974381609416.europe-west1.run.app
-Backend:     https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
-API Docs:    https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs
-GCP project: havoc-ai-prod
-Billing:     01E336-987ED9-6B9D22
+GCP project:              havoc-ai-prod
+Region:                   europe-west1
+Backend Cloud Run:        backend-adk
+Frontend Cloud Run:       frontend
+Artifact Registry repo:   orchestrator-repo
+Cloud SQL instance:       havoc-ai-prod:europe-west1:orchestrator-sql
 ```
 
-### Deploy from Cloud Shell (manual)
+Never hardcode live URLs in runbooks. Discover them from Cloud Run:
+
 ```bash
-# Clone if needed
+gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)'
+gcloud run services describe frontend --region europe-west1 --format='value(status.url)'
+```
+
+### Important operational notes
+- Deploy the backend from `backend_adk/`. The `backend/` directory is a local mirror and not the production deploy target.
+- The frontend bakes `VITE_API_URL` at build time, so rebuild the frontend whenever the backend URL changes.
+- The current `backend-adk` Cloud Run service uses a mixed config type:
+  - `DATABASE_URL` is a plain env var
+  - `SECRET_KEY` is a secret-backed env var
+- Because of that mixed setup, backend deploys must use `--update-env-vars` for `DATABASE_URL` and `--update-secrets` for `SECRET_KEY`.
+- Schema changes are additive at runtime. `ensure_runtime_schema(engine)` and `Base.metadata.create_all(engine)` run on startup.
+
+### 17.1 Pull latest code
+```bash
 git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
-cd ~/adk-workflow-orchestrator && git pull origin main
+cd ~/agentic_orchestrator
+git pull --ff-only origin main
+```
 
-# Backend (--source handles build + Artifact Registry push automatically)
-cd backend_adk
-gcloud run deploy orchestrator-backend \
-  --source . \
-  --region europe-west1 \
+### 17.2 Deploy backend only
+```bash
+export PROJECT_ID=havoc-ai-prod
+export REGION=europe-west1
+export BACKEND_SERVICE=backend-adk
+export IMAGE_URI=${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest
+
+cd ~/agentic_orchestrator/backend_adk
+
+gcloud builds submit \
+  --tag ${IMAGE_URI} \
+  .
+
+export DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=${PROJECT_ID})
+
+gcloud run deploy ${BACKEND_SERVICE} \
+  --image ${IMAGE_URI} \
+  --platform managed \
+  --region ${REGION} \
+  --service-account=ai-workflow-orchestrator@${PROJECT_ID}.iam.gserviceaccount.com \
   --allow-unauthenticated \
-  --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
-  --set-env-vars "LOG_TO_STDOUT=true,GOOGLE_CLOUD_LOCATION=europe-west1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=havoc-ai-prod" \
-  --set-secrets "SECRET_KEY=backend-secret-key:latest,DATABASE_URL=database-url:latest"
-# NOTE: ignore the "Service URL" printed above — get the real URL:
-echo "Backend: $(gcloud run services describe orchestrator-backend --region europe-west1 --format 'value(status.url)')"
+  --port 8080 \
+  --cpu 1 \
+  --memory 1Gi \
+  --timeout 300 \
+  --concurrency 40 \
+  --min-instances 0 \
+  --max-instances 10 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:orchestrator-sql \
+  --update-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="${DATABASE_URL}" \
+  --update-secrets SECRET_KEY=backend-secret-key:latest
 
-# Frontend (production URL baked into Dockerfile ARG — no extra flags needed)
+gcloud run services describe ${BACKEND_SERVICE} --region ${REGION} --format='value(status.url)'
+```
+
+### 17.3 Deploy frontend only
+```bash
+export PROJECT_ID=havoc-ai-prod
+export REGION=europe-west1
+export BACKEND_SERVICE=backend-adk
+export FRONTEND_SERVICE=frontend
+
+export BACKEND_URL=$(gcloud run services describe ${BACKEND_SERVICE} --region ${REGION} --format='value(status.url)')
+
+cd ~/agentic_orchestrator/frontend
+
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_VITE_API_URL=${BACKEND_URL},_REGION=${REGION} \
+  .
+
+gcloud run deploy ${FRONTEND_SERVICE} \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/frontend:latest \
+  --platform managed \
+  --region ${REGION} \
+  --allow-unauthenticated \
+  --port 8080 \
+  --cpu 1 \
+  --memory 512Mi \
+  --timeout 60 \
+  --concurrency 80 \
+  --min-instances 0 \
+  --max-instances 5
+
+gcloud run services describe ${FRONTEND_SERVICE} --region ${REGION} --format='value(status.url)'
+```
+
+### 17.4 Deploy both from scratch after pulling main
+```bash
+export PROJECT_ID=havoc-ai-prod
+export REGION=europe-west1
+export BACKEND_SERVICE=backend-adk
+export FRONTEND_SERVICE=frontend
+export BACKEND_IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/backend-adk:latest
+
+cd ~/agentic_orchestrator
+git pull --ff-only origin main
+
+cd backend_adk
+gcloud builds submit --tag ${BACKEND_IMAGE} .
+export DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=${PROJECT_ID})
+gcloud run deploy ${BACKEND_SERVICE} \
+  --image ${BACKEND_IMAGE} \
+  --platform managed \
+  --region ${REGION} \
+  --service-account=ai-workflow-orchestrator@${PROJECT_ID}.iam.gserviceaccount.com \
+  --allow-unauthenticated \
+  --port 8080 --cpu 1 --memory 1Gi --timeout 300 --concurrency 40 \
+  --min-instances 0 --max-instances 10 \
+  --add-cloudsql-instances ${PROJECT_ID}:${REGION}:orchestrator-sql \
+  --update-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="${DATABASE_URL}" \
+  --update-secrets SECRET_KEY=backend-secret-key:latest
+
+export BACKEND_URL=$(gcloud run services describe ${BACKEND_SERVICE} --region ${REGION} --format='value(status.url)')
+
 cd ../frontend
-gcloud run deploy orchestrator-frontend \
-  --source . \
-  --region europe-west1 \
-  --allow-unauthenticated
-# NOTE: ignore the "Service URL" printed above — get the real URL:
-echo "Frontend: $(gcloud run services describe orchestrator-frontend --region europe-west1 --format 'value(status.url)')"
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_VITE_API_URL=${BACKEND_URL},_REGION=${REGION} \
+  .
+gcloud run deploy ${FRONTEND_SERVICE} \
+  --image ${REGION}-docker.pkg.dev/${PROJECT_ID}/orchestrator-repo/frontend:latest \
+  --platform managed \
+  --region ${REGION} \
+  --allow-unauthenticated \
+  --port 8080 --cpu 1 --memory 512Mi --timeout 60 --concurrency 80 \
+  --min-instances 0 --max-instances 5
 ```
 
-### Schema migrations
-No manual steps. On startup:
-- `ensure_runtime_schema(engine)` adds missing columns (additive, dialect-aware)
-- `Base.metadata.create_all(engine)` creates any missing tables
-Both are safe to run on every deploy against an existing database.
+### 17.5 Re-seed production data
+`backend_adk/seed_test_data.py` is currently an idempotent upsert script in production mode. The entrypoint supports `--local`; the older `--check` and `--reset` notes are historical and should not be used as deployment instructions.
 
-### Cloud Run env vars (backend)
-```
-SECRET_KEY                   <64-char random key — stored in Secret Manager>
-DATABASE_URL                 postgresql://orchestrator_user:<pwd>@/orchestrator?host=/cloudsql/havoc-ai-prod:europe-west1:orchestrator-sql
-ENVIRONMENT                  production
-SENDGRID_API_KEY             <sendgrid key>
-EMAIL_FROM                   no-reply@yourdomain.com
-EMAIL_FROM_NAME              AI Workforce Orchestrator
-FRONTEND_URL                 https://orchestrator-frontend-974381609416.europe-west1.run.app
-PLATFORM_OWNER_EMAIL         <owner email>
-STRIPE_SECRET_KEY            <stripe secret>
-STRIPE_WEBHOOK_SECRET        <webhook secret>
-STRIPE_STARTER_PRICE_ID      <price_id>
-STRIPE_GROWTH_PRICE_ID       <price_id>
-STRIPE_ENTERPRISE_PRICE_ID   <price_id>
-ALLOWED_ORIGINS              https://orchestrator-frontend-974381609416.europe-west1.run.app
-GOOGLE_CLOUD_PROJECT         havoc-ai-prod
-GOOGLE_CLOUD_LOCATION        us-central1
-GOOGLE_GENAI_USE_VERTEXAI    true
-GRACE_PERIOD_DAYS            7
-GOOGLE_CLIENT_ID             <oauth client id>
-GOOGLE_CLIENT_SECRET         <oauth client secret>
-GOOGLE_REDIRECT_URI          https://orchestrator-frontend-974381609416.europe-west1.run.app/integrations/google/callback
+Set up the environment once:
+
+```bash
+export PROJECT_ID=havoc-ai-prod
+export REGION=europe-west1
+
+cd ~/agentic_orchestrator/backend_adk
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+export DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=${PROJECT_ID})
+export SECRET_KEY=$(gcloud secrets versions access latest --secret=backend-secret-key --project=${PROJECT_ID})
+export GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
+export GOOGLE_CLOUD_LOCATION=${REGION}
+export GEMINI_MODEL=gemini-2.5-flash
 ```
 
-### Docker Images
-```
-Backend:  python:3.11-slim → pip install requirements.txt → uvicorn on port 8080
-Frontend: node:18 → npm run build → nginx:alpine serve on port 8080
+Non-destructive re-seed:
+
+```bash
+python seed_test_data.py
 ```
 
-### Stripe Webhook
+Destructive wipe + reseed:
+
+```bash
+python - <<'PY'
+import os
+from sqlalchemy import create_engine, inspect, text
+
+engine = create_engine(os.environ["DATABASE_URL"])
+insp = inspect(engine)
+tables = insp.get_table_names(schema="public")
+with engine.begin() as conn:
+    for table in tables:
+        conn.execute(text(f'DROP TABLE IF EXISTS public."{table}" CASCADE'))
+print(f"Dropped {len(tables)} tables from public schema")
+PY
+
+python seed_test_data.py
 ```
-URL: {backend-url}/billing/webhook
-Events: invoice.paid, invoice.payment_failed, customer.subscription.deleted
+
+### 17.6 Verification and troubleshooting
+Useful verification commands:
+
+```bash
+gcloud run services describe backend-adk --region europe-west1 --format='yaml(status.url,status.latestReadyRevisionName,status.traffic)'
+gcloud run services describe frontend --region europe-west1 --format='yaml(status.url,status.latestReadyRevisionName,status.traffic)'
+gcloud run services logs read backend-adk --region europe-west1 --limit 50
+gcloud run services logs read frontend --region europe-west1 --limit 50
 ```
+
+Backend sanity check via Cloud Run proxy:
+
+```bash
+gcloud run services proxy backend-adk --region europe-west1 --port 8081
+# in a second shell
+curl -i http://127.0.0.1:8081/
+curl -i http://127.0.0.1:8081/docs
+```
+
+Common issues:
+- `Cannot update environment variable ... different type`
+  - The current backend service mixes env-var and secret-backed variables. Keep using `DATABASE_URL` via `--update-env-vars` and `SECRET_KEY` via `--update-secrets` unless you intentionally recreate the service config.
+- Frontend still talks to the wrong backend
+  - Rebuild and redeploy the frontend with the current `BACKEND_URL`; `VITE_API_URL` is baked into the image at build time.
+- Repeated `401` logs on `/notifications/unread-count`
+  - Usually stale browser JWTs after a redeploy or `SECRET_KEY` change. Log out and back in.
 
 ---
 
 ## 18. Local Development Setup & Testing
 
-Two seed scripts exist. Use the right one for your target:
+Use the right seed script for the right runtime:
 
 | Script | Target | DB | GCP required |
 |--------|--------|----|--------------|
-| `backend_adk/seed_test_data.py --local` | Local dev of ADK backend | SQLite | No |
-| `backend_adk/seed_test_data.py` | Cloud SQL (production) | PostgreSQL | Yes |
-| `backend/seed_test_data.py` | Local dev of backend mirror | SQLite | No |
+| `backend_adk/seed_test_data.py --local` | Local dev of the deployable backend | SQLite | No |
+| `backend_adk/seed_test_data.py` | Production or Cloud SQL reseed | PostgreSQL | Yes |
+| `backend/seed_test_data.py` | Local dev of the legacy backend mirror | SQLite | No |
 
 ---
 
@@ -1765,7 +1901,7 @@ Two seed scripts exist. Use the right one for your target:
 
 ```bash
 cd backend_adk
-python3 -m venv venv && source venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -1785,18 +1921,20 @@ ENVIRONMENT=development
 ### Step 2 — Seed the local database
 
 ```bash
-# Drop + recreate SQLite, seed all roles, projects, agents, billing records
+# Idempotent local seed into ./app.db
+python seed_test_data.py --local
+
+# If you want a clean local reset first:
+rm -f app.db
 python seed_test_data.py --local
 ```
-
-Output prints every credential, a live TOTP code for the CEO, and the admin's 30-day refresh token.
 
 ### Step 3 — Start the API server
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
-# Docs: http://localhost:8001/docs
-# Health: http://localhost:8001/healthz
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Docs: http://localhost:8000/docs
+# Health: http://localhost:8000/healthz
 ```
 
 ### Step 4 — Start the frontend
@@ -1804,7 +1942,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```bash
 cd frontend
 npm install
-VITE_API_URL=http://localhost:8001 npm run dev
+VITE_API_URL=http://localhost:8000 npm run dev
 # UI: http://localhost:5173
 ```
 
@@ -1879,11 +2017,9 @@ Tests use in-memory SQLite with scoped transaction rollback — they never touch
 ### Seed scripts — flags reference
 
 ```bash
-# backend_adk (production + local)
-python seed_test_data.py --local     # local SQLite, drop+recreate, no GCP needed
-python seed_test_data.py --check     # production pre-flight only (Vertex AI ping)
-python seed_test_data.py             # production seed (requires DATABASE_URL + GCP vars)
-python seed_test_data.py --reset     # DESTRUCTIVE — wipe Cloud SQL + reseed
+# backend_adk
+python seed_test_data.py --local     # local SQLite seed into ./app.db
+python seed_test_data.py             # production / Cloud SQL idempotent reseed
 
 # backend (local mirror)
 cd backend && python seed_test_data.py   # always drops + recreates SQLite
@@ -1894,21 +2030,26 @@ cd backend && python seed_test_data.py   # always drops + recreates SQLite
 ### When local tests pass — push to production
 
 ```bash
-# From the repo root
-git checkout main
-git merge feature/secure-multitenant-refactor
+cd ~/agentic_orchestrator
+git pull --ff-only origin main
 
+# Backend changes
 cd backend_adk
-bash deploy_cloud_run.sh
+gcloud builds submit --tag europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest .
+
+# Frontend changes
+cd ../frontend
+export BACKEND_URL=$(gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)')
+gcloud builds submit --config=cloudbuild.yaml --substitutions=_VITE_API_URL=${BACKEND_URL},_REGION=europe-west1 .
 ```
 
-Then seed the production Cloud SQL database (via Cloud SQL Auth Proxy or Cloud Run Job — see `seed_test_data.py` header).
+Then use the deploy commands in Section 17 for the relevant service(s).
 
 ---
 
 ## 19. Seed Credentials
 
-Run `seed_test_data.py` (production via Cloud SQL Auth Proxy) to populate all 4 tenants.
+Run `backend_adk/seed_test_data.py` against the target database to populate all 4 tenants.
 All employees share password `team123456`. All clients share `client123456`.
 2FA is disabled platform-wide for demo. `/auth/2fa/*` endpoints remain for future use.
 

@@ -261,40 +261,72 @@ agentic_orchestrator/
 
 ## Deployment
 
-### Live URLs
-- **Frontend:** `https://orchestrator-frontend-yo2mex5f2a-ew.a.run.app`
-- **Backend API:** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app`
-- **API Docs:** `https://orchestrator-backend-yo2mex5f2a-ew.a.run.app/docs`
-- **GCP Project:** `havoc-ai-prod`
-- **Billing account:** `01E336-987ED9-6B9D22`
+### Current production targets
+- **GCP project:** `havoc-ai-prod`
+- **Region:** `europe-west1`
+- **Backend service:** `backend-adk`
+- **Frontend service:** `frontend`
+- **Artifact Registry repo:** `orchestrator-repo`
+- **Cloud SQL instance:** `havoc-ai-prod:europe-west1:orchestrator-sql`
 
-### Deploy (manual)
+Always discover live URLs from Cloud Run instead of copying old docs or console output:
+
+```bash
+gcloud run services describe backend-adk --region europe-west1 --format='value(status.url)'
+gcloud run services describe frontend --region europe-west1 --format='value(status.url)'
+```
+
+### Deploy backend after code changes
 ```bash
 # In Cloud Shell — clone if needed
 git clone https://github.com/Swaraj-sj2000/adk-workflow-orchestrator.git agentic_orchestrator
 cd agentic_orchestrator && git pull origin main
 
-# Backend (--source handles build + push automatically)
+# Build backend image from the deployable backend
 cd backend_adk
-gcloud run deploy orchestrator-backend \
-  --source . \
-  --region europe-west1 \
-  --allow-unauthenticated \
-  --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
-  --set-env-vars "LOG_TO_STDOUT=true,GOOGLE_CLOUD_LOCATION=europe-west1,GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=havoc-ai-prod" \
-  --set-secrets "SECRET_KEY=backend-secret-key:latest,DATABASE_URL=database-url:latest"
-# NOTE: ignore the "Service URL" printed above — get the real URL:
-echo "Backend: $(gcloud run services describe orchestrator-backend --region europe-west1 --format 'value(status.url)')"
+gcloud builds submit \
+  --tag europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest \
+  .
 
-# Frontend
+# Current Cloud Run config uses a mixed type setup:
+# - DATABASE_URL is a plain env var
+# - SECRET_KEY is a secret-backed env var
+export DATABASE_URL=$(gcloud secrets versions access latest --secret=database-url --project=havoc-ai-prod)
+
+gcloud run deploy backend-adk \
+  --image europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/backend-adk:latest \
+  --platform managed \
+  --region europe-west1 \
+  --service-account=ai-workflow-orchestrator@havoc-ai-prod.iam.gserviceaccount.com \
+  --allow-unauthenticated \
+  --port 8080 --cpu 1 --memory 1Gi --timeout 300 --concurrency 40 \
+  --min-instances 0 --max-instances 10 \
+  --add-cloudsql-instances havoc-ai-prod:europe-west1:orchestrator-sql \
+  --update-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GEMINI_MODEL=gemini-2.5-flash,GOOGLE_CLOUD_PROJECT=havoc-ai-prod,GOOGLE_CLOUD_LOCATION=europe-west1,LOG_LEVEL=INFO,LOG_TO_STDOUT=true,LOG_FILE_ENABLED=false,DATABASE_URL="$DATABASE_URL" \
+  --update-secrets SECRET_KEY=backend-secret-key:latest
+
+echo "Backend: $(gcloud run services describe backend-adk --region europe-west1 --format 'value(status.url)')"
+```
+
+### Deploy frontend after code changes
+```bash
 cd ../frontend
-gcloud run deploy orchestrator-frontend \
-  --source . \
+export BACKEND_URL=$(gcloud run services describe backend-adk --region europe-west1 --format 'value(status.url)')
+
+gcloud builds submit \
+  --config=cloudbuild.yaml \
+  --substitutions=_VITE_API_URL=$BACKEND_URL,_REGION=europe-west1 \
+  .
+
+gcloud run deploy frontend \
+  --image europe-west1-docker.pkg.dev/havoc-ai-prod/orchestrator-repo/frontend:latest \
+  --platform managed \
   --region europe-west1 \
   --allow-unauthenticated \
-  --set-build-env-vars VITE_API_URL=https://orchestrator-backend-yo2mex5f2a-ew.a.run.app
-# NOTE: ignore the "Service URL" printed above — get the real URL:
-echo "Frontend: $(gcloud run services describe orchestrator-frontend --region europe-west1 --format 'value(status.url)')"
+  --port 8080 --cpu 1 --memory 512Mi --timeout 60 --concurrency 80 \
+  --min-instances 0 --max-instances 5
+
+echo "Frontend: $(gcloud run services describe frontend --region europe-west1 --format 'value(status.url)')"
 ```
 
 ### Schema migrations
@@ -302,13 +334,13 @@ No manual migrations needed. On startup `ensure_runtime_schema` adds any missing
 
 ### Required environment variables (backend)
 ```
-SECRET_KEY                Database JWT signing key
-DATABASE_URL              postgresql://... or sqlite:///...
+SECRET_KEY                JWT signing key (secret-backed env var in Cloud Run)
+DATABASE_URL              PostgreSQL connection string (plain env var in current Cloud Run service)
 SENDGRID_API_KEY          SendGrid transactional email
 STRIPE_SECRET_KEY         Stripe payments
 STRIPE_WEBHOOK_SECRET     Stripe webhook signature
 GOOGLE_CLOUD_PROJECT      GCP project ID (Vertex AI)
-GOOGLE_CLOUD_LOCATION     e.g. us-central1
+GOOGLE_CLOUD_LOCATION     e.g. europe-west1
 GOOGLE_GENAI_USE_VERTEXAI true
 ALLOWED_ORIGINS           Comma-separated frontend URLs
 ```

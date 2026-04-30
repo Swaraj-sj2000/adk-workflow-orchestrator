@@ -13,8 +13,11 @@ Creates 4 tenant companies, each with:
 
 Flags:
   --local   SQLite dev mode (default DATABASE_URL = sqlite:///./app.db)
-  --check   Pre-flight only (production)
-  --reset   Destructive wipe (production)
+
+Current behavior:
+  - production runs are idempotent upserts
+  - destructive production reseeds are done manually before running this script
+  - the entrypoint currently only accepts --local
 """
 
 from __future__ import annotations
