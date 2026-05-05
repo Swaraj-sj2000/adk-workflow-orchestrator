@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Blocks commits that contain secret tokens or API keys.
+
+PATTERNS=(
+    'hf_[A-Za-z0-9]{20,}'           # HuggingFace
+    'sk-[A-Za-z0-9]{20,}'           # OpenAI
+    'AKIA[A-Z0-9]{16}'              # AWS access key
+    'AIza[0-9A-Za-z\-_]{35}'        # Google API key
+    'ya29\.[0-9A-Za-z\-_]+'         # Google OAuth token
+    'ghp_[A-Za-z0-9]{36}'           # GitHub personal token
+    'ghs_[A-Za-z0-9]{36}'           # GitHub Actions token
+    '[A-Za-z0-9+/]{40,}={0,2}'      # Generic base64-looking secret (long)
+    '(api_key|api_token|secret_key|access_token|private_key)\s*=\s*["\x27][A-Za-z0-9_\-]{16,}["\x27]'
+)
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$STAGED" ] && exit 0
+
+FOUND=0
+for FILE in $STAGED; do
+    [ -f "$FILE" ] || continue
+    for PATTERN in "${PATTERNS[@]}"; do
+        MATCH=$(git diff --cached -- "$FILE" | grep '^+' | grep -oP "$PATTERN" | head -1)
+        if [ -n "$MATCH" ]; then
+            echo "SECRET DETECTED in $FILE — pattern: $PATTERN"
+            echo "  Match (truncated): ${MATCH:0:12}..."
+            FOUND=1
+        fi
+    done
+done
+
+if [ "$FOUND" -eq 1 ]; then
+    echo ""
+    echo "Commit blocked. Remove the secret, then commit again."
+    echo "If this is a false positive, use: git commit --no-verify"
+    exit 1
+fi
