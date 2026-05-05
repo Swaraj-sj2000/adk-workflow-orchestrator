@@ -80,42 +80,6 @@ except ImportError:
     logger.warning("Google Vertex AI (google-genai) not available")
 
 
-# ── HuggingFace backend (via InferenceClient chat completions) ────────────────
-try:
-    from huggingface_hub import InferenceClient
-    HF_AVAILABLE = True
-    logger.info("HuggingFace InferenceClient loaded successfully")
-except ImportError:
-    HF_AVAILABLE = False
-    InferenceClient = None
-    logger.warning("huggingface-hub not available")
-
-
-class _HFChatModel:
-    """Uses HF InferenceClient chat_completion — works with all instruct/chat models."""
-
-    def __init__(self, repo_id: str, token: str, temperature: float, max_new_tokens: int):
-        self._client = InferenceClient(model=repo_id, token=token)
-        self._temperature = temperature
-        self._max_new_tokens = max_new_tokens
-
-    def invoke(self, messages: List[Any]) -> _LLMResponse:
-        hf_messages = []
-        for message in messages:
-            text = str(getattr(message, "content", "")).strip()
-            if not text:
-                continue
-            role = "system" if isinstance(message, SystemMessage) else "user"
-            hf_messages.append({"role": role, "content": text})
-
-        response = self._client.chat_completion(
-            messages=hf_messages,
-            max_tokens=self._max_new_tokens,
-            temperature=self._temperature,
-        )
-        content = response.choices[0].message.content or ""
-        return _LLMResponse(content=content.strip())
-
 
 class LLMService:
     """
@@ -174,35 +138,17 @@ class LLMService:
                 except Exception as exc:
                     logger.error(f"Gemini API key init failed: {exc}", exc_info=True)
 
-        # ── Priority 3: HuggingFace endpoint (local dev) ──────────────────────
-        if not self.enabled:
-            hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN", "")
-            if hf_token and HF_AVAILABLE:
-                try:
-                    hf_model = os.getenv("HF_MODEL_ID", "Qwen/Qwen2.5-72B-Instruct")
-                    self.chat_model = _HFChatModel(
-                        repo_id=hf_model, token=hf_token,
-                        temperature=self.temperature, max_new_tokens=self.max_new_tokens,
-                    )
-                    self.enabled = True
-                    self.backend = f"huggingface ({hf_model})"
-                    logger.info(f"LLM backend: HuggingFace — {hf_model}")
-                except Exception as exc:
-                    logger.error(f"HuggingFace init failed: {exc}", exc_info=True)
-
         if not self.enabled:
             logger.warning(
                 "LLM service running in fallback mode — no backend configured. "
-                "Set HUGGINGFACEHUB_API_TOKEN for local dev, "
-                "or GOOGLE_CLOUD_PROJECT for Vertex AI / Cloud Run."
+                "Set GOOGLE_CLOUD_PROJECT (Vertex AI) or GOOGLE_API_KEY (AI Studio) to enable."
             )
 
     def _require_llm(self) -> None:
         if not self.enabled:
             raise RuntimeError(
                 "LLM service is not configured. "
-                "Set GOOGLE_CLOUD_PROJECT (Vertex AI / Cloud Run) or "
-                "HUGGINGFACEHUB_API_TOKEN (local dev) before starting the service."
+                "Set GOOGLE_CLOUD_PROJECT (Vertex AI / Cloud Run) or GOOGLE_API_KEY (AI Studio)."
             )
 
     def parse_project_intake(self, request_text: str) -> Dict[str, Any]:
