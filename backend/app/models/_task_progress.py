@@ -1,5 +1,5 @@
 # app/models/_task_progress.py
-from sqlalchemy import Column, Integer, Float, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, Float, ForeignKey, DateTime, Text, String
 from app.db._database import Base
 from datetime import datetime
 
@@ -14,4 +14,6 @@ class TaskProgress(Base):
     actual_hours_spent = Column(Float, default=0.0)
     estimated_hours_remaining = Column(Float, nullable=True)
     status_notes = Column(Text, nullable=True)
+    proof_note = Column(Text, nullable=True)
+    proof_url = Column(String, nullable=True)
     is_on_track = Column(Integer, default=1)  # 1 = yes, 0 = no (for early detection of delays)

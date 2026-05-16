@@ -12,6 +12,11 @@ class TaskProgressUpdate(BaseModel):
     is_on_track: Optional[int] = Field(default=None, ge=0, le=1)
 
 
+class ProofOfWorkSubmit(BaseModel):
+    proof_note: Optional[str] = None
+    proof_url: Optional[str] = None
+
+
 class TaskProgressRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,4 +27,6 @@ class TaskProgressRead(BaseModel):
     actual_hours_spent: float
     estimated_hours_remaining: Optional[float]
     status_notes: Optional[str]
+    proof_note: Optional[str]
+    proof_url: Optional[str]
     is_on_track: int

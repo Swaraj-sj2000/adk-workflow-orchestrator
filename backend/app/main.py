@@ -1,5 +1,6 @@
 # backend/app/main.py
 
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.db._database import Base, engine
@@ -10,7 +11,10 @@ from app.core._tenant_middleware import TenantMiddleware
 from app.db._database import SessionLocal
 from app.db._schema import ensure_runtime_schema
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 import time
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
 
 logger = get_logger(__name__)
 
@@ -119,10 +123,18 @@ async def log_requests(request: Request, call_next):
 
 
 # Enable CORS
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins: list[str] = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins
+    else ["*"]
+)
+_allow_credentials = _allowed_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -148,3 +160,8 @@ app.include_router(_multi_agent_routes.router)
 def root():
     logger.debug("Health check endpoint called")
     return {"message": "AI Workforce Orchestrator Running"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}

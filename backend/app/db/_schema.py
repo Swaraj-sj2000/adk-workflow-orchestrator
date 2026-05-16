@@ -19,6 +19,10 @@ ADDITIVE_COLUMNS = {
     "client_profiles": {
         "tenant_id": "INTEGER",
     },
+    "task_progress": {
+        "proof_note": "TEXT",
+        "proof_url": "VARCHAR",
+    },
 }
 
 
