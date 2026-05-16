@@ -25,6 +25,7 @@ from app.core._security import (
 from app.models._refresh_token import RefreshToken
 from app.services._email_service import EmailService
 from app.services._invite_service import link_pending_invites_for_user, normalize_email
+from app.core._config import settings
 
 def _slugify(value: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
@@ -252,8 +253,7 @@ def login_user(db: Session, email: str, password: str):
     if not user or not verify_password(password, user.password):
         return None
 
-    if getattr(user, "email_verified", None) is False and os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true":
-        from fastapi import HTTPException
+    if getattr(user, "email_verified", None) is False and settings.REQUIRE_EMAIL_VERIFICATION:
         raise HTTPException(status_code=401, detail="Please verify your email address before logging in")
 
     tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first() if user.tenant_id else None
