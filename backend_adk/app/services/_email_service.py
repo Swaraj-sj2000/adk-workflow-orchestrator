@@ -82,6 +82,38 @@ class EmailService:
             logger.warning("Skipping email send because recipient email is empty")
             return False
 
+        # If async email sending is enabled, enqueue the send and return True (queued)
+        try:
+            from app.core._config import settings as _settings
+        except Exception:
+            _settings = settings
+
+        if getattr(_settings, "ASYNC_EMAIL_ENABLED", False):
+            try:
+                from app.services._event_service import EventService
+
+                db = SessionLocal()
+                try:
+                    service = EventService(db)
+                    service.publish_event(
+                        event_type="send_email",
+                        entity_type="email",
+                        entity_id=0,
+                        payload={
+                            "to_email": normalized_email,
+                            "subject": subject,
+                            "html_body": html_body,
+                            "tenant_id": tenant_id,
+                            "template_name": template_name,
+                        },
+                    )
+                    logger.info("Email queued for async delivery to %s", normalized_email)
+                    return True
+                finally:
+                    db.close()
+            except Exception:
+                logger.exception("Failed to enqueue email; falling back to sync send")
+
         if not settings.SENDGRID_API_KEY:
             cls._persist_delivery_log(
                 tenant_id=tenant_id,

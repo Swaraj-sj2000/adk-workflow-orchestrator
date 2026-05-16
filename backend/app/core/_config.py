@@ -19,5 +19,8 @@ class Settings:
         "LOG_FORMAT",
         "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
     )
+    # Feature flags
+    ASYNC_EMAIL_ENABLED = os.getenv("ASYNC_EMAIL_ENABLED", "true").lower() == "true"
+    REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "true").lower() == "true"
 
 settings = Settings()

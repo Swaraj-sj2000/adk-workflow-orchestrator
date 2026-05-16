@@ -150,7 +150,60 @@ class EventService:
             "project_created_project": self._handle_project_created,
             "assignment_complete_task": self._handle_assignment_complete,
             "project_execution_signal_project": self._handle_project_execution_signal,
+            "send_email_email": self._handle_send_email,
         }
+
+    def _handle_send_email(self, event: EventQueue) -> None:
+        """Handle queued email sends. If EmailService is not available, log and skip."""
+        payload = event.payload or {}
+        try:
+            from app.services._email_service import EmailService
+            from app.core._config import settings
+
+            to_email = payload.get("to_email")
+            subject = payload.get("subject")
+            html_body = payload.get("html_body")
+            tenant_id = payload.get("tenant_id")
+            template_name = payload.get("template_name", "generic")
+
+            if not settings.SENDGRID_API_KEY:
+                EmailService._persist_delivery_log(
+                    tenant_id=tenant_id,
+                    to_email=to_email or "",
+                    subject=subject or "",
+                    template_name=template_name,
+                    status="failed",
+                    error_message="SENDGRID_API_KEY not configured",
+                )
+                return
+
+            from sendgrid import SendGridAPIClient
+            from sendgrid.helpers.mail import Email, Mail
+
+            client = SendGridAPIClient(settings.SENDGRID_API_KEY)
+            message = Mail(
+                from_email=Email(settings.EMAIL_FROM, settings.EMAIL_FROM_NAME),
+                to_emails=(to_email or ""),
+                subject=(subject or ""),
+                html_content=(html_body or ""),
+            )
+            response = client.send(message)
+            status = "sent" if response.status_code in (200, 202) else "failed"
+            message_id = EmailService._message_headers_value(response.headers, "X-Message-Id")
+            EmailService._persist_delivery_log(
+                tenant_id=tenant_id,
+                to_email=to_email or "",
+                subject=subject or "",
+                template_name=template_name,
+                sendgrid_message_id=message_id,
+                status=status,
+                sent_at=None if status != "sent" else None,
+                error_message=None if status == "sent" else f"Unexpected SendGrid status: {response.status_code}",
+            )
+        except Exception:
+            # If EmailService isn't present or sending fails, log and re-raise to trigger retry behavior
+            logger.exception("Failed to process send_email event")
+            raise
     
     def _handle_task_created(self, event: EventQueue) -> None:
         """Handle new task creation - trigger assignment."""
